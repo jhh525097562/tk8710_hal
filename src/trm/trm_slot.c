@@ -104,6 +104,9 @@ int trm_calc_slot_config(const TRM_SlotCalcInput* input, TRM_SlotCalcOutput* out
     TRM_LOG_INFO("Calculating slot config: mode=%d, ulBlocks=%d, dlBlocks=%d", 
                 mode, input->ulBlockNum, input->dlBlockNum);
     
+    TRM_LOG_INFO("MinGap position config: BCN=%d, BRD=%d, UL=%d, DL=%d", 
+                input->minGapPos[0], input->minGapPos[1], input->minGapPos[2], input->minGapPos[3]);
+    
     /* 计算各时隙长度 */
     output->bcnSlotLen = g_bcnSlotLen[mode];
     /* 初始间隔 */
@@ -187,12 +190,29 @@ found_solution:
         TRM_LOG_INFO("No solution found, using raw period");
     }
     
-    /* 间隔加到下行时隙 */
-    minGap = 0;//终端暂时未使用时隙计算器时，先注释掉
-    output->dlGap = output->dlGap + minGap;
+    /* 根据输入参数配置minGap位置 */
+    if (input->minGapPos[0]) {
+        output->bcnGap = output->bcnGap + minGap;
+        output->bcnSlotLen = output->bcnSlotLen + minGap;
+        TRM_LOG_INFO("Added minGap %u to BCN gap", minGap);
+    }
+    if (input->minGapPos[1]) {
+        output->brdGap = output->brdGap + minGap;
+        output->brdSlotLen = output->brdSlotLen + minGap;
+        TRM_LOG_INFO("Added minGap %u to BRD gap", minGap);
+    }
+    if (input->minGapPos[2]) {
+        output->ulGap = output->ulGap + minGap;
+        output->ulSlotLen = output->ulSlotLen + minGap;
+        TRM_LOG_INFO("Added minGap %u to UL gap", minGap);
+    }
+    if (input->minGapPos[3]) {
+        output->dlGap = output->dlGap + minGap;
+        output->dlSlotLen = output->dlSlotLen + minGap;
+        TRM_LOG_INFO("Added minGap %u to DL gap", minGap);
+    }
     output->framePeriod = bestPeriod;
     output->frameCount = bestCount;
-    output->dlSlotLen = output->dlSlotLen + minGap;
     TRM_LOG_INFO("Slot calculation completed:");
     TRM_LOG_INFO("  Frame period: %u us, Frame count: %u (total %u ms)", 
                 output->framePeriod, output->frameCount,

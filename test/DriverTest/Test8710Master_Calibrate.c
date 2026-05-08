@@ -287,7 +287,7 @@ static void OnDriverRxData(TK8710IrqResult* irqResult)
                             int32_t freqValue = freq26 > (1<<25) ? (int32_t)(freq26 - (1<<26)) : (int32_t)freq26;
                             
                             /* 只打印前10个用户的信息 */
-                            if (userIndex < 10) {
+                            if (userIndex < 128) {
                                 printf("用户%u: freq=%dHz (raw=0x%08X), rssi=%d, snr=%u\n", 
                                        userIndex, freqValue/128, freq26, rssiValue, snrValue);
                             }
@@ -1021,7 +1021,7 @@ int main(int argc, char* argv[])
     int s1ByteLen = 22;  /* 默认s1 byteLen */
     int s2ByteLen = 22;  /* 默认s2 byteLen */
     int s3ByteLen = 22;  /* 默认s3 byteLen */
-    
+    uint32_t testFreq = 509100000;
     /* 设置全局测试模式 */
     g_testMode = testMode;
     
@@ -1104,6 +1104,10 @@ int main(int argc, char* argv[])
             }
         }
 
+        /* 解析工作频率参数 */
+        if (argc > 7) {
+            testFreq = atoi(argv[7]);
+        }
         printf("Using test mode: %d, class: %d, case: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d\n", 
                testMode, classNum, caseNum, s1ByteLen, s2ByteLen, s3ByteLen);
     } else {
@@ -1161,7 +1165,7 @@ int main(int argc, char* argv[])
         //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
         // }
         .txadc = {//3号板 Master (默认值，将被文件配置覆盖)
-            {0x0400, 0x0350}, {0x01c0, 0x0600}, {0x0000, 0x0690}, {0x0400, 0x0290},
+            {0x0400, 0x0350}, {0x01c0, 0x0600}, {0x0250, 0x0230}, {0x0400, 0x0290},
             {0x0390, 0x0500}, {0x0390, 0x0400}, {0x0300, 0x0350}, {0x0490, 0x04a0}
         }
         // .txadc = {//703：板（master）
@@ -1169,7 +1173,7 @@ int main(int argc, char* argv[])
         //     {0x0300, 0x0250}, {0x05c0, 0x0450}, {0x0200, 0x0250}, {0x0330, 0x0390}
         // }
     };
-    
+    rfConfig.Freq = testFreq;
     /* 尝试从TxDC目录加载txadc配置 */
     if (LoadTxadcConfig("txadc.txt", (uint16_t (*)[2])rfConfig.txadc) != 0) {
         printf("使用默认txadc配置\n");
@@ -1297,13 +1301,13 @@ int main(int argc, char* argv[])
                 break;
     }
     slotCfg.s0Cfg[0].byteLen = 0;
-    slotCfg.s0Cfg[0].centerFreq = 509100000;
+    slotCfg.s0Cfg[0].centerFreq = testFreq;
     slotCfg.s1Cfg[0].byteLen = s1ByteLen;
-    slotCfg.s1Cfg[0].centerFreq = 509100000;
+    slotCfg.s1Cfg[0].centerFreq = testFreq;
     slotCfg.s2Cfg[0].byteLen = s2ByteLen;
-    slotCfg.s2Cfg[0].centerFreq = 509100000;
+    slotCfg.s2Cfg[0].centerFreq = testFreq;
     slotCfg.s3Cfg[0].byteLen = s3ByteLen;
-    slotCfg.s3Cfg[0].centerFreq = 509100000;
+    slotCfg.s3Cfg[0].centerFreq = testFreq;
     
     /* 调用 8710 config 配置时隙 */
     ret = TK8710SetConfig(TK8710_CFG_TYPE_SLOT_CFG, &slotCfg);

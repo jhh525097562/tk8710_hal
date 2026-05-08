@@ -119,6 +119,7 @@ typedef struct {
     uint8_t  ulBlockNum;     /**< 上行包块数 */
     uint8_t  dlBlockNum;     /**< 下行包块数 */
     uint8_t  superFrameNum;  /**< 超帧数 */
+    uint8_t  minGapPos[4];   /**< minGap位置指示: [0]=BCN, [1]=BRD, [2]=UL, [3]=DL */
 } TRM_SlotCalcInput;
 
 /* 时隙计算器输出结果 */

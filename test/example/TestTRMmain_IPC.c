@@ -270,6 +270,18 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
             .superFrameNum = config->tdd_num
         };
         
+        // 设置minGap位置
+        if (config->rate_num > 1) {
+            slotInput.minGapPos[0] = 0;
+            slotInput.minGapPos[1] = 0;
+            slotInput.minGapPos[2] = 0;
+            slotInput.minGapPos[3] = 0;
+        } else {
+            slotInput.minGapPos[0] = 0;
+            slotInput.minGapPos[1] = 0;
+            slotInput.minGapPos[2] = 0;
+            slotInput.minGapPos[3] = 1;
+        }
         TRM_SlotCalcOutput slotOutput;
         if (trm_calc_slot_config(&slotInput, &slotOutput) == 0) {
             // 使用计算得到的gap作为da_m参数

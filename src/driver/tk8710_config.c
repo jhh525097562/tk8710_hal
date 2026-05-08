@@ -512,7 +512,7 @@ static int tk8710_acm_calibrate(uint8_t calibCount, uint8_t snrThreshold)
     if (ret != TK8710_OK) return ret;
     
     /* 步骤2: 关闭LNA (0x9478=0x10100010, mac.init_10=0x1a) */
-    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x9478, 0x01100010);//0x10100010
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x9478, 0x10100010);//0x10100010
     if (ret != TK8710_OK) return ret;
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
         MAC_BASE + offsetof(struct mac, init_10), 0x1a);
