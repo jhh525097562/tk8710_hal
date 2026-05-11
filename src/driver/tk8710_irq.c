@@ -1727,6 +1727,16 @@ static void tk8710_s1_manual_tx_process(void)
     }
     
     if (validUserCount == 0 && !hasBroadcast) {
+        /* 写入MAC寄存器 */
+        for (int reg = 0; reg < 4; reg++) {
+            uint32_t reg_offset = MAC_BASE + 0x3c + reg * 4;
+            int ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, reg_offset, 0);
+            if (ret == TK8710_OK) {
+                TK8710_LOG_IRQ_DEBUG("Set MAC user_val%d = 0x%08X", reg, 0);
+            } else {
+                TK8710_LOG_IRQ_ERROR("Failed to set MAC user_val%d: %d", reg, ret);
+            }
+        }
         TK8710_LOG_IRQ_DEBUG("No valid users found for manual TX");
         return;
     }

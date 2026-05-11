@@ -1164,13 +1164,17 @@ int main(int argc, char* argv[])
         //     {0x0c90, 0x1190}, {0xfe30, 0x0220}, {0x0210, 0x01a0}, {0x0b70, 0x07b0},
         //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
         // }
-        .txadc = {//3号板 Master (默认值，将被文件配置覆盖)
-            {0x0400, 0x0350}, {0x01c0, 0x0600}, {0x0250, 0x0230}, {0x0400, 0x0290},
-            {0x0390, 0x0500}, {0x0390, 0x0400}, {0x0300, 0x0350}, {0x0490, 0x04a0}
+        // .txadc = {//3号板 Master (默认值，将被文件配置覆盖)
+        //     {0x0400, 0x0350}, {0x0400, 0x0450}, {0x0250, 0x0230}, {0x0400, 0x0290},
+        //     {0x0390, 0x0500}, {0x0390, 0x0400}, {0x0300, 0x0350}, {0x0490, 0x04a0}
+        // }
+        .txadc = {//703：板（slave）
+            {0x0450, 0x04a0}, {0x0500, 0x0500}, {0x0490, 0x0350}, {0x0490, 0x0420},
+            {0x0300, 0x0250}, {0x05c0, 0x0450}, {0x0200, 0x0250}, {0x0330, 0x0390}
         }
-        // .txadc = {//703：板（master）
-        //     {0x0450, 0x04a0}, {0x0500, 0x0500}, {0x0490, 0x0350}, {0x0490, 0x0420},
-        //     {0x0300, 0x0250}, {0x05c0, 0x0450}, {0x0200, 0x0250}, {0x0330, 0x0390}
+        // .txadc = {//710：板（master）
+        //     {0x0300, 0x0250}, {0x0450, 0x0590}, {0x0350, 0x0490}, {0x0450, 0x02c0},
+        //     {0x02a0, 0x0390}, {0x01a0, 0x0220}, {0x0240, 0x0250}, {0x0250, 0x0680}
         // }
     };
     rfConfig.Freq = testFreq;
@@ -1234,7 +1238,7 @@ int main(int argc, char* argv[])
     /* 配置基本参数 (与原配置一致) */
     slotCfg.msMode = TK8710_MODE_MASTER;
     slotCfg.plCrcEn = 0;
-    slotCfg.brdUserNum = 0;
+    slotCfg.brdUserNum = 1;
     slotCfg.antEn = 0xFF;
     slotCfg.rfSel = 0xFF;
     slotCfg.txBeamCtrlMode = 1;
@@ -1512,8 +1516,8 @@ int main(int argc, char* argv[])
                 
                 // printf("开始ACM校准 (校准次数: %d, SNR门限: %d)...\n", 
                 //        calibParams.calibCount, calibParams.snrThreshold);
-                calibParams.calibCount = 10;
-                calibParams.snrThreshold = 32;
+                calibParams.calibCount = 100;
+                calibParams.snrThreshold = 28;
                 int calibRet; 
                 ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE, 
                                     &calibParams, &calibRet);

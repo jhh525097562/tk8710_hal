@@ -112,7 +112,7 @@ typedef struct {
     uint32_t    txQueueRemaining;   /* 剩余发送队列数量 */
 } TRM_Stats;
 
-/* 时隙计算器输入参数 */
+/* 单速率时隙计算器输入参数 */
 typedef struct {
     uint8_t  rateMode;       /**< 速率模式: 5-11, 18 */
     uint8_t  brdBlockNum;    /**< slot1包块数（广播） */
@@ -122,7 +122,18 @@ typedef struct {
     uint8_t  minGapPos[4];   /**< minGap位置指示: [0]=BCN, [1]=BRD, [2]=UL, [3]=DL */
 } TRM_SlotCalcInput;
 
-/* 时隙计算器输出结果 */
+/* 多速率时隙计算器输入参数 */
+typedef struct {
+    uint8_t  rateCount;      /**< 速率个数 (1-4) */
+    uint8_t  rateModes[4];   /**< 速率模式数组: 5-11, 18 */
+    uint8_t  brdBlockNums[4];/**< 各速率的slot1包块数（广播） */
+    uint8_t  ulBlockNums[4]; /**< 各速率的上行包块数 */
+    uint8_t  dlBlockNums[4]; /**< 各速率的下行包块数 */
+    uint8_t  superFrameNum;  /**< 超帧数 */
+    uint8_t  minGapPos[4];   /**< minGap位置指示: [0]=BCN, [1]=BRD, [2]=UL, [3]=DL */
+} TRM_MultiRateSlotCalcInput;
+
+/* 单速率时隙计算器输出结果 */
 typedef struct {
     uint32_t bcnSlotLen;     /**< BCN时隙长度(us) */
     uint32_t brdSlotLen;     /**< 广播时隙长度(us) */
@@ -135,6 +146,28 @@ typedef struct {
     uint32_t framePeriod;    /**< 调整后帧周期(us) */
     uint32_t frameCount;     /**< 帧数(framePeriod * frameCount = 1s的倍数) */
 } TRM_SlotCalcOutput;
+
+/* 单速率配置结果 */
+typedef struct {
+    uint32_t bcnSlotLen;     /**< BCN时隙长度(us) */
+    uint32_t brdSlotLen;     /**< 广播时隙长度(us) */
+    uint32_t ulSlotLen;      /**< 上行时隙长度(us) */
+    uint32_t dlSlotLen;      /**< 下行时隙长度(us) */
+    uint32_t bcnGap;         /**< BCN间隔(us) */
+    uint32_t brdGap;         /**< 广播间隔(us) */
+    uint32_t ulGap;          /**< 上行间隔(us) */
+    uint32_t dlGap;          /**< 下行间隔(us) */
+} TRM_RateSlotConfig;
+
+/* 多速率时隙计算器输出结果 */
+typedef struct {
+    uint8_t  rateCount;      /**< 速率个数 */
+    TRM_RateSlotConfig rateConfigs[4]; /**< 各速率的时隙配置 */
+    uint32_t totalRawPeriod; /**< 总原始帧周期(us) */
+    uint32_t framePeriod;    /**< 调整后帧周期(us) */
+    uint32_t frameCount;     /**< 帧数(framePeriod * frameCount = 1s的倍数) */
+    uint32_t addedGap;       /**< 添加的总间隔(us) */
+} TRM_MultiRateSlotCalcOutput;
 
 /* =============================================================================
  * TRM上层回调接口类型定义
@@ -276,6 +309,21 @@ int TRM_LogConfig(TRMLogLevel level, uint8_t enable_file_logging);
  * @note 基于8710_HAL用户指南v1.0 7.2.4章节实现
  */
 int trm_calc_slot_config(const TRM_SlotCalcInput* input, TRM_SlotCalcOutput* output);
+
+/**
+ * @brief 计算多速率时隙配置参数
+ * @param input 输入参数
+ * @param output 输出结果
+ * @return 0-成功, 非0-失败
+ * @note 基于多速率方案实现，支持1-4个速率同时计算
+ */
+int trm_calc_multi_rate_slot_config(const TRM_MultiRateSlotCalcInput* input, TRM_MultiRateSlotCalcOutput* output);
+
+/**
+ * @brief 打印多速率时隙计算结果
+ * @param output 计算结果
+ */
+void trm_print_multi_rate_slot_calc_result(const TRM_MultiRateSlotCalcOutput* output);
 
 #ifdef __cplusplus
 }

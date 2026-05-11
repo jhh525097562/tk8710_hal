@@ -73,6 +73,59 @@ static void signal_handler(int sig)
     return 0;
 }
 
+void read_register(void)
+{
+    uint32_t addr, value;
+    int ret;
+    
+    printf("\n=== 读取寄存器 ===\n");
+    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+    
+    if (scanf("%x", &addr) != 1) {
+        printf("无效的地址格式\n");
+        return;
+    }
+    
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, addr, &value);
+    if (ret == TK8710_OK) {
+        printf("寄存器 0x%08X = 0x%08X (%u)\n", addr, value, value);
+    } else {
+        printf("读取失败: 错误码=%d\n", ret);
+    }
+    printf("==================\n\n");
+}
+
+/**
+ * @brief 写入寄存器
+ */
+void write_register(void)
+{
+    uint32_t addr, value;
+    int ret;
+    
+    printf("\n=== 写入寄存器 ===\n");
+    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+    
+    if (scanf("%x", &addr) != 1) {
+        printf("无效的地址格式\n");
+        return;
+    }
+    
+    printf("输入写入值 (十六进制，如 0x8): ");
+    
+    if (scanf("%x", &value) != 1) {
+        printf("无效的值格式\n");
+        return;
+    }
+    
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, addr, value);
+    if (ret == TK8710_OK) {
+        printf("写入成功: 0x%08X = 0x%08X (%u)\n", addr, value, value);
+    } else {
+        printf("写入失败: 错误码=%d\n", ret);
+    }
+    printf("==================\n\n");
+}
 
 /* 从TxDC目录读取txadc配置的函数 */
 int LoadTxadcConfig(const char* filename, uint16_t txadc[8][2]) {
@@ -1093,9 +1146,13 @@ int main(int argc, char* argv[])
         //     {0x0c90, 0x1190}, {0xfe30, 0x0220}, {0x0210, 0x01a0}, {0x0b70, 0x07b0},
         //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
         // }
-        .txadc = {//703：板（master）
-            {0x0450, 0x04a0}, {0x0500, 0x0500}, {0x0490, 0x0350}, {0x0490, 0x0420},
-            {0x0300, 0x0250}, {0x05c0, 0x0450}, {0x0200, 0x0250}, {0x0330, 0x0390}
+        // .txadc = {//703：板（master）
+        //     {0x0450, 0x04a0}, {0x0500, 0x0500}, {0x0490, 0x0350}, {0x0490, 0x0420},
+        //     {0x0300, 0x0250}, {0x05c0, 0x0450}, {0x0200, 0x0250}, {0x0330, 0x0390}
+        // }
+        .txadc = {//710：板（slave）
+            {0x0300, 0x0250}, {0x0450, 0x0590}, {0x0350, 0x0490}, {0x0450, 0x02c0},
+            {0x02a0, 0x0390}, {0x01a0, 0x0220}, {0x0240, 0x0250}, {0x0250, 0x0680}
         }
     };
     
@@ -1284,7 +1341,17 @@ int main(int argc, char* argv[])
             case 'H':
                 show_help();
                 break;
+
+            case 'r':
+            case 'R':
+                read_register();
+                break;
                 
+            case 'w':
+            case 'W':
+                write_register();
+                break;
+
             case 's':
             case 'S':
                 /* 配置init12寄存器，启用本地同步功能 */
@@ -1418,49 +1485,51 @@ int main(int argc, char* argv[])
             case 'K':
             {
                 AcmCalibParams calibParams;
-                char input[100];
-                int c;
+                // char input[100];
+                // int c;
                 
-                printf("执行ACM校准...\n");
+                // printf("执行ACM校准...\n");
                 
-                /* 清理输入缓冲区 */
-                while ((c = getchar()) != '\n' && c != EOF);
+                // /* 清理输入缓冲区 */
+                // while ((c = getchar()) != '\n' && c != EOF);
                 
-                /* 获取校准次数 */
-                printf("请输入校准次数 (默认5): \n");
-                fflush(stdout);  /* 确保提示信息立即显示 */
-                if (fgets(input, sizeof(input), stdin) != NULL) {
-                    /* 移除换行符 */
-                    input[strcspn(input, "\n")] = 0;
-                    if (strlen(input) > 0) {
-                        calibParams.calibCount = (uint8_t)atoi(input);
-                    } else {
-                        calibParams.calibCount = 5;  /* 默认值 */
-                    }
-                } else {
-                    calibParams.calibCount = 5;  /* 默认值 */
-                }
+                // /* 获取校准次数 */
+                // printf("请输入校准次数 (默认5): \n");
+                // fflush(stdout);  /* 确保提示信息立即显示 */
+                // if (fgets(input, sizeof(input), stdin) != NULL) {
+                //     /* 移除换行符 */
+                //     input[strcspn(input, "\n")] = 0;
+                //     if (strlen(input) > 0) {
+                //         calibParams.calibCount = (uint8_t)atoi(input);
+                //     } else {
+                //         calibParams.calibCount = 5;  /* 默认值 */
+                //     }
+                // } else {
+                //     calibParams.calibCount = 5;  /* 默认值 */
+                // }
                 
-                /* 获取SNR门限值 */
-                printf("请输入SNR门限值 (默认32): \n");
-                fflush(stdout);  /* 确保提示信息立即显示 */
-                if (fgets(input, sizeof(input), stdin) != NULL) {
-                    /* 移除换行符 */
-                    input[strcspn(input, "\n")] = 0;
-                    if (strlen(input) > 0) {
-                        calibParams.snrThreshold = (uint8_t)atoi(input);
-                    } else {
-                        calibParams.snrThreshold = 32;  /* 默认值 */
-                    }
-                } else {
-                    calibParams.snrThreshold = 32;  /* 默认值 */
-                }
+                // /* 获取SNR门限值 */
+                // printf("请输入SNR门限值 (默认32): \n");
+                // fflush(stdout);  /* 确保提示信息立即显示 */
+                // if (fgets(input, sizeof(input), stdin) != NULL) {
+                //     /* 移除换行符 */
+                //     input[strcspn(input, "\n")] = 0;
+                //     if (strlen(input) > 0) {
+                //         calibParams.snrThreshold = (uint8_t)atoi(input);
+                //     } else {
+                //         calibParams.snrThreshold = 32;  /* 默认值 */
+                //     }
+                // } else {
+                //     calibParams.snrThreshold = 32;  /* 默认值 */
+                // }
                 
-                printf("开始ACM校准 (校准次数: %d, SNR门限: %d)...\n", 
-                       calibParams.calibCount, calibParams.snrThreshold);
-                
+                // printf("开始ACM校准 (校准次数: %d, SNR门限: %d)...\n", 
+                //        calibParams.calibCount, calibParams.snrThreshold);
+                calibParams.calibCount = 100;
+                calibParams.snrThreshold = 28;
+                int calibRet; 
                 ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE, 
-                                    &calibParams, NULL);
+                                    &calibParams, &calibRet);
                 if (ret == TK8710_OK) {
                     printf("ACM校准完成\n");
                 } else {

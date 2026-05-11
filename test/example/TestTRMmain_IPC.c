@@ -257,48 +257,63 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     
     // 根据NS配置设置速率模式
     slotCfg.rateCount = config->rate_num;
+    
+    // 准备多速率时隙计算参数
+    TRM_MultiRateSlotCalcInput multiSlotInput = {0};
+    multiSlotInput.rateCount = config->rate_num;
+    multiSlotInput.superFrameNum = config->tdd_num;
+    
+    // 设置minGap位置：多速率时在最后一个速率的DL时隙添加gap，单速率时在DL时隙添加gap
+    if (config->rate_num > 1) {
+        multiSlotInput.minGapPos[0] = 0;  // BCN
+        multiSlotInput.minGapPos[1] = 0;  // BRD
+        multiSlotInput.minGapPos[2] = 0;  // UL
+        multiSlotInput.minGapPos[3] = 1;  // DL (在最后一个速率的DL时隙添加gap)
+    } else {
+        multiSlotInput.minGapPos[0] = 0;  // BCN
+        multiSlotInput.minGapPos[1] = 0;  // BRD
+        multiSlotInput.minGapPos[2] = 0;  // UL
+        multiSlotInput.minGapPos[3] = 1;  // DL
+    }
+    
+    // 收集所有速率的参数
     for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
- 
         slotCfg.rateModes[i] = ConvertNsRateToTk8710Rate(config->rate_cfgs[i].rate);
+        multiSlotInput.rateModes[i] = slotCfg.rateModes[i];
+        multiSlotInput.brdBlockNums[i] = 2;  // 广播包块数固定为2
+        multiSlotInput.ulBlockNums[i] = config->rate_cfgs[i].uplink_pkt;     // 上行包块数
+        multiSlotInput.dlBlockNums[i] = config->rate_cfgs[i].downlink_pkt;   // 下行包块数
+    }
+    
+    // 使用多速率时隙计算函数计算gap参数
+    TRM_MultiRateSlotCalcOutput multiSlotOutput;
+    if (trm_calc_multi_rate_slot_config(&multiSlotInput, &multiSlotOutput) == 0) {
+        printf("✅ 多速率时隙计算成功！总原始周期: %u us, 调整后周期: %u us, 添加gap: %u us\n", 
+               multiSlotOutput.totalRawPeriod, multiSlotOutput.framePeriod, multiSlotOutput.addedGap);
         
-        // 使用时隙计算函数计算gap参数
-        TRM_SlotCalcInput slotInput = {
-            .rateMode = slotCfg.rateModes[i],
-            .brdBlockNum = 2,  // 广播包块数
-            .ulBlockNum = config->rate_cfgs[i].uplink_pkt,     // 上行包块数
-            .dlBlockNum = config->rate_cfgs[i].downlink_pkt,   // 下行包块数
-            .superFrameNum = config->tdd_num
-        };
-        
-        // 设置minGap位置
-        if (config->rate_num > 1) {
-            slotInput.minGapPos[0] = 0;
-            slotInput.minGapPos[1] = 0;
-            slotInput.minGapPos[2] = 0;
-            slotInput.minGapPos[3] = 0;
-        } else {
-            slotInput.minGapPos[0] = 0;
-            slotInput.minGapPos[1] = 0;
-            slotInput.minGapPos[2] = 0;
-            slotInput.minGapPos[3] = 1;
+        // 为每个速率配置gap参数
+        for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
+            slotCfg.s1Cfg[i].da_m = multiSlotOutput.rateConfigs[i].brdGap;
+            slotCfg.s2Cfg[i].da_m = multiSlotOutput.rateConfigs[i].ulGap;
+            slotCfg.s3Cfg[i].da_m = multiSlotOutput.rateConfigs[i].dlGap;
+            printf("  速率[%d] 模式%d gap参数: BRD=%u, UL=%u, DL=%u\n", 
+                   i, slotCfg.rateModes[i], 
+                   multiSlotOutput.rateConfigs[i].brdGap, 
+                   multiSlotOutput.rateConfigs[i].ulGap, 
+                   multiSlotOutput.rateConfigs[i].dlGap);
         }
-        TRM_SlotCalcOutput slotOutput;
-        if (trm_calc_slot_config(&slotInput, &slotOutput) == 0) {
-            // 使用计算得到的gap作为da_m参数
-            slotCfg.s1Cfg[i].da_m = slotOutput.brdGap;
-            slotCfg.s2Cfg[i].da_m = slotOutput.ulGap;
-            slotCfg.s3Cfg[i].da_m = slotOutput.dlGap;
-            printf("✅ 速率模式%d计算得到gap参数: BRD=%u, UL=%u, DL=%u\n", 
-                   slotCfg.rateModes[i], slotOutput.brdGap, slotOutput.ulGap, slotOutput.dlGap);
-        } else {
-            printf("❌ 时隙计算失败，使用默认参数\n");
-            // 使用默认参数
+    } else {
+        printf("❌ 多速率时隙计算失败，使用默认参数\n");
+        // 使用默认参数
+        for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
             slotCfg.s1Cfg[i].da_m = 12000;
             slotCfg.s2Cfg[i].da_m = 12000;
             slotCfg.s3Cfg[i].da_m = 12000;
         }
-        
-        // 配置时隙长度和频点
+    }
+    
+    // 配置时隙长度和频点
+    for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
         slotCfg.s0Cfg[i].byteLen = 0;
         slotCfg.s0Cfg[i].centerFreq = config->freq;
         
