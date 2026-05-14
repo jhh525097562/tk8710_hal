@@ -22,6 +22,7 @@
 #include "driver/tk8710_driver_api.h"  /* Driver API接口 */
 #include "driver/tk8710_internal.h"     /* Driver内部函数 */
 #include "driver/tk8710_regs.h"
+#include "tk8710_noise_api.h"           /* 噪底能量计算 API */
 
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
@@ -243,6 +244,8 @@ static void OnDriverRxData(TK8710IrqResult* irqResult)
                 int captureRet = TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA, TK8710_DBG_OPT_GET, NULL, NULL);
                 if (captureRet == TK8710_OK) {
                     printf("采集数据功能执行成功\n");
+                    /* 采集数据成功后计算噪底能量 */
+                    tk8710_noise_process("8710CaptureData", g_testMode, "ANoise.txt");
                 } else {
                     printf("采集数据功能执行失败: ret=%d\n", captureRet);
                 }

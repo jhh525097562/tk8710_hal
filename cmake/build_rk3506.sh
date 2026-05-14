@@ -222,7 +222,39 @@ else
     exit 1
 fi
 
-# 创建静态库
+# 编译Web命令IPC服务模块
+printf "编译Web命令IPC服务模块...\n"
+arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+    -c src/ipc_command_server.c \
+    -o ${BUILD_DIR}/ipc_command_server.o
+if [ $? -eq 0 ]; then
+    echo "✅ ipc_command_server.c 编译成功"
+else
+    echo "❌ ipc_command_server.c 编译失败"
+    exit 1
+fi
+
+arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+    -c src/tk8710_scan_service.c \
+    -o ${BUILD_DIR}/tk8710_scan_service.o
+if [ $? -eq 0 ]; then
+    echo "✅ tk8710_scan_service.c 编译成功"
+else
+    echo "❌ tk8710_scan_service.c 编译失败"
+    exit 1
+fi
+
+arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+    -c src/tk8710_scan_ipc_server.c \
+    -o ${BUILD_DIR}/tk8710_scan_ipc_server.o
+if [ $? -eq 0 ]; then
+    echo "✅ tk8710_scan_ipc_server.c 编译成功"
+else
+    echo "❌ tk8710_scan_ipc_server.c 编译失败"
+    exit 1
+fi
+
+# 创建静态库（不包含IPC通信模块，避免链接冲突）
 echo ""
 echo "创建静态库..."
 ar rcs ${BUILD_DIR}/libtk8710_hal_complete.a \
@@ -248,7 +280,9 @@ ar rcs ${BUILD_DIR}/libtk8710_hal_complete.a \
     ${BUILD_DIR}/phy_data.o \
     ${BUILD_DIR}/phy_cfg.o \
     ${BUILD_DIR}/phy_stat.o \
-    ${BUILD_DIR}/tk8710_ipc_comm.o
+    ${BUILD_DIR}/ipc_command_server.o \
+    ${BUILD_DIR}/tk8710_scan_service.o \
+    ${BUILD_DIR}/tk8710_scan_ipc_server.o
 
 if [ $? -eq 0 ]; then
     echo "✅ 静态库创建成功"
@@ -295,8 +329,11 @@ for file in $test_files; do
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port -I./test/example \
         ${BUILD_DIR}/${basename_file}.o \
         ${BUILD_DIR}/trm_tx_validator.o \
+        ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
-        -lpthread -lgpiod \
+        -L./lib -lipc_smp \
+        -Wl,-rpath,./lib \
+        -lpthread -lgpiod -lm \
         -o ${BUILD_DIR}/${basename_file}
     
     if [ $? -eq 0 ]; then
@@ -314,8 +351,11 @@ echo "创建示例程序..."
 if [ -f "test/example/test8710main_3506.c" ]; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
         test/example/test8710main_3506.c \
+        ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
-        -lpthread -lgpiod \
+        -L./lib -lipc_smp \
+        -Wl,-rpath,./lib \
+        -lpthread -lgpiod -lm \
         -o ${BUILD_DIR}/test8710main_3506
     
     if [ $? -eq 0 ]; then
@@ -346,8 +386,11 @@ if [ -f "test/example/TestTRMmain.c" ]; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
         test/example/TestTRMmain.c \
         ${BUILD_DIR}/trm_tx_validator.o \
+        ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
-        -lpthread -lgpiod \
+        -L./lib -lipc_smp \
+        -Wl,-rpath,./lib \
+        -lpthread -lgpiod -lm \
         -o ${BUILD_DIR}/TestTRMmain
     
     if [ $? -eq 0 ]; then
@@ -374,13 +417,15 @@ if [ -f "test/example/TestTRMmain_IPC.c" ]; then
         exit 1
     fi
     
-    # 编译测试程序并链接验证器（核间通信模块已在静态库中）
+    # 编译测试程序并链接验证器（单独包含IPC对象文件）
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
         test/example/TestTRMmain_IPC.c \
         ${BUILD_DIR}/trm_tx_validator.o \
+        ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
         -L./lib -lipc_smp \
-        -lpthread -lgpiod \
+        -Wl,-rpath,./lib \
+        -lpthread -lgpiod -lm \
         -o ${BUILD_DIR}/TestTRMmain_IPC
     
     if [ $? -eq 0 ]; then

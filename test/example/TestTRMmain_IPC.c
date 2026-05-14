@@ -22,10 +22,13 @@
 #include "driver/tk8710_driver_api.h"
 #include "driver/tk8710_internal.h"
 #include "driver/tk8710_log.h"
+#include "driver/tk8710_regs.h"
 #include "trm/trm_api.h"        /* 添加TRM头文件 */
 #include "trm/trm_log.h"     /* 添加TRM日志头文件 */
 #include "trm_tx_validator.h"  /* 添加发送验证模块 */
 #include "tk8710_ipc_comm.h"  /* 核间通信模块 */
+#include "tk8710_scan_ipc_server.h"  /* Web扫频IPC服务 */
+#include "tk8710_noise_api.h"           /* 噪底能量计算 API */
 
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
@@ -84,8 +87,7 @@ static volatile bool g_txBeamCtrlMode = false;         /* 波束控制模式 */
 static uint32_t g_trmSendCount = 0;               /* TRM发送计数 */
 static uint32_t g_trmRxCount = 0;                 /* TRM接收计数 */
 
-/* 核间通信上下文 */
-static IpcCommContext g_ipc_ctx;
+/* 核间通信上下文由 src/tk8710_ipc_comm.c 定义 */
 
 /* TRM回调函数声明 */
 static void OnTrmRxData(const TRM_RxDataList* rxDataList);
@@ -96,6 +98,12 @@ static int HandleNsConfig(const NsConfigDown_t* config);
 
 /* HAL是否已初始化标志 */
 static int g_hal_initialized = 0;
+
+/* 采集数据控制变量 */
+static volatile uint8_t g_captureDataPending = 0;         /* 采集数据待执行标志 */
+static volatile uint8_t g_captureDataPendingNum = 0;         /* 采集数据等待次数 */
+
+/* 扫频功能已移至TRM层，现在使用TRM_SweepState结构体 */
 
 /* NS速率索引到TK8710速率模式转换函数 */
 static uint8_t ConvertNsRateToTk8710Rate(uint8_t ns_rate) {
@@ -112,6 +120,243 @@ static uint8_t ConvertNsRateToTk8710Rate(uint8_t ns_rate) {
             printf("⚠️  未知的NS速率索引: %d，使用默认速率7\n", ns_rate);
             return TK8710_RATE_MODE_7;
     }
+}
+
+/* 扫频模式到TK8710速率模式转换函数 */
+static uint8_t ConvertSweepModeToTk8710Rate(int sweep_mode) {
+    switch (sweep_mode) {
+        case 0: return TK8710_RATE_MODE_5;   /* 62.5kHz */
+        case 1: return TK8710_RATE_MODE_6;   /* 125kHz */
+        case 2: return TK8710_RATE_MODE_7;   /* 250kHz */
+        case 3: return TK8710_RATE_MODE_8;   /* 500kHz */
+        default:
+            printf("⚠️  未知的扫频模式: %d，使用默认模式8\n", sweep_mode);
+            return TK8710_RATE_MODE_8;
+    }
+}
+
+/*============================================================================
+ * 扫频函数实现
+ *============================================================================*/
+
+/**
+ * @brief 扫频函数 - 设置扫频参数并启动扫频
+ * @param start_freq 起始频率 (Hz), 例如 470000000 (470MHz)
+ * @param end_freq 结束频率 (Hz), 例如 510000000 (510MHz)
+ * @param sweep_mode 扫频模式: 0=62.5kHz(模式5), 1=125kHz(模式6), 2=250kHz(模式7), 3=500kHz(模式8)
+ * @return 0成功, 负值失败
+ * @note 参考 HandleNsConfig 实现 (步骤1-12), 仅设置扫频状态位
+ *       实际扫频在中断中进行: 检测状态位 -> 采数计算噪底 -> 检测结束状态 -> 切换下一个频点
+ */
+static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mode) {
+    if (start_freq == 0 || end_freq == 0 || start_freq > end_freq) {
+        printf("[扫频] 错误: 无效的频率参数\n");
+        return -1;
+    }
+    
+    if (sweep_mode < 0 || sweep_mode > 3) {
+        printf("[扫频] 错误: 无效的扫频模式 %d\n", sweep_mode);
+        return -1;
+    }
+    uint8_t rate_mode = ConvertSweepModeToTk8710Rate(sweep_mode);
+    printf("[扫频] 扫频模式: %d, 速率模式: %d\n", sweep_mode, rate_mode);
+    
+    /* 扫频步进 - 根据扫频模式的带宽确定间隔 */
+    static const uint32_t sweep_bandwidth_table[] = {
+        62500,   /* 模式0: 62.5kHz (mode5) */
+        125000,  /* 模式1: 125kHz (mode6) */
+        250000,  /* 模式2: 250kHz (mode7) */
+        500000   /* 模式3: 500kHz (mode8) */
+    };
+    uint32_t step_freq = (sweep_mode < 4) ? sweep_bandwidth_table[sweep_mode] : 62500;
+    printf("[扫频] 扫频间隔: %u Hz\n", step_freq);
+    
+    printf("[扫频] ===== 配置步骤 1-12 (参考 HandleNsConfig) =====\n");
+    
+    printf("[扫频] 🔄 配置更新: 复位HAL并重新配置...\n");
+    
+    int ret;
+    int trmRet;
+    
+    /* 1. 清理TRM系统资源 */
+    trmRet = TRM_Deinit();
+    if (trmRet != TRM_OK) {
+        return TK8710_HAL_ERROR_RESET;
+    }
+    printf("[扫频] 步骤1: TRM系统资源已清理\n");
+    
+    /* 2. 复位TK8710芯片 */
+    ret = TK8710Reset(TK8710_RST_STATE_MACHINE);
+    ret = TK8710Reset(TK8710_RST_ALL);
+    if (ret != TK8710_OK) {
+        return TK8710_HAL_ERROR_RESET;
+    }
+    printf("[扫频] 步骤2: TK8710芯片已复位\n");
+    
+    /* 3. 准备RF配置 - 设置当前频率 */
+    ChiprfConfig rfConfig;
+    rfConfig.rftype = TK8710_RF_TYPE_1255_1M;
+    rfConfig.Freq = start_freq;  /* 从起始频率开始 */
+    rfConfig.rxgain = 0x7e;
+    rfConfig.txgain = 0x2a;
+    uint16_t txadc_data[][2] = {
+        {0x0450, 0x0450}, {0x0a00, 0x1080}, {0x0750, 0x1500}, {0x0400, 0x0b00},
+        {0x08a0, 0x07a0}, {0x0990, 0xff00}, {0x0850, 0x08c8}, {0x0950, 0x0a00}
+    };
+    for (int i = 0; i < 8; i++) {
+        rfConfig.txadc[i].i = (int16_t)txadc_data[i][0];
+        rfConfig.txadc[i].q = (int16_t)txadc_data[i][1];
+    }
+    printf("[扫频] 步骤3: RF配置已准备 (频率=%u Hz)\n", rfConfig.Freq);
+    
+    /* 4. 准备芯片配置 */
+    ChipConfig chipConfig = {
+        .bcn_agc     = 32,
+        .interval    = 32,
+        .tx_dly      = 0,
+        .tx_fix_info = 0,
+        .offset_adj  = 0,
+        .tx_pre      = 0,
+        .conti_mode  = 1,
+        .bcn_scan    = 0,
+        .ant_en      = 0xFF,
+        .rf_sel      = 0xFF,
+        .tx_bcn_en   = 1,
+        .ts_sync     = 0,
+        .rf_model    = 1,
+        .bcnbits     = 0,
+        .anoiseThe1  = 0,
+        .power2rssi  = 0,
+        .irq_ctrl0   = 0x7FF,
+        .irq_ctrl1   = 0,
+        .spiConfig   = NULL,
+        .rfConfig    = (struct ChiprfConfig_s*)&rfConfig
+    };
+    printf("[扫频] 步骤4: 芯片配置已准备\n");
+    
+    /* 5. 准备TRM配置 */
+    TRM_InitConfig trmConfig;
+    memset(&trmConfig, 0, sizeof(trmConfig));
+    trmConfig.beamMode = TRM_BEAM_MODE_FULL_STORE;
+    trmConfig.beamMaxUsers = 3000;
+    trmConfig.beamTimeoutMs = 20000;
+    trmConfig.callbacks.onRxData = OnTrmRxData;
+    trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
+    trmConfig.maxFrameCount = 0;  /* 扫频模式: 持续运行 */
+    printf("[扫频] 步骤5: TRM配置已准备\n");
+    
+    /* 6. 准备HAL初始化配置 */
+    TK8710HalInitCfg halConfig = {
+        .chipInitCfg = &chipConfig,
+        .trmCfg = {
+            .beamMaxUsers = trmConfig.beamMaxUsers,
+            .beamTimeoutMs = trmConfig.beamTimeoutMs,
+            .maxFrameCount = trmConfig.maxFrameCount,
+            .onRxData = trmConfig.callbacks.onRxData,
+            .onTxComplete = trmConfig.callbacks.onTxComplete
+        }
+    };
+    printf("[扫频] 步骤6: HAL初始化配置已准备\n");
+    
+    /* 7. 调用 TK8710HalInit 完成初始化 */
+    printf("[扫频] 步骤7: 调用 TK8710HalInit...\n");
+    TK8710HalError halRet = TK8710HalInit(&halConfig);
+    if (halRet != TK8710_HAL_OK) {
+        printf("[扫频] HAL初始化失败: %d\n", halRet);
+        return -1;
+    }
+    printf("[扫频] 步骤7: HAL初始化完成\n");
+    
+    /* 8-11. 配置时隙参数 (扫频模式简化配置) */
+    slotCfg_t slotCfg;
+    memset(&slotCfg, 0, sizeof(slotCfg_t));
+    slotCfg.msMode = TK8710_MODE_MASTER;
+    slotCfg.plCrcEn = 0;
+    slotCfg.brdUserNum = 1;
+    slotCfg.antEn = 0xFF;
+    slotCfg.rfSel = 0xFF;
+    slotCfg.txBeamCtrlMode = 1;
+    g_txBeamCtrlMode = (slotCfg.txBeamCtrlMode == 0);
+    slotCfg.txBcnAntEn = 0x7f;
+    slotCfg.rx_delay = 0;
+    slotCfg.md_agc = 1024;
+    slotCfg.brdFreq[0] = 20000.0;
+    slotCfg.frameTimeLen = 0;
+    
+    /* 扫频模式使用单速率配置 */
+    slotCfg.rateCount = 1;
+    slotCfg.rateModes[0] = rate_mode;
+    
+    /* 根据速率模式设置da_m参数 */
+    switch (slotCfg.rateModes[0]) {
+        case TK8710_RATE_MODE_5:
+            slotCfg.s1Cfg[0].da_m = 21492;
+            slotCfg.s2Cfg[0].da_m = 21492;
+            slotCfg.s3Cfg[0].da_m = 21492;
+            break;
+        case TK8710_RATE_MODE_6:
+            slotCfg.s1Cfg[0].da_m = 19728;
+            slotCfg.s2Cfg[0].da_m = 19728;
+            slotCfg.s3Cfg[0].da_m = 19728;
+            break;
+        case TK8710_RATE_MODE_7:
+            slotCfg.s1Cfg[0].da_m = 12000;
+            slotCfg.s2Cfg[0].da_m = 12000;
+            slotCfg.s3Cfg[0].da_m = 12000;
+            break;
+        case TK8710_RATE_MODE_8:
+            slotCfg.s1Cfg[0].da_m = 5600;
+            slotCfg.s2Cfg[0].da_m = 5600;
+            slotCfg.s3Cfg[0].da_m = 5600;
+            break;
+        default:
+            slotCfg.s1Cfg[0].da_m = 12000;
+            slotCfg.s2Cfg[0].da_m = 12000;
+            slotCfg.s3Cfg[0].da_m = 12000;
+            break;
+    }
+
+    /* 配置时隙长度和频率 */
+    slotCfg.s0Cfg[0].byteLen = 0;
+    slotCfg.s0Cfg[0].centerFreq = start_freq;
+    slotCfg.s1Cfg[0].byteLen = 26;   /* 2 * 26 */
+    slotCfg.s1Cfg[0].centerFreq = start_freq;
+    slotCfg.s2Cfg[0].byteLen = 26;
+    slotCfg.s2Cfg[0].centerFreq = start_freq;
+    slotCfg.s3Cfg[0].byteLen = 26;
+    slotCfg.s3Cfg[0].centerFreq = start_freq;
+
+    printf("[扫频] 步骤8-11: 时隙参数已配置 (rate_mode=%d)\n", rate_mode);
+    
+    /* 9. 调用 TK8710HalCfg 配置时隙 */
+    TK8710HalError halRet_config = TK8710HalCfg(&slotCfg);
+    if (halRet_config != TK8710_HAL_OK) {
+        printf("[扫频] HAL config (slot) failed: %d\n", halRet_config);
+        return -1;
+    }
+    printf("[扫频] 步骤9: TK8710HalCfg 完成\n");
+    
+    /* 10. 调用 TK8710HalStart 启动工作 */
+    TK8710HalError halRet_start = TK8710HalStart();
+    if (halRet_start != TK8710_HAL_OK) {
+        printf("[扫频] HAL start failed: %d\n", halRet_start);
+        return -1;
+    }
+    printf("[扫频] 步骤10: TK8710HalStart 完成\n");
+    
+    /* 12. 使用TRM API启动扫频 */
+    ret = TRM_StartFrequencySweep(start_freq, end_freq, (uint8_t)sweep_mode, (uint8_t)rate_mode);
+    if (ret != TRM_OK) {
+        printf("[扫频] 错误: TRM_StartFrequencySweep 失败, 错误码=%d\n", ret);
+        return ret;
+    }
+    
+    printf("[扫频] ===== 步骤12: TRM扫频API调用完成 =====\n");
+    printf("[扫频] 扫频已启动: 起始=%u Hz, 结束=%u Hz, 模式=%d\n",
+           start_freq, end_freq, sweep_mode);
+    printf("[扫频] 提示: TRM中断中会检测扫频状态位, 进行采数计算噪底, 检测结束状态后切换频点\n");
+    
+    return 0;
 }
 
 /*============================================================================
@@ -344,6 +589,14 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         return -1;
     }
     printf("HAL started successfully (Master mode, Continuous work)\n");
+
+    if (!TK8710ScanIpcServerIsRunning()) {
+        if (TK8710ScanIpcServerStart() == 0) {
+            printf("Web扫频IPC服务已启动: /tmp/data_collect.sock\n");
+        } else {
+            printf("Web扫频IPC服务启动失败，Web侧无法触发扫频\n");
+        }
+    }
     
     /* 标记HAL已初始化 */
     g_hal_initialized = 1;
@@ -405,6 +658,21 @@ static void OnTrmRxData(const TRM_RxDataList* rxDataList)
     /* 发送上行数据给NS（通过核间通信） */
     IpcSendUplinkData(&g_ipc_ctx, rxDataList);
     
+    /* 检查是否需要执行采集数据 */
+    if (g_captureDataPending && g_captureDataPendingNum == 2) {
+        printf("执行采集数据功能...\n");
+        int captureRet = TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA, TK8710_DBG_OPT_GET, NULL, NULL);
+        if (captureRet == TK8710_OK) {
+            printf("采集数据功能执行成功\n");
+            /* 采集数据成功后计算噪底能量 */
+            tk8710_noise_process("8710CaptureData", 6, "ANoise.txt");
+        } else {
+            printf("采集数据功能执行失败: ret=%d\n", captureRet);
+        }
+        g_captureDataPending = 0;  /* 清除待执行标志 */
+        g_captureDataPendingNum = 0;
+    }
+    g_captureDataPendingNum++;
     printf("==================\n");
 }
 
@@ -611,34 +879,6 @@ int main(int argc, char* argv[])
     signal(SIGTERM, signal_handler);
 #endif
     
-    // /* 11. 配置测试选项 */
-    // printf("Configure test options:\n");
-    // printf("Enable force process all users for testing? (y/n): ");
-    // char testChoice;
-    // scanf(" %c", &testChoice);
-    // if (testChoice == 'y' || testChoice == 'Y') {
-    //     TK8710SetForceProcessAllUsers(1);
-    //     printf("Force process all users: ENABLED\n");
-    // } else {
-    //     TK8710SetForceProcessAllUsers(0);
-    //     printf("Force process all users: DISABLED\n");
-    // }
-
-    // /* 8. 初始化发送验证器 */
-    // TRM_TxValidatorConfig validatorConfig = {
-    //     .txPower = 35,
-    //     .frameOffset = 2,
-    //     .userIdBase = 0x30000000,
-    //     .enableAutoResponse = true,
-    //     .enablePeriodicTest = false,
-    //     .periodicIntervalFrames = 10,
-    //     .responseDataLength = 26
-    // };
-    // ret = TRM_TxValidatorInit(&validatorConfig);
-    // if (ret != TRM_OK) {
-    //     printf("TX validator initialization failed: %d (non-fatal)\n", ret);
-    // }
-
     /* 6. 启动核间通信 */
     printf("启动核间通信...\n");
     
@@ -825,6 +1065,13 @@ int main(int argc, char* argv[])
             return -1;
         }
         printf("HAL started successfully (Master mode, Continuous work)\n");
+        if (!TK8710ScanIpcServerIsRunning()) {
+            if (TK8710ScanIpcServerStart() == 0) {
+                printf("Web扫频IPC服务已启动: /tmp/data_collect.sock\n");
+            } else {
+                printf("Web扫频IPC服务启动失败，Web侧无法触发扫频\n");
+            }
+        }
 
     } else {
         printf("✅ 已收到并处理配置消息\n");
@@ -875,7 +1122,30 @@ int main(int argc, char* argv[])
             case 'T':
                 show_trm_statistics();
                 break;
-                
+            
+            case 'a':
+            case 'A':
+                uint32_t start_freq = 480000000; // 480 MHz
+                uint32_t end_freq = 500000000;   // 500 MHz
+                int sweep_mode = 3; // 0:单速率，1:多速率
+                DoFrequencySweep(start_freq, end_freq, sweep_mode);
+                break;
+
+            case 'd':
+            case 'D':
+                printf("采集数据功能已设置，将在下次MD_DATA中断时执行\n");
+                s_ram_rd0 ramRd0;
+                ramRd0.data = 0;
+                ramRd0.b.cap_en = 1;  // 启用采集
+                int ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, RX_MUP_BASE + offsetof(struct rx_mup, ram_rd0), ramRd0.data);
+                if (ret != TK8710_OK) {
+                    TK8710_LOG_CONFIG_ERROR("配置s_ram_rd0寄存器失败: ret=%d\n", ret);
+                    return ret;
+                }
+                g_captureDataPending = 1;
+                g_captureDataPendingNum = 0;
+                break;
+
             case 'q':
             case 'Q':
                 printf("Exiting program...\n");
@@ -902,6 +1172,9 @@ int main(int argc, char* argv[])
 
     /* 清理发送验证器 */
     // TRM_TxValidatorDeinit();
+
+    /* 停止Web扫频IPC服务 */
+    TK8710ScanIpcServerStop();
 
     /* 停止核间通信 */
     printf("停止核间通信...\n");
