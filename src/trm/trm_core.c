@@ -10,11 +10,28 @@
 #include "../inc/trm/trm_data.h"
 #include "../inc/driver/tk8710_driver_api.h"
 #include "../inc/driver/tk8710_internal.h"
+#include "../inc/driver/tk8710_rf_regs.h"
+#include "../inc/tk8710_noise_api.h"
 #include "../port/tk8710_hal.h"
 #include "driver/tk8710_log.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+/* IPC通信头文件 - 仅在RK3506平台需要 */
+#ifdef PLATFORM_RK3506
+#include "../inc/tk8710_ipc_comm.h"
+#include "../inc/tk8710_scan_ipc_server.h"
+#endif
+
+/* usleep定义 - Linux平台使用usleep，Windows使用Sleep */
+#ifdef __linux__
+#include <unistd.h>
+#define usleep(ms) usleep(ms)
+#elif defined(_WIN32)
+#include <windows.h>
+#define usleep(ms) Sleep((ms))
+#endif
 
 /* 外部函数声明 - 来自trm_beam.c和trm_data.c */
 extern void TRM_BeamInit(uint32_t maxUsers, uint32_t timeoutMs);
@@ -33,6 +50,9 @@ static TrmContext g_trmCtx;
 /* 全局帧号管理变量 */
 uint32_t g_trmCurrentFrame = 0;
 uint32_t g_trmMaxFrameCount = 100;
+
+/* 扫频状态控制变量 */
+static volatile TRM_SweepState g_sweepState = {0};
 
 /* 内部函数声明 */
 TrmContext* TRM_GetContext(void);
@@ -274,6 +294,127 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
             slotType = 2; slotIndex = 2;  /* S2时隙 */
             break;
         case TK8710_IRQ_S3:
+            /* 检查是否处于扫频状态 */
+            if (g_sweepState.sweep_active) {
+                TRM_LOG_DEBUG("TRM: Sweep active, current frame=%u", g_trmCurrentFrame);
+
+                if ((g_trmCurrentFrame % 3) != 0) {
+                    TRM_LOG_DEBUG("TRM: Skip sweep processing at frame %u", g_trmCurrentFrame);
+                } else {
+                    TK8710ScanIpcNotifySweepRunning();
+                    TRM_LOG_DEBUG("TRM: Performing sweep capture and frequency configuration");
+                
+                /* 采数计算噪底 - 这里可以添加具体的噪底计算逻辑 */
+                /* TODO: 实现采数和噪底计算算法 */
+                int captureRet = TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA, TK8710_DBG_OPT_GET, NULL, NULL);
+                if (captureRet == TK8710_OK) {
+                    TRM_LOG_DEBUG("采集数据功能执行成功\n");
+                    /* 采集数据成功后计算噪底能量并保存扫频结果 */
+                    uint8_t append_result = (g_sweepState.current_freq != g_sweepState.start_freq);
+                    tk8710_sweep_noise_process("8710CaptureData", g_sweepState.rate_mode,
+                                              g_sweepState.current_freq, append_result);
+                } else {
+                    TRM_LOG_DEBUG("采集数据功能执行失败: ret=%d\n", captureRet);
+                }
+                /* 检测结束状态并切换下一个频点 */
+                g_sweepState.current_freq += g_sweepState.step_freq;
+                if (g_sweepState.current_freq > g_sweepState.end_freq) {
+                    /* 扫频完成，停止扫频 */
+                    g_sweepState.sweep_active = 0;
+                    TRM_LOG_INFO("TRM: Frequency sweep completed");
+                    TK8710ScanIpcNotifySweepDone();
+                    IpcCommClearConfigReceived();
+                    /* IPC通信 - 仅在RK3506平台需要 */
+                    int request_count = 0;
+                    while (request_count < 3) {
+                        TRM_LOG_INFO("发送第%d次配置请求...\n", request_count + 1);
+                        if (IpcCommSendConfigRequest(&g_ipc_ctx) != 0) {
+                            TRM_LOG_INFO("配置请求发送失败\n");
+                        }
+
+                        for (int i = 0; i < 100 && !IpcCommIsConfigReceived(); i++) {
+                            usleep(100000);
+                        }
+
+                        request_count++;
+                    }
+                } else {
+                    /* 切换到下一个频点 - 使用 g_sweepState 中保存的 RF 配置 */
+                    /* 6. RX频率配置 (24bit: MSB/MID/LSB) */
+                    int ret = TK8710_OK;
+                    double freq_step;
+                    uint32_t freq_reg;
+
+                    /* 根据射频类型选择频率步进 */
+                    if (g_sweepState.rftype == TK8710_RF_TYPE_1257_32M) {
+                        freq_step = RF_SX1257_FREQ_STEP;
+                    } else {
+                        freq_step = RF_SX1255_FREQ_STEP;
+                    }
+                    freq_reg = (uint32_t)((double)g_sweepState.current_freq / freq_step);
+
+                    TRM_LOG_INFO("TRM: Switching to frequency %u Hz (step=%.2f, reg=0x%06X)",
+                                 g_sweepState.current_freq, freq_step, freq_reg);
+
+                    /* RX频率 */
+                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_MSB >> 8, (freq_reg >> 16) & 0xFF);
+                    if (ret != TK8710_OK) {
+                        TRM_LOG_ERROR("TRM: RX frequency MSB write failed: %d", ret);
+                        return;
+                    }
+
+                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_MID >> 8, (freq_reg >> 8) & 0xFF);
+                    if (ret != TK8710_OK) {
+                        TRM_LOG_ERROR("TRM: RX frequency MID write failed: %d", ret);
+                        return;
+                    }
+
+                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_LSB >> 8, (freq_reg >> 0) & 0xFF);
+                    if (ret != TK8710_OK) {
+                        TRM_LOG_ERROR("TRM: RX frequency LSB write failed: %d", ret);
+                        return;
+                    }
+                    TRM_LOG_DEBUG("TRM: RX frequency configuration completed");
+
+                    /* 7. RX增益配置 */
+                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_RX_GAIN >> 8, g_sweepState.rxgain);
+                    if (ret != TK8710_OK) {
+                        TRM_LOG_ERROR("TRM: RX gain configuration failed: %d", ret);
+                        return;
+                    }
+                    TRM_LOG_DEBUG("TRM: RX gain set to: 0x%02X", g_sweepState.rxgain);
+
+                    /* 9. TX频率 */
+                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_MSB >> 8, (freq_reg >> 16) & 0xFF);
+                    if (ret != TK8710_OK) {
+                        TRM_LOG_ERROR("TRM: TX frequency MSB write failed: %d", ret);
+                        return;
+                    }
+
+                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_MID >> 8, (freq_reg >> 8) & 0xFF);
+                    if (ret != TK8710_OK) {
+                        TRM_LOG_ERROR("TRM: TX frequency MID write failed: %d", ret);
+                        return;
+                    }
+
+                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_LSB >> 8, (freq_reg >> 0) & 0xFF);
+                    if (ret != TK8710_OK) {
+                        TRM_LOG_ERROR("TRM: TX frequency LSB write failed: %d", ret);
+                        return;
+                    }
+                    TRM_LOG_DEBUG("TRM: TX frequency configuration completed");
+
+                    /* 10. TX增益配置 */
+                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_TX_GAIN >> 8, g_sweepState.txgain);
+                    if (ret != TK8710_OK) {
+                        TRM_LOG_ERROR("TRM: TX gain configuration failed: %d", ret);
+                        return;
+                    }
+                    TRM_LOG_DEBUG("TRM: TX gain set to: 0x%02X", g_sweepState.txgain);
+                    TRM_LOG_INFO("TRM: Frequency switch to %u Hz completed", g_sweepState.current_freq);
+                }
+                }
+            }
             slotType = 3; slotIndex = 3;  /* S3时隙 */
             break;
         default:
@@ -399,6 +540,81 @@ static void TRM_OnDriverTxSlot(uint8_t slotIndex, uint8_t maxUserCount, TK8710Ir
         g_trmCtx.stats.txCount += sentCount;
         TRM_LOG_DEBUG("TRM: TxSlot: sent %d users\n", sentCount);
     }
+}
+
+/*==============================================================================
+ * 扫频控制API实现
+ *============================================================================*/
+
+int TRM_StartFrequencySweep(uint32_t start_freq, uint32_t end_freq, uint8_t sweep_mode, uint8_t rate_mode)
+{
+    if (start_freq == 0 || end_freq == 0 || start_freq > end_freq) {
+        TRM_LOG_ERROR("TRM: Invalid sweep parameters: start=%u, end=%u", start_freq, end_freq);
+        return TRM_ERR_PARAM;
+    }
+
+    if (sweep_mode > 3) {
+        TRM_LOG_ERROR("TRM: Invalid sweep mode: %d (should be 0-3)", sweep_mode);
+        return TRM_ERR_PARAM;
+    }
+
+    /* 计算扫频间隔 */
+    uint32_t step_freq = 0;
+    switch (sweep_mode) {
+        case 0: step_freq = 62500; break;   /* 62.5kHz */
+        case 1: step_freq = 125000; break;  /* 125kHz */
+        case 2: step_freq = 250000; break;  /* 250kHz */
+        case 3: step_freq = 500000; break;  /* 500kHz */
+        default:
+            TRM_LOG_ERROR("TRM: Unknown sweep mode: %d", sweep_mode);
+            return TRM_ERR_PARAM;
+    }
+
+    /* 从当前时隙配置获取 RF 选择器 */
+    const slotCfg_t* slotCfg = TK8710GetSlotConfig();
+    if (slotCfg == NULL) {
+        TRM_LOG_ERROR("TRM: Failed to get slot config for RF initialization");
+        return TRM_ERR_STATE;
+    }
+
+    /* 初始化扫频状态 - RF参数从当前配置获取，增益使用默认值 */
+    g_sweepState.sweep_active = 1;
+    g_sweepState.sweep_mode = sweep_mode;
+    g_sweepState.rate_mode = rate_mode;
+    g_sweepState.start_freq = start_freq;
+    g_sweepState.end_freq = end_freq;
+    g_sweepState.current_freq = start_freq;
+    g_sweepState.step_freq = step_freq;
+    g_sweepState.rfSel = slotCfg->rfSel;
+    g_sweepState.rftype = 0;
+    /* 增益使用默认值 - 假设初始配置已设置好增益 */
+    g_sweepState.rxgain = 0x7E;  /* 默认RX增益 */
+    g_sweepState.txgain = 0x2A;  /* 默认TX增益 */
+
+    TRM_LOG_INFO("TRM: Frequency sweep started: start=%u Hz, end=%u Hz, step=%u Hz, mode=%d, rate=%d, rfSel=0x%02X",
+                 start_freq, end_freq, step_freq, sweep_mode, rate_mode, g_sweepState.rfSel);
+
+    return TRM_OK;
+}
+
+int TRM_StopFrequencySweep(void)
+{
+    g_sweepState.sweep_active = 0;
+    TRM_LOG_INFO("TRM: Frequency sweep stopped");
+    return TRM_OK;
+}
+
+int TRM_GetSweepState(TRM_SweepState* sweep_state)
+{
+    if (sweep_state == NULL) {
+        TRM_LOG_ERROR("TRM: NULL sweep_state pointer");
+        return TRM_ERR_PARAM;
+    }
+    
+    /* 复制当前扫频状态 */
+    *sweep_state = g_sweepState;
+    
+    return TRM_OK;
 }
 
 

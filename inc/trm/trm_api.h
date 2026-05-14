@@ -169,6 +169,22 @@ typedef struct {
     uint32_t addedGap;       /**< 添加的总间隔(us) */
 } TRM_MultiRateSlotCalcOutput;
 
+/* 扫频状态结构体 */
+typedef struct {
+    uint8_t  sweep_active;      /* 扫频激活标志: 1=正在扫频, 0=未扫频 */
+    uint8_t  sweep_mode;        /* 当前扫频模式 */
+    uint8_t  rate_mode;        /* 当前速率模式 */
+    uint32_t start_freq;        /* 起始频率 */
+    uint32_t end_freq;          /* 结束频率 */
+    uint32_t current_freq;      /* 当前扫频频率 */
+    uint32_t step_freq;         /* 扫频间隔 */
+    /* RF配置信息 - 扫频过程中保持不变的参数 */
+    uint8_t  rftype;           /* 射频类型 */
+    uint8_t  rxgain;           /* RX增益 */
+    uint8_t  txgain;           /* TX增益 */
+    uint8_t  rfSel;            /* RF选择 (bit0-7对应RF0-7) */
+} TRM_SweepState;
+
 /* =============================================================================
  * TRM上层回调接口类型定义
  * ============================================================================= */
@@ -324,6 +340,34 @@ int trm_calc_multi_rate_slot_config(const TRM_MultiRateSlotCalcInput* input, TRM
  * @param output 计算结果
  */
 void trm_print_multi_rate_slot_calc_result(const TRM_MultiRateSlotCalcOutput* output);
+
+/* =============================================================================
+ * 扫频控制API
+ * =============================================================================
+ */
+
+/**
+ * @brief 启动扫频功能
+ * @param start_freq 起始频率 (Hz)
+ * @param end_freq 结束频率 (Hz)
+ * @param sweep_mode 扫频模式: 0=62.5kHz(模式5), 1=125kHz(模式6), 2=250kHz(模式7), 3=500kHz(模式8)
+ * @param rate_mode 速率模式: 0=2M, 1=4M, 2=8M (用于数据采集和噪底计算)
+ * @return TRM_OK成功，其他失败
+ */
+int TRM_StartFrequencySweep(uint32_t start_freq, uint32_t end_freq, uint8_t sweep_mode, uint8_t rate_mode);
+
+/**
+ * @brief 停止扫频功能
+ * @return TRM_OK成功，其他失败
+ */
+int TRM_StopFrequencySweep(void);
+
+/**
+ * @brief 获取当前扫频状态
+ * @param sweep_state 扫频状态输出指针
+ * @return TRM_OK成功，其他失败
+ */
+int TRM_GetSweepState(TRM_SweepState* sweep_state);
 
 #ifdef __cplusplus
 }

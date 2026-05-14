@@ -22,7 +22,9 @@ typedef enum {
     MSG_TYPE_NS_DATA_DOWN,   // NS数据下行
     MSG_TYPE_GW_DATA_UP,     // 网关数据上行
     MSG_TYPE_GW_ALIVE_UP,     // 网关心跳上行 (预留)
-    MSG_TYPE_CONFIG_FEQ      //配置请求
+    MSG_TYPE_CONFIG_FEQ,      // 配置请求
+    MSG_TYPE_SWEEP_FREQ,     // 扫频请求 (NS -> 网关)
+    MSG_TYPE_SWEEP_RESULT     // 扫频结果上报 (网关 -> NS)
 } MacMsgType_e;
 
 // 基础消息结构体（用于类型推断和强制转换）
@@ -88,6 +90,23 @@ typedef struct {
     char net[MAX_NET_NAME_LEN];
     int power;
 } GwAliveUp_t;
+
+// 5. 网关扫频请求结构体 (NS -> 网关)
+typedef struct {
+    MacMsgType_e msg_type;   // 必须为第一成员，值为 MSG_TYPE_SWEEP_FREQ
+    unsigned int start_freq; // 起始频率 (Hz)
+    unsigned int end_freq;   // 结束频率 (Hz)
+    int sweep_mode;          // 扫频模式: 0=62.5kHz(模式5), 1=125kHz(模式6), 2=250kHz(模式7), 3=500kHz(模式8)
+} SweepFreqReq_t;
+
+// 6. 网关扫频结果上报结构体 (网关 -> NS)
+typedef struct {
+    MacMsgType_e msg_type;   // 必须为第一成员，值为 MSG_TYPE_SWEEP_RESULT
+    unsigned int freq;       // 扫频频率 (Hz)
+    float noise_floor;       // 噪底值 (dBm)
+    int sweep_count;         // 扫频次数
+    int status;              // 0=成功, 负值=失败
+} SweepFreqResult_t;
 
 // ================= 接口 API =================
 
