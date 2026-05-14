@@ -15,6 +15,9 @@
 #include "ipc_smp.h"
 #include "mac_msg_parser.h"
 
+// 全局IPC上下文变量
+IpcCommContext g_ipc_ctx = {0};
+
 // 定义IPC通道常量（如果spi_app.h不可用）
 #ifndef IPC_CH_MQTT_TO_SPI
 #define IPC_CH_MQTT_TO_SPI "/ipc_mqtt_to_spi"
@@ -85,6 +88,13 @@ void IpcCommSetConfigHandler(ConfigHandler_t handler) {
 // 检查是否已收到配置
 int IpcCommIsConfigReceived(void) {
     return g_config_received;
+}
+
+// 清除已接收配置状态，用于重新请求服务器配置
+void IpcCommClearConfigReceived(void) {
+    g_config_received = 0;
+    memset(&g_received_config, 0, sizeof(g_received_config));
+    printf("🔄 已清除本地配置缓存，等待服务器重新下发配置\n");
 }
 
 // 获取收到的配置
