@@ -261,10 +261,30 @@ static void TRM_OnDriverSlotRxAdapter(TK8710IrqResult* irqResult)
 {
     /* 更新统计信息 */
     g_trmCtx.stats.rxCount++;
-    
+
     /* 调试：记录中断类型 */
     TRM_LOG_DEBUG("TRM: Received RX interrupt type=%d", irqResult->irq_type);
-    
+
+    /* 扫频采数逻辑 - 仅在 S3 时隙且 g_trmCurrentFrame % 3 == 0 时采数 */
+    if (g_sweepState.sweep_active) {
+        if ((g_trmCurrentFrame % 3) != 0) {
+            TRM_LOG_DEBUG("TRM: Skip sweep capture at frame %u", g_trmCurrentFrame);
+        } else {
+            TRM_LOG_DEBUG("TRM: Performing sweep capture at RX");
+            /* 采数计算噪底 */
+            int captureRet = TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA, TK8710_DBG_OPT_GET, NULL, NULL);
+            if (captureRet == TK8710_OK) {
+                TRM_LOG_DEBUG("采集数据功能执行成功\n");
+                /* 采集数据成功后计算噪底能量并保存扫频结果 */
+                uint8_t append_result = (g_sweepState.current_freq != g_sweepState.start_freq);
+                tk8710_sweep_noise_process("8710CaptureData", g_sweepState.rate_mode,
+                                          g_sweepState.current_freq, append_result);
+            } else {
+                TRM_LOG_DEBUG("采集数据功能执行失败: ret=%d\n", captureRet);
+            }
+        }
+    }
+
     TRM_OnDriverSlotRx(irqResult);
 }
 
@@ -302,20 +322,9 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
                     TRM_LOG_DEBUG("TRM: Skip sweep processing at frame %u", g_trmCurrentFrame);
                 } else {
                     TK8710ScanIpcNotifySweepRunning();
-                    TRM_LOG_DEBUG("TRM: Performing sweep capture and frequency configuration");
-                
-                /* 采数计算噪底 - 这里可以添加具体的噪底计算逻辑 */
-                /* TODO: 实现采数和噪底计算算法 */
-                int captureRet = TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA, TK8710_DBG_OPT_GET, NULL, NULL);
-                if (captureRet == TK8710_OK) {
-                    TRM_LOG_DEBUG("采集数据功能执行成功\n");
-                    /* 采集数据成功后计算噪底能量并保存扫频结果 */
-                    uint8_t append_result = (g_sweepState.current_freq != g_sweepState.start_freq);
-                    tk8710_sweep_noise_process("8710CaptureData", g_sweepState.rate_mode,
-                                              g_sweepState.current_freq, append_result);
-                } else {
-                    TRM_LOG_DEBUG("采集数据功能执行失败: ret=%d\n", captureRet);
+                    TRM_LOG_DEBUG("TRM: Performing frequency configuration");
                 }
+
                 /* 检测结束状态并切换下一个频点 */
                 g_sweepState.current_freq += g_sweepState.step_freq;
                 if (g_sweepState.current_freq > g_sweepState.end_freq) {
