@@ -1110,7 +1110,9 @@ int TRM_ProcessRxUserDataBatch(uint8_t* userIndices, uint8_t userCount, TK8710Cr
                 /* 频率转换：26-bit格式转换为实际频率Hz */
                 uint32_t freq26 = freqSignal & 0x03FFFFFF;  /* 取26位 */
                 int32_t freqValue = freq26 > (1<<25) ? (int32_t)(freq26 - (1<<26)) : (int32_t)freq26;
-                
+                if(snrValue > 28){/* 限制SNR值在0-25范围内 */
+                    snrValue = 28;
+                }
                 /* 设置信号质量信息到currentUser */
                 currentUser->rssi = rssiValue;               /* 设置实际RSSI值 (int16) */
                 currentUser->snr = snrValue;                 /* 设置SNR值 (uint8) */

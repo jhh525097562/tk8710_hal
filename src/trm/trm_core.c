@@ -10,10 +10,12 @@
 #include "../inc/trm/trm_data.h"
 #include "../inc/driver/tk8710_driver_api.h"
 #include "../inc/driver/tk8710_internal.h"
+#include "../inc/driver/tk8710_regs.h"
 #include "../inc/driver/tk8710_rf_regs.h"
 #include "../inc/tk8710_noise_api.h"
 #include "../port/tk8710_hal.h"
 #include "driver/tk8710_log.h"
+#include <stddef.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,6 +55,10 @@ uint32_t g_trmMaxFrameCount = 100;
 
 /* 扫频状态控制变量 */
 static volatile TRM_SweepState g_sweepState = {0};
+static volatile uint8_t g_sweepCapturePending = 0;
+static volatile uint8_t g_sweepCaptureWaitCount = 0;
+static volatile uint8_t g_sweepCaptureDone = 0;
+static volatile uint32_t g_sweepCaptureFreq = 0;
 
 /* 内部函数声明 */
 TrmContext* TRM_GetContext(void);
@@ -71,6 +77,9 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult);
 static void TRM_OnDriverTxSlotAdapter(TK8710IrqResult* irqResult);
 static void TRM_OnDriverSlotRxAdapter(TK8710IrqResult* irqResult);
 static void TRM_OnDriverErrorAdapter(TK8710IrqResult* irqResult);
+static int TRM_ConfigSweepCapture(void);
+static void TRM_ProcessSweepCaptureInRx(void);
+static void TRM_UpdateSweepFrequencyAfterCapture(void);
 
 /*==============================================================================
  * 公共接口实现
@@ -256,6 +265,153 @@ TrmContext* TRM_GetContext(void)
     return &g_trmCtx;
 }
 
+static int TRM_ConfigSweepCapture(void)
+{
+    s_ram_rd0 ramRd0;
+    ramRd0.data = 0;
+    ramRd0.b.cap_en = 1;
+
+    int ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             RX_MUP_BASE + offsetof(struct rx_mup, ram_rd0),
+                             ramRd0.data);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: Configure sweep capture register failed: %d", ret);
+        return ret;
+    }
+
+    g_sweepCapturePending = 1;
+    g_sweepCaptureWaitCount = 0;
+    g_sweepCaptureDone = 0;
+    g_sweepCaptureFreq = g_sweepState.current_freq;
+    return TK8710_OK;
+}
+
+static void TRM_ProcessSweepCaptureInRx(void)
+{
+    if (!g_sweepCapturePending) {
+        return;
+    }
+
+    if (g_sweepCaptureWaitCount < 2) {
+        g_sweepCaptureWaitCount++;
+        TRM_LOG_DEBUG("TRM: Wait sweep capture RX frame count=%u", g_sweepCaptureWaitCount);
+        return;
+    }
+
+    TRM_LOG_DEBUG("TRM: Performing sweep capture at RX");
+    int captureRet = TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA, TK8710_DBG_OPT_GET, NULL, NULL);
+    if (captureRet == TK8710_OK) {
+        TRM_LOG_DEBUG("采集数据功能执行成功\n");
+        uint8_t append_result = (g_sweepCaptureFreq != g_sweepState.start_freq);
+        tk8710_sweep_noise_process("8710CaptureData", g_sweepState.rate_mode,
+                                  g_sweepCaptureFreq, append_result);
+        g_sweepCaptureDone = 1;
+    } else {
+        TRM_LOG_DEBUG("采集数据功能执行失败: ret=%d\n", captureRet);
+    }
+
+    g_sweepCapturePending = 0;
+    g_sweepCaptureWaitCount = 0;
+}
+
+static void TRM_UpdateSweepFrequencyAfterCapture(void)
+{
+    g_sweepState.current_freq += g_sweepState.step_freq;
+    if (g_sweepState.current_freq > g_sweepState.end_freq) {
+        g_sweepState.sweep_active = 0;
+        g_sweepCapturePending = 0;
+        g_sweepCaptureWaitCount = 0;
+        g_sweepCaptureDone = 0;
+        TRM_LOG_INFO("TRM: Frequency sweep completed");
+#ifdef PLATFORM_RK3506
+        TK8710ScanIpcNotifySweepDone();
+        IpcCommClearConfigReceived();
+
+        int request_count = 0;
+        while (request_count < 3) {
+            TRM_LOG_INFO("发送第%d次配置请求...\n", request_count + 1);
+            if (IpcCommSendConfigRequest(&g_ipc_ctx) != 0) {
+                TRM_LOG_INFO("配置请求发送失败\n");
+            }
+
+            for (int i = 0; i < 100 && !IpcCommIsConfigReceived(); i++) {
+                usleep(100000);
+            }
+
+            request_count++;
+        }
+#endif
+        return;
+    }
+
+    int ret = TK8710_OK;
+    double freq_step;
+    uint32_t freq_reg;
+
+    if (g_sweepState.rftype == TK8710_RF_TYPE_1257_32M) {
+        freq_step = RF_SX1257_FREQ_STEP;
+    } else {
+        freq_step = RF_SX1255_FREQ_STEP;
+    }
+    freq_reg = (uint32_t)((double)g_sweepState.current_freq / freq_step);
+
+    TRM_LOG_INFO("TRM: Switching to frequency %u Hz (step=%.2f, reg=0x%06X)",
+                 g_sweepState.current_freq, freq_step, freq_reg);
+
+    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_MSB >> 8, (freq_reg >> 16) & 0xFF);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: RX frequency MSB write failed: %d", ret);
+        return;
+    }
+
+    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_MID >> 8, (freq_reg >> 8) & 0xFF);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: RX frequency MID write failed: %d", ret);
+        return;
+    }
+
+    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_LSB >> 8, (freq_reg >> 0) & 0xFF);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: RX frequency LSB write failed: %d", ret);
+        return;
+    }
+    TRM_LOG_DEBUG("TRM: RX frequency configuration completed");
+
+    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_RX_GAIN >> 8, g_sweepState.rxgain);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: RX gain configuration failed: %d", ret);
+        return;
+    }
+    TRM_LOG_DEBUG("TRM: RX gain set to: 0x%02X", g_sweepState.rxgain);
+
+    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_MSB >> 8, (freq_reg >> 16) & 0xFF);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: TX frequency MSB write failed: %d", ret);
+        return;
+    }
+
+    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_MID >> 8, (freq_reg >> 8) & 0xFF);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: TX frequency MID write failed: %d", ret);
+        return;
+    }
+
+    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_LSB >> 8, (freq_reg >> 0) & 0xFF);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: TX frequency LSB write failed: %d", ret);
+        return;
+    }
+    TRM_LOG_DEBUG("TRM: TX frequency configuration completed");
+
+    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_TX_GAIN >> 8, g_sweepState.txgain);
+    if (ret != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: TX gain configuration failed: %d", ret);
+        return;
+    }
+    TRM_LOG_DEBUG("TRM: TX gain set to: 0x%02X", g_sweepState.txgain);
+    TRM_LOG_INFO("TRM: Frequency switch to %u Hz completed", g_sweepState.current_freq);
+}
+
 /* 多回调适配函数实现 */
 static void TRM_OnDriverSlotRxAdapter(TK8710IrqResult* irqResult)
 {
@@ -265,24 +421,8 @@ static void TRM_OnDriverSlotRxAdapter(TK8710IrqResult* irqResult)
     /* 调试：记录中断类型 */
     TRM_LOG_DEBUG("TRM: Received RX interrupt type=%d", irqResult->irq_type);
 
-    /* 扫频采数逻辑 - 仅在 S3 时隙且 g_trmCurrentFrame % 3 == 0 时采数 */
     if (g_sweepState.sweep_active) {
-        if ((g_trmCurrentFrame % 3) != 0) {
-            TRM_LOG_DEBUG("TRM: Skip sweep capture at frame %u", g_trmCurrentFrame);
-        } else {
-            TRM_LOG_DEBUG("TRM: Performing sweep capture at RX");
-            /* 采数计算噪底 */
-            int captureRet = TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA, TK8710_DBG_OPT_GET, NULL, NULL);
-            if (captureRet == TK8710_OK) {
-                TRM_LOG_DEBUG("采集数据功能执行成功\n");
-                /* 采集数据成功后计算噪底能量并保存扫频结果 */
-                uint8_t append_result = (g_sweepState.current_freq != g_sweepState.start_freq);
-                tk8710_sweep_noise_process("8710CaptureData", g_sweepState.rate_mode,
-                                          g_sweepState.current_freq, append_result);
-            } else {
-                TRM_LOG_DEBUG("采集数据功能执行失败: ret=%d\n", captureRet);
-            }
-        }
+        TRM_ProcessSweepCaptureInRx();
     }
 
     TRM_OnDriverSlotRx(irqResult);
@@ -318,110 +458,29 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
             if (g_sweepState.sweep_active) {
                 TRM_LOG_DEBUG("TRM: Sweep active, current frame=%u", g_trmCurrentFrame);
 
-                if ((g_trmCurrentFrame % 3) != 0) {
+                if (g_sweepCaptureDone) {
+                    TRM_UpdateSweepFrequencyAfterCapture();
+                    g_sweepCaptureDone = 0;
+                }
+
+                if (!g_sweepState.sweep_active) {
+                    slotType = 3; slotIndex = 3;  /* S3时隙 */
+                    break;
+                }
+
+                if (g_sweepCapturePending) {
+                    TRM_LOG_DEBUG("TRM: Sweep capture pending, wait RX capture complete");
+                } else if ((g_trmCurrentFrame % 3) != 0) {
                     TRM_LOG_DEBUG("TRM: Skip sweep processing at frame %u", g_trmCurrentFrame);
                 } else {
+#ifdef PLATFORM_RK3506
                     TK8710ScanIpcNotifySweepRunning();
-                    TRM_LOG_DEBUG("TRM: Performing frequency configuration");
-                }
-
-                /* 检测结束状态并切换下一个频点 */
-                g_sweepState.current_freq += g_sweepState.step_freq;
-                if (g_sweepState.current_freq > g_sweepState.end_freq) {
-                    /* 扫频完成，停止扫频 */
-                    g_sweepState.sweep_active = 0;
-                    TRM_LOG_INFO("TRM: Frequency sweep completed");
-                    TK8710ScanIpcNotifySweepDone();
-                    IpcCommClearConfigReceived();
-                    /* IPC通信 - 仅在RK3506平台需要 */
-                    int request_count = 0;
-                    while (request_count < 3) {
-                        TRM_LOG_INFO("发送第%d次配置请求...\n", request_count + 1);
-                        if (IpcCommSendConfigRequest(&g_ipc_ctx) != 0) {
-                            TRM_LOG_INFO("配置请求发送失败\n");
-                        }
-
-                        for (int i = 0; i < 100 && !IpcCommIsConfigReceived(); i++) {
-                            usleep(100000);
-                        }
-
-                        request_count++;
-                    }
-                } else {
-                    /* 切换到下一个频点 - 使用 g_sweepState 中保存的 RF 配置 */
-                    /* 6. RX频率配置 (24bit: MSB/MID/LSB) */
-                    int ret = TK8710_OK;
-                    double freq_step;
-                    uint32_t freq_reg;
-
-                    /* 根据射频类型选择频率步进 */
-                    if (g_sweepState.rftype == TK8710_RF_TYPE_1257_32M) {
-                        freq_step = RF_SX1257_FREQ_STEP;
-                    } else {
-                        freq_step = RF_SX1255_FREQ_STEP;
-                    }
-                    freq_reg = (uint32_t)((double)g_sweepState.current_freq / freq_step);
-
-                    TRM_LOG_INFO("TRM: Switching to frequency %u Hz (step=%.2f, reg=0x%06X)",
-                                 g_sweepState.current_freq, freq_step, freq_reg);
-
-                    /* RX频率 */
-                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_MSB >> 8, (freq_reg >> 16) & 0xFF);
+#endif
+                    TRM_LOG_DEBUG("TRM: Configure sweep capture at frequency %u", g_sweepState.current_freq);
+                    int ret = TRM_ConfigSweepCapture();
                     if (ret != TK8710_OK) {
-                        TRM_LOG_ERROR("TRM: RX frequency MSB write failed: %d", ret);
                         return;
                     }
-
-                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_MID >> 8, (freq_reg >> 8) & 0xFF);
-                    if (ret != TK8710_OK) {
-                        TRM_LOG_ERROR("TRM: RX frequency MID write failed: %d", ret);
-                        return;
-                    }
-
-                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_RX_LSB >> 8, (freq_reg >> 0) & 0xFF);
-                    if (ret != TK8710_OK) {
-                        TRM_LOG_ERROR("TRM: RX frequency LSB write failed: %d", ret);
-                        return;
-                    }
-                    TRM_LOG_DEBUG("TRM: RX frequency configuration completed");
-
-                    /* 7. RX增益配置 */
-                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_RX_GAIN >> 8, g_sweepState.rxgain);
-                    if (ret != TK8710_OK) {
-                        TRM_LOG_ERROR("TRM: RX gain configuration failed: %d", ret);
-                        return;
-                    }
-                    TRM_LOG_DEBUG("TRM: RX gain set to: 0x%02X", g_sweepState.rxgain);
-
-                    /* 9. TX频率 */
-                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_MSB >> 8, (freq_reg >> 16) & 0xFF);
-                    if (ret != TK8710_OK) {
-                        TRM_LOG_ERROR("TRM: TX frequency MSB write failed: %d", ret);
-                        return;
-                    }
-
-                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_MID >> 8, (freq_reg >> 8) & 0xFF);
-                    if (ret != TK8710_OK) {
-                        TRM_LOG_ERROR("TRM: TX frequency MID write failed: %d", ret);
-                        return;
-                    }
-
-                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_FRF_TX_LSB >> 8, (freq_reg >> 0) & 0xFF);
-                    if (ret != TK8710_OK) {
-                        TRM_LOG_ERROR("TRM: TX frequency LSB write failed: %d", ret);
-                        return;
-                    }
-                    TRM_LOG_DEBUG("TRM: TX frequency configuration completed");
-
-                    /* 10. TX增益配置 */
-                    ret = tk8710_rf_write(g_sweepState.rfSel, RF_CMD_TX_GAIN >> 8, g_sweepState.txgain);
-                    if (ret != TK8710_OK) {
-                        TRM_LOG_ERROR("TRM: TX gain configuration failed: %d", ret);
-                        return;
-                    }
-                    TRM_LOG_DEBUG("TRM: TX gain set to: 0x%02X", g_sweepState.txgain);
-                    TRM_LOG_INFO("TRM: Frequency switch to %u Hz completed", g_sweepState.current_freq);
-                }
                 }
             }
             slotType = 3; slotIndex = 3;  /* S3时隙 */
@@ -599,6 +658,10 @@ int TRM_StartFrequencySweep(uint32_t start_freq, uint32_t end_freq, uint8_t swee
     /* 增益使用默认值 - 假设初始配置已设置好增益 */
     g_sweepState.rxgain = 0x7E;  /* 默认RX增益 */
     g_sweepState.txgain = 0x2A;  /* 默认TX增益 */
+    g_sweepCapturePending = 0;
+    g_sweepCaptureWaitCount = 0;
+    g_sweepCaptureDone = 0;
+    g_sweepCaptureFreq = start_freq;
 
     TRM_LOG_INFO("TRM: Frequency sweep started: start=%u Hz, end=%u Hz, step=%u Hz, mode=%d, rate=%d, rfSel=0x%02X",
                  start_freq, end_freq, step_freq, sweep_mode, rate_mode, g_sweepState.rfSel);
@@ -609,6 +672,9 @@ int TRM_StartFrequencySweep(uint32_t start_freq, uint32_t end_freq, uint8_t swee
 int TRM_StopFrequencySweep(void)
 {
     g_sweepState.sweep_active = 0;
+    g_sweepCapturePending = 0;
+    g_sweepCaptureWaitCount = 0;
+    g_sweepCaptureDone = 0;
     TRM_LOG_INFO("TRM: Frequency sweep stopped");
     return TRM_OK;
 }
@@ -625,5 +691,3 @@ int TRM_GetSweepState(TRM_SweepState* sweep_state)
     
     return TRM_OK;
 }
-
-

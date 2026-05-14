@@ -53,7 +53,7 @@
 #define TK8710_ANOISE_THE1        4       /* 噪底阈值 1 */
 #define TK8710_ANOISE_THE2        5       /* 噪底阈值 2 */
 #define TK8710_ANOISE_MIN_VAL     (1.0f / 2048.0f)
-#define TK8710_ANOISE_OFFSET      -142.0f /* dBm 转换偏移量 */
+#define TK8710_ANOISE_OFFSET      -132.5f /* dBm/hz 转换偏移量 */
 
 /*============================================================================
  * 数据结构
@@ -368,8 +368,8 @@ static int tk8710_ensure_directory(const char* directory) {
 
 static int tk8710_save_sweep_noise_floor(float* noise_floor, int num_antennas,
                                          uint32_t frequency, uint8_t append_result) {
-    const char* result_dir = "sweepResult";
-    const char* result_file = "sweepResult/reslut.txt";
+    const char* result_dir = "SweepFreqResult";
+    const char* result_file = "SweepFreqResult/Reslut.txt";
 
     if (tk8710_ensure_directory(result_dir) != 0) {
         return -1;
@@ -497,7 +497,7 @@ static int tk8710_sweep_noise_process(const char* data_dir, int rate_mode,
         return -1;
     }
 
-    printf("[噪底计算] 保存扫频结果到: sweepResult/reslut.txt\n");
+    printf("[噪底计算] 保存扫频结果到: SweepFreqResult/Reslut.txt\n");
     if (tk8710_save_sweep_noise_floor(noise_floor, TK8710_NUM_ANTENNAS,
                                       frequency, append_result) != 0) {
         printf("[噪底计算] 错误: 保存扫频结果失败\n");
