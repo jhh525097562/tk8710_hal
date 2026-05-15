@@ -2,6 +2,7 @@
 #include "phy/phy_api.h"
 #include "driver/tk8710_log.h"
 #include "driver/tk8710_internal.h"
+#include "tk8710_hal.h"
 
 int TRM_PhyInit(const ChipConfig* chipConfig, const TRM_InitConfig* trmConfig)
 {
@@ -34,7 +35,9 @@ int TRM_PhyReset(void)
     phyRet = TK8710PhyReset(TK8710_RST_STATE_MACHINE);
     phyRet = TK8710PhyReset(TK8710_RST_ALL);
     TK8710GpioIrqEnable(0, 0);
+#ifdef PLATFORM_RK3506
     TK8710Rk3506Cleanup();
+#endif
     if (trmRet != TRM_OK) {
         return trmRet;
     }

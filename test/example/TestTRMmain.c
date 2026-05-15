@@ -616,7 +616,7 @@ int main(int argc, char* argv[])
         TK8710SetForceMaxUsersTx(0);
         printf("Force max users TX: DISABLED\n");
     }
-    char data[30] = {0};
+    uint8_t data[30] = {0};
     halRet = TK8710HalSendData(
         TK8710_DOWNLINK_A,  // slot=1->A, slot=3->B
         0,                  // 用户ID（示例）

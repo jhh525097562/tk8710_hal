@@ -402,8 +402,8 @@ else
     echo "⚠️  TestTRMmain 源文件不存在"
 fi
 
-# 创建 TestTRMmain_IPC
-if [ -f "test/example/TestTRMmain_IPC.c" ]; then
+# 创建 tk8710_gw
+if [ -f "test/example/tk8710_gw.c" ]; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -419,22 +419,22 @@ if [ -f "test/example/TestTRMmain_IPC.c" ]; then
     
     # 编译测试程序并链接验证器（单独包含IPC对象文件）
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
-        test/example/TestTRMmain_IPC.c \
+        test/example/tk8710_gw.c \
         ${BUILD_DIR}/trm_tx_validator.o \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
         -L./lib -lipc_smp \
         -Wl,-rpath,./lib \
         -lpthread -lgpiod -lm \
-        -o ${BUILD_DIR}/TestTRMmain_IPC
+        -o ${BUILD_DIR}/tk8710_gw
     
     if [ $? -eq 0 ]; then
-        echo "✅ TestTRMmain_IPC 创建成功"
+        echo "✅ tk8710_gw 创建成功"
     else
-        echo "❌ TestTRMmain_IPC 创建失败"
+        echo "❌ tk8710_gw 创建失败"
     fi
 else
-    echo "⚠️  TestTRMmain_IPC 源文件不存在"
+    echo "⚠️  tk8710_gw 源文件不存在"
 fi
 
 # 显示结果

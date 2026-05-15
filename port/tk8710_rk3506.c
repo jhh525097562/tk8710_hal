@@ -6,6 +6,7 @@
 
 #include "tk8710_hal.h"
 #include "../inc/driver/tk8710_regs.h"
+#include "../inc/driver/tk8710_internal.h"
 
 #include <stdint.h>
 #include <stdio.h>

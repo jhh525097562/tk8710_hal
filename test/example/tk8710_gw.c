@@ -135,6 +135,18 @@ static uint8_t ConvertSweepModeToTk8710Rate(int sweep_mode) {
     }
 }
 
+static uint8_t ConvertNsNetworkIdToBcnBits(int nwk_num)
+{
+    if (nwk_num < 0 || nwk_num > 0x1F) {
+        uint8_t bcnbits = (uint8_t)(nwk_num & 0x1F);
+        printf("⚠️  NS network id超出bcnbits范围: nwk_num=%d, 将截断为 %u\n",
+               nwk_num, bcnbits);
+        return bcnbits;
+    }
+
+    return (uint8_t)nwk_num;
+}
+
 /*============================================================================
  * 扫频函数实现
  *============================================================================*/
@@ -369,11 +381,18 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
  * @return 0成功，负数失败
  */
 static int HandleNsConfig(const NsConfigDown_t* config) {
+    uint8_t network_id;
+
     if (!config) {
         return -1;
     }
+
+    network_id = ConvertNsNetworkIdToBcnBits(config->nwk_num);
     
     printf("开始处理NS配置 (HAL已初始化=%d)...\n", g_hal_initialized);
+    printf("NS配置详情: freq=%u, nwk_num=%d, tdd_num=%d, slot_cfg=%d, rate_num=%d, bcnbits=%u\n",
+           config->freq, config->nwk_num, config->tdd_num, config->slot_cfg,
+           config->rate_num, network_id);
     
     /* 如果HAL已初始化，需要先复位再重新配置 */
     if (g_hal_initialized) {
@@ -438,7 +457,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         .tx_bcn_en   = 1,
         .ts_sync     = 0,
         .rf_model    = 1,
-        .bcnbits     = 0,
+        .bcnbits     = network_id,
         .anoiseThe1  = 0,
         .power2rssi  = 0,
         .irq_ctrl0   = 0x7FF,
@@ -1224,5 +1243,4 @@ int main(int argc, char* argv[])
  * 4. 可能需要root权限运行
  * 5. 按Ctrl+C可安全退出程序
  */
-
 

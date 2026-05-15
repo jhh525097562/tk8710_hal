@@ -34,6 +34,12 @@
 #include <direct.h>
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define TK8710_MAYBE_UNUSED __attribute__((unused))
+#else
+#define TK8710_MAYBE_UNUSED
+#endif
+
 /*============================================================================
  * 常量定义
  *============================================================================*/
@@ -402,7 +408,7 @@ static int tk8710_save_sweep_noise_floor(float* noise_floor, int num_antennas,
  * @param output_file 输出文件名 (如 "ANoise.txt")
  * @return 0 成功, -1 失败
  */
-static int tk8710_noise_process(const char* data_dir, int rate_mode, const char* output_file) {
+static TK8710_MAYBE_UNUSED int tk8710_noise_process(const char* data_dir, int rate_mode, const char* output_file) {
     tk8710_fft_config_t config;
     tk8710_complex_t* antenna_data = NULL;
     float noise_floor[TK8710_NUM_ANTENNAS];
@@ -467,7 +473,7 @@ static int tk8710_noise_process(const char* data_dir, int rate_mode, const char*
  * @param noise_floor 输出: 噪底数组 (大小为 TK8710_NUM_ANTENNAS)
  * @return 0 成功, -1 失败
  */
-static int tk8710_get_noise_floor(const char* data_dir, int rate_mode, float* noise_floor) {
+static TK8710_MAYBE_UNUSED int tk8710_get_noise_floor(const char* data_dir, int rate_mode, float* noise_floor) {
     tk8710_fft_config_t config;
     tk8710_complex_t* antenna_data = NULL;
     
@@ -488,7 +494,7 @@ static int tk8710_get_noise_floor(const char* data_dir, int rate_mode, float* no
     return result;
 }
 
-static int tk8710_sweep_noise_process(const char* data_dir, int rate_mode,
+static TK8710_MAYBE_UNUSED int tk8710_sweep_noise_process(const char* data_dir, int rate_mode,
                                       uint32_t frequency, uint8_t append_result) {
     float noise_floor[TK8710_NUM_ANTENNAS];
 
