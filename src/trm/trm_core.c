@@ -470,7 +470,7 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
 
                 if (g_sweepCapturePending) {
                     TRM_LOG_DEBUG("TRM: Sweep capture pending, wait RX capture complete");
-                } else if ((g_trmCurrentFrame % 3) != 0) {
+                } else if ((g_trmCurrentFrame % 4) != 0) {
                     TRM_LOG_DEBUG("TRM: Skip sweep processing at frame %u", g_trmCurrentFrame);
                 } else {
 #ifdef PLATFORM_RK3506

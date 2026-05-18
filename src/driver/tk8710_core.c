@@ -9,10 +9,13 @@
 #include "../inc/driver/tk8710_rf_regs.h"
 #include "driver/tk8710_log.h"
 #include "../port/tk8710_hal.h"
+#include <stdio.h>
 #include <string.h>
 #include <stddef.h>
 #include <unistd.h>
 #include <stdbool.h>
+
+#define TK8710_TXADC_CONFIG_PATH "TxDC/txadc.txt"
 
 /* 默认GPIO中断包装函数 */
 static void default_gpio_irq_handler(void* user)
@@ -65,6 +68,75 @@ static const ChipConfig g_defaultChipConfig = {
 /**
  * @brief 获取当前速率模式
  * @return 当前速率模式
+ */
+static bool TK8710TxAdcConfigIsUnset(const TxAdcConfig txadc[TK8710_MAX_ANTENNAS])
+{
+    int i;
+
+    if (txadc == NULL) {
+        return true;
+    }
+
+    for (i = 0; i < TK8710_MAX_ANTENNAS; i++) {
+        if (txadc[i].i != 0 || txadc[i].q != 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static int TK8710LoadTxAdcConfigFromFile(TxAdcConfig txadc[TK8710_MAX_ANTENNAS])
+{
+    FILE* file;
+    char line[256];
+    int index = 0;
+    TxAdcConfig loaded[TK8710_MAX_ANTENNAS] = {0};
+
+    if (txadc == NULL) {
+        return TK8710_ERR;
+    }
+
+    file = fopen(TK8710_TXADC_CONFIG_PATH, "r");
+    if (file == NULL) {
+        TK8710_LOG_CORE_WARN("TXADC config is unset and %s cannot be opened",
+                             TK8710_TXADC_CONFIG_PATH);
+        return TK8710_ERR;
+    }
+
+    while (fgets(line, sizeof(line), file) != NULL && index < TK8710_MAX_ANTENNAS) {
+        unsigned int i_value;
+        unsigned int q_value;
+
+        if (line[0] == '\0' || line[0] == '\n' || line[0] == '\r' ||
+            line[0] == '#' || line[0] == '/') {
+            continue;
+        }
+
+        if (sscanf(line, "0x%x, 0x%x", &i_value, &q_value) == 2 ||
+            sscanf(line, "%x, %x", &i_value, &q_value) == 2) {
+            loaded[index].i = (int16_t)(i_value & 0xFFFFu);
+            loaded[index].q = (int16_t)(q_value & 0xFFFFu);
+            index++;
+        }
+    }
+
+    fclose(file);
+
+    if (index != TK8710_MAX_ANTENNAS) {
+        TK8710_LOG_CORE_WARN("TXADC config file %s has %d entries, expected %d",
+                             TK8710_TXADC_CONFIG_PATH, index, TK8710_MAX_ANTENNAS);
+        return TK8710_ERR;
+    }
+
+    memcpy(txadc, loaded, sizeof(loaded));
+    TK8710_LOG_CORE_INFO("Loaded TXADC config from %s", TK8710_TXADC_CONFIG_PATH);
+    return TK8710_OK;
+}
+
+/**
+ * @brief 鑾峰彇褰撳墠閫熺巼妯″紡
+ * @return 褰撳墠閫熺巼妯″紡
  */
 uint8_t TK8710GetRateMode(void)
 {
@@ -686,6 +758,7 @@ int TK8710RfConfig(const ChiprfConfig* initrfConfig)
     s_tx_config_29 txConfig29;
     uint32_t txFeAddr;
     uint8_t rfSel;
+    TxAdcConfig txadcToUse[TK8710_MAX_ANTENNAS];
     
     TK8710_LOG_CORE_INFO("Starting RF initialization...");
     
@@ -698,6 +771,13 @@ int TK8710RfConfig(const ChiprfConfig* initrfConfig)
     rfSel = TK8710GetSlotConfig()->rfSel;
     TK8710_LOG_CORE_INFO("RF config: type=%d, freq=%u Hz, rxgain=0x%02X, txgain=0x%02X, rfSel=0x%02X", 
                         initrfConfig->rftype, initrfConfig->Freq, initrfConfig->rxgain, initrfConfig->txgain, rfSel);
+
+    memcpy(txadcToUse, initrfConfig->txadc, sizeof(txadcToUse));
+    if (TK8710TxAdcConfigIsUnset(txadcToUse)) {
+        if (TK8710LoadTxAdcConfigFromFile(txadcToUse) != TK8710_OK) {
+            TK8710_LOG_CORE_WARN("Using zero TXADC config");
+        }
+    }
     
     /* 配置mac.init_11: rf_type (射频数字接口类型) */
     {
@@ -729,8 +809,8 @@ int TK8710RfConfig(const ChiprfConfig* initrfConfig)
         }
         
         /* 配置tx_dci和tx_dcq (各16bit) */
-        txConfig29.b.tx_dci = initrfConfig->txadc[i].i & 0xFFFF;
-        txConfig29.b.tx_dcq = initrfConfig->txadc[i].q & 0xFFFF;
+        txConfig29.b.tx_dci = txadcToUse[i].i & 0xFFFF;
+        txConfig29.b.tx_dcq = txadcToUse[i].q & 0xFFFF;
         
         /* 写回tx_config_29寄存器 */
         ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 

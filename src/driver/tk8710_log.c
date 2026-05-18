@@ -11,6 +11,21 @@
 #include <string.h>
 #include <time.h>
 #include <stdlib.h>
+#include <errno.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <sys/stat.h>
+#define TK8710_LOG_MKDIR(path) _mkdir(path)
+#define TK8710_LOG_IS_DIR(mode) (((mode) & _S_IFDIR) != 0)
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#define TK8710_LOG_MKDIR(path) mkdir(path, 0755)
+#define TK8710_LOG_IS_DIR(mode) S_ISDIR(mode)
+#endif
+
+#define TK8710_DEFAULT_LOG_DIR "8710log"
 
 /* 全局日志配置 */
 TK8710LogConfig_t g_logConfig = {
@@ -120,6 +135,33 @@ static void get_log_file_path(char* path, size_t pathSize, int fileIndex)
         snprintf(path, pathSize, "%s_%d%s", 
                  TK8710_LOG_FILE_NAME_PREFIX, fileIndex, TK8710_LOG_FILE_NAME_EXT);
     }
+}
+
+static int prepare_log_directory(const char* logDir)
+{
+    struct stat st;
+    const char* targetDir = logDir;
+
+    if (targetDir == NULL || targetDir[0] == '\0') {
+        targetDir = TK8710_DEFAULT_LOG_DIR;
+    }
+
+    strncpy(g_logDirectory, targetDir, sizeof(g_logDirectory) - 1);
+    g_logDirectory[sizeof(g_logDirectory) - 1] = '\0';
+
+    if (stat(g_logDirectory, &st) == 0) {
+        return TK8710_LOG_IS_DIR(st.st_mode) ? 0 : 1;
+    }
+
+    if (TK8710_LOG_MKDIR(g_logDirectory) != 0 && errno != EEXIST) {
+        return 1;
+    }
+
+    if (stat(g_logDirectory, &st) != 0 || !TK8710_LOG_IS_DIR(st.st_mode)) {
+        return 1;
+    }
+
+    return 0;
 }
 
 /**
@@ -488,11 +530,8 @@ int TK8710LogEnableFileLogging(uint8_t enable, const char* logDir)
     }
     
     /* 设置日志目录 */
-    if (logDir != NULL) {
-        strncpy(g_logDirectory, logDir, sizeof(g_logDirectory) - 1);
-        g_logDirectory[sizeof(g_logDirectory) - 1] = '\0';
-    } else {
-        g_logDirectory[0] = '\0';
+    if (prepare_log_directory(logDir) != 0) {
+        return 1;
     }
     
     /* 扫描所有日志文件，查找未满的文件或需要覆盖的文件 */

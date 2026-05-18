@@ -59,7 +59,7 @@
 #define TK8710_ANOISE_THE1        4       /* 噪底阈值 1 */
 #define TK8710_ANOISE_THE2        5       /* 噪底阈值 2 */
 #define TK8710_ANOISE_MIN_VAL     (1.0f / 2048.0f)
-#define TK8710_ANOISE_OFFSET      -132.5f /* dBm/hz 转换偏移量 */
+#define TK8710_ANOISE_OFFSET      -140.0f /* dBm/hz 转换偏移量 */
 
 /*============================================================================
  * 数据结构
@@ -218,6 +218,10 @@ static int tk8710_read_antenna_file(const char* data_dir, int antenna_idx,
     for (int i = 0; i < fft_len; i++) {
         data[i].real = (float)raw_data[i * 2] / 32768.0f;
         data[i].imag = (float)raw_data[i * 2 + 1] / 32768.0f;
+        if(i >= fft_len-3){
+            data[i].real = (float)0.0 / 32768.0f;
+            data[i].imag = (float)0.0 / 32768.0f;
+        }
     }
     
     free(raw_data);

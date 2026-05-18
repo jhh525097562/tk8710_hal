@@ -34,16 +34,30 @@
 #include <linux/spi/spidev.h>
 #include <time.h>
 #include <sched.h>
+#include <sys/select.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <limits.h>
 
 #ifdef _WIN32
 #include <windows.h>
 #include <conio.h>
+#include <direct.h>
 #include <locale.h>
+#define TK8710_CHDIR(path) _chdir(path)
+#define TK8710_GETCWD(buf, size) _getcwd(buf, size)
+#define TK8710_MKDIR(path) _mkdir(path)
 #else
 #include <unistd.h>
 #include <signal.h>
+#define TK8710_CHDIR(path) chdir(path)
+#define TK8710_GETCWD(buf, size) getcwd(buf, size)
+#define TK8710_MKDIR(path) mkdir(path, 0755)
+#endif
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
 #endif
 
 /*============================================================================
@@ -87,6 +101,9 @@ static volatile bool g_txBeamCtrlMode = false;         /* 波束控制模式 */
 static uint32_t g_trmSendCount = 0;               /* TRM发送计数 */
 static uint32_t g_trmRxCount = 0;                 /* TRM接收计数 */
 
+#define DRIVER_IRQ_STALL_TIMEOUT_SEC 120
+#define CONSOLE_POLL_INTERVAL_SEC 10
+
 /* 核间通信上下文由 src/tk8710_ipc_comm.c 定义 */
 
 /* TRM回调函数声明 */
@@ -98,6 +115,7 @@ static int HandleNsConfig(const NsConfigDown_t* config);
 
 /* HAL是否已初始化标志 */
 static int g_hal_initialized = 0;
+static volatile uint8_t g_ns_config_started = 0;
 
 /* 采集数据控制变量 */
 static volatile uint8_t g_captureDataPending = 0;         /* 采集数据待执行标志 */
@@ -106,6 +124,75 @@ static volatile uint8_t g_captureDataPendingNum = 0;         /* 采集数据等�
 /* 扫频功能已移至TRM层，现在使用TRM_SweepState结构体 */
 
 /* NS速率索引到TK8710速率模式转换函数 */
+static void PrintUsage(const char* prog_name)
+{
+    printf("Usage: %s [options]\n", prog_name);
+    printf("Options:\n");
+    printf("  --work-dir <dir>, -w <dir> : Set runtime directory for generated files\n");
+    printf("  --help, -h                 : Show this help\n");
+}
+
+static int ConfigureRuntimeDirectory(const char* path)
+{
+    char cwd[PATH_MAX];
+
+    if (path == NULL || path[0] == '\0') {
+        return 0;
+    }
+
+    if (TK8710_MKDIR(path) != 0 && errno != EEXIST) {
+        printf("Failed to create runtime directory %s: %s\n", path, strerror(errno));
+        return -1;
+    }
+
+    if (TK8710_CHDIR(path) != 0) {
+        printf("Failed to enter runtime directory %s: %s\n", path, strerror(errno));
+        return -1;
+    }
+
+    if (TK8710_GETCWD(cwd, sizeof(cwd)) != NULL) {
+        printf("Runtime directory: %s\n", cwd);
+    }
+
+    return 0;
+}
+
+static int NormalizeRuntimeArgs(int* argc, char* argv[], const char** work_dir)
+{
+    int compact_argc = 1;
+    int arg_index;
+
+    if (argc == NULL || argv == NULL || work_dir == NULL) {
+        return -1;
+    }
+
+    *work_dir = NULL;
+    for (arg_index = 1; arg_index < *argc; arg_index++) {
+        if (strcmp(argv[arg_index], "--help") == 0 || strcmp(argv[arg_index], "-h") == 0) {
+            PrintUsage(argv[0]);
+            return 1;
+        }
+
+        if (strcmp(argv[arg_index], "--work-dir") == 0 || strcmp(argv[arg_index], "-w") == 0) {
+            if (arg_index + 1 >= *argc) {
+                printf("Error: %s requires a directory path\n", argv[arg_index]);
+                PrintUsage(argv[0]);
+                return -1;
+            }
+
+            *work_dir = argv[++arg_index];
+            continue;
+        }
+
+        printf("Error: Unknown argument %s\n", argv[arg_index]);
+        PrintUsage(argv[0]);
+        return -1;
+    }
+
+    *argc = compact_argc;
+    return 0;
+}
+
 static uint8_t ConvertNsRateToTk8710Rate(uint8_t ns_rate) {
     switch (ns_rate) {
         case 0: return TK8710_RATE_MODE_5;
@@ -146,6 +233,126 @@ static uint8_t ConvertNsNetworkIdToBcnBits(int nwk_num)
 
     return (uint8_t)nwk_num;
 }
+
+static uint32_t GetDriverWatchdogIrqCount(uint8_t irq_type)
+{
+    uint32_t counters[10] = {0};
+
+    TK8710GetAllIrqCounters(counters);
+    if (irq_type >= 10) {
+        return 0;
+    }
+
+    return counters[irq_type];
+}
+
+#ifndef _WIN32
+static int ReadConsoleCommandWithIrqWatchdog(char* input, uint8_t watchdog_enabled)
+{
+    static uint8_t initialized = 0;
+    static uint8_t prompt_shown = 0;
+    static uint8_t console_checked = 0;
+    static uint8_t console_input_enabled = 0;
+    static uint32_t last_md_data_irq_count = 0;
+    static uint32_t last_s3_irq_count = 0;
+    static uint64_t last_md_data_change_sec = 0;
+    static uint64_t last_s3_change_sec = 0;
+    fd_set read_fds;
+    struct timeval timeout;
+    int select_ret;
+    uint64_t now_sec;
+    uint32_t current_md_data_irq_count;
+    uint32_t current_s3_irq_count;
+
+    if (!input) {
+        return -1;
+    }
+
+    if (!console_checked) {
+        console_input_enabled = isatty(STDIN_FILENO) ? 1 : 0;
+        console_checked = 1;
+    }
+
+    if (!watchdog_enabled) {
+        initialized = 0;
+    } else if (!initialized) {
+        last_md_data_irq_count = GetDriverWatchdogIrqCount(TK8710_IRQ_MD_DATA);
+        last_s3_irq_count = GetDriverWatchdogIrqCount(TK8710_IRQ_S3);
+        last_md_data_change_sec = (uint64_t)time(NULL);
+        last_s3_change_sec = last_md_data_change_sec;
+        initialized = 1;
+    }
+
+    if (console_input_enabled && !prompt_shown) {
+        printf("TK8710> ");
+        fflush(stdout);
+        prompt_shown = 1;
+    }
+
+    FD_ZERO(&read_fds);
+    if (console_input_enabled) {
+        FD_SET(STDIN_FILENO, &read_fds);
+    }
+    timeout.tv_sec = CONSOLE_POLL_INTERVAL_SEC;
+    timeout.tv_usec = 0;
+
+    select_ret = select(console_input_enabled ? STDIN_FILENO + 1 : 0,
+                        console_input_enabled ? &read_fds : NULL,
+                        NULL, NULL, &timeout);
+    if (select_ret < 0) {
+        if (errno == EINTR) {
+            return 0;
+        }
+
+        perror("select");
+        return -1;
+    }
+
+    if (watchdog_enabled) {
+        current_md_data_irq_count = GetDriverWatchdogIrqCount(TK8710_IRQ_MD_DATA);
+        current_s3_irq_count = GetDriverWatchdogIrqCount(TK8710_IRQ_S3);
+        now_sec = (uint64_t)time(NULL);
+
+        if (current_md_data_irq_count != last_md_data_irq_count) {
+            last_md_data_irq_count = current_md_data_irq_count;
+            last_md_data_change_sec = now_sec;
+        } else if (now_sec >= last_md_data_change_sec + DRIVER_IRQ_STALL_TIMEOUT_SEC) {
+            printf("\nDriver MD_DATA interrupt count unchanged for %u seconds, exiting.\n",
+                   DRIVER_IRQ_STALL_TIMEOUT_SEC);
+            return -1;
+        }
+
+        if (current_s3_irq_count != last_s3_irq_count) {
+            last_s3_irq_count = current_s3_irq_count;
+            last_s3_change_sec = now_sec;
+        } else if (now_sec >= last_s3_change_sec + DRIVER_IRQ_STALL_TIMEOUT_SEC) {
+            printf("\nDriver S3 interrupt count unchanged for %u seconds, exiting.\n",
+                   DRIVER_IRQ_STALL_TIMEOUT_SEC);
+            return -1;
+        }
+    }
+
+    if (select_ret == 0 || !console_input_enabled) {
+        return 0;
+    }
+
+    if (scanf(" %c", input) != 1) {
+        if (feof(stdin)) {
+            printf("\nstdin closed, console input disabled.\n");
+            console_input_enabled = 0;
+            prompt_shown = 0;
+            clearerr(stdin);
+            return 0;
+        }
+
+        clearerr(stdin);
+        return 0;
+    }
+
+    prompt_shown = 0;
+    return 1;
+}
+#endif
 
 /*============================================================================
  * 扫频函数实现
@@ -387,6 +594,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         return -1;
     }
 
+    g_ns_config_started = 0;
     network_id = ConvertNsNetworkIdToBcnBits(config->nwk_num);
     
     printf("开始处理NS配置 (HAL已初始化=%d)...\n", g_hal_initialized);
@@ -435,11 +643,11 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         .rftype = TK8710_RF_TYPE_1255_1M,
         .Freq = 503100000,
         .rxgain = 0x7e,
-        .txgain = 0x2a,
-        .txadc = {//D号板
-            {0x0450, 0x0450}, {0x0a00, 0x1080}, {0x0750, 0x1500}, {0x0400, 0x0b00},
-            {0x08a0, 0x07a0}, {0x0990, 0xff00}, {0x0850, 0x08c8}, {0x0950, 0x0a00}
-        }
+        .txgain = 0x2a
+        // .txadc = {//D号板
+        //     {0x0350, 0x0490}, {0x0150, 0x0500}, {0x0450, 0x0490}, {0x0190, 0x0850},
+        //     {0x0500, 0x0300}, {0xfe50, 0x0200}, {0x0190, 0x0550}, {0x03c0, 0x0400}
+        // }
     };
     rfConfig.Freq = config->freq;
     /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
@@ -608,6 +816,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         return -1;
     }
     printf("HAL started successfully (Master mode, Continuous work)\n");
+    g_ns_config_started = 1;
 
     if (!TK8710ScanIpcServerIsRunning()) {
         if (TK8710ScanIpcServerStart() == 0) {
@@ -822,62 +1031,21 @@ void show_irq_statistics(void)
  */
 int main(int argc, char* argv[])
 {
+    char input;
+    const char* work_dir = NULL;
+    int arg_ret = NormalizeRuntimeArgs(&argc, argv, &work_dir);
+    if (arg_ret != 0) {
+        return arg_ret > 0 ? 0 : 1;
+    }
+
+    if (ConfigureRuntimeDirectory(work_dir) != 0) {
+        return 1;
+    }
+
     // Set CPU affinity to core 2
     if (set_cpu_affinity(2) < 0) {
         return 1;
     }
-    char input;
-    int testMode = 6;  /* 默认模式6 */
-    int s1ByteLen = 26;  /* 默认s1 byteLen */
-    int s2ByteLen = 26;  /* 默认s2 byteLen */
-    int s3ByteLen = 26;  /* 默认s3 byteLen */
-    /* 检查命令行参数 */
-    if (argc > 1) {
-        if (strcmp(argv[1], "--multi-rate") == 0 || strcmp(argv[1], "-m") == 0) {
-            printf("Multi-rate mode enabled\n");
-        } else if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-            printf("Usage: %s [--multi-rate|-m] [--help|-h]\n", argv[0]);
-            printf("  --multi-rate, -m : Use multi-rate configuration\n");
-            printf("  --help, -h       : Show this help\n");
-            return 0;
-        }
-        testMode = atoi(argv[1]);
-        if (testMode < 5 || testMode > 18 || (testMode > 11 && testMode < 18)) {
-            printf("Error: Invalid mode %d. Supported modes: 5,6,7,8,9,10,11,18\n", testMode);
-            return 1;
-        }
-
-        /* 解析s1ByteLen参数 */
-        if (argc > 2) {
-            s1ByteLen = atoi(argv[2]);
-            if (s1ByteLen <= 0 || s1ByteLen > 255) {
-                printf("Error: Invalid s1ByteLen %d. Must be positive integer <= 255\n", s1ByteLen);
-                return 1;
-            }
-        }
-        
-        /* 解析s2ByteLen参数 */
-        if (argc > 3) {
-            s2ByteLen = atoi(argv[3]);
-            if (s2ByteLen <= 0 || s2ByteLen > 255) {
-                printf("Error: Invalid s2ByteLen %d. Must be positive integer <= 255\n", s2ByteLen);
-                return 1;
-            }
-        }
-        
-        /* 解析s3ByteLen参数 */
-        if (argc > 4) {
-            s3ByteLen = atoi(argv[4]);
-            if (s3ByteLen <= 0 || s3ByteLen > 255) {
-                printf("Error: Invalid s3ByteLen %d. Must be positive integer <= 255\n", s3ByteLen);
-                return 1;
-            }
-        }
-        
-        printf("Using test mode: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d\n", 
-               testMode, s1ByteLen, s2ByteLen, s3ByteLen);
-    }
-    
 #ifdef _WIN32
     /* 设置控制台编码为UTF-8 */
     SetConsoleOutputCP(65001);  // UTF-8
@@ -950,10 +1118,10 @@ int main(int argc, char* argv[])
             //     {0x0bc0, 0x04a0}, {0x0a50, 0x0780}, {0x0750, 0x0820}, {0x0bc3, 0x0940},
             //     {0x0e83, 0x05e0}, {0xfbff, 0x0850}, {0x0880, 0x0500}, {0x02a0, 0x06ff}
             // }
-            .txadc = {//2号板
-                {0x0c90, 0x1190}, {0xfe30, 0x0220}, {0x0210, 0x01a0}, {0x0b70, 0x07b0},
-                {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
-            }
+            // .txadc = {//2号板
+            //     {0x0c90, 0x1190}, {0xfe30, 0x0220}, {0x0210, 0x01a0}, {0x0b70, 0x07b0},
+            //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
+            // }
         };
         
         /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
@@ -988,7 +1156,7 @@ int main(int argc, char* argv[])
         trmConfig.beamTimeoutMs = 10000;
         trmConfig.callbacks.onRxData = OnTrmRxData;
         trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
-        trmConfig.maxFrameCount = 254;
+        trmConfig.maxFrameCount = 2;
         /* 4. 准备HAL初始化配置 */
         TK8710HalInitCfg halConfig = {
             .chipInitCfg = &chipConfig,
@@ -1084,6 +1252,7 @@ int main(int argc, char* argv[])
             return -1;
         }
         printf("HAL started successfully (Master mode, Continuous work)\n");
+        g_ns_config_started = 0;
         if (!TK8710ScanIpcServerIsRunning()) {
             if (TK8710ScanIpcServerStart() == 0) {
                 printf("Web扫频IPC服务已启动: /tmp/data_collect.sock\n");
@@ -1098,9 +1267,8 @@ int main(int argc, char* argv[])
     
     /* 8. 主循环 - 等待中断并进行中断处理 */
     while (g_running) {
-        printf("TK8710> ");
-        
 #ifdef _WIN32
+        printf("TK8710> ");
         input = _getch();
         if (input != '\r') {
             printf("%c\n", input);
@@ -1109,7 +1277,14 @@ int main(int argc, char* argv[])
             continue;
         }
 #else
-        scanf(" %c", &input);
+        int read_ret = ReadConsoleCommandWithIrqWatchdog(&input, g_ns_config_started);
+        if (read_ret < 0) {
+            g_running = 0;
+            break;
+        }
+        if (read_ret == 0) {
+            continue;
+        }
 #endif
         
         switch (input) {
@@ -1243,4 +1418,3 @@ int main(int argc, char* argv[])
  * 4. 可能需要root权限运行
  * 5. 按Ctrl+C可安全退出程序
  */
-

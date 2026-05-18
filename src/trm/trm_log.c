@@ -12,6 +12,19 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#define TRM_LOG_MKDIR(path) _mkdir(path)
+#define TRM_LOG_IS_DIR(mode) (((mode) & _S_IFDIR) != 0)
+#else
+#include <sys/types.h>
+#define TRM_LOG_MKDIR(path) mkdir(path, 0755)
+#define TRM_LOG_IS_DIR(mode) S_ISDIR(mode)
+#endif
+
+#define TRM_DEFAULT_LOG_DIR "8710log"
 
 #ifdef PLATFORM_JTOOL
 typedef int trm_mutex_t;
@@ -128,6 +141,33 @@ static void get_log_file_path(char* buffer, int size, int index)
     } else {
         snprintf(buffer, size, "%s/trm_log_%d.log", dir, index);
     }
+}
+
+static int prepare_log_directory(const char* dir)
+{
+    struct stat st;
+    const char* targetDir = dir;
+
+    if (targetDir == NULL || targetDir[0] == '\0') {
+        targetDir = TRM_DEFAULT_LOG_DIR;
+    }
+
+    if (stat(targetDir, &st) == 0) {
+        if (!TRM_LOG_IS_DIR(st.st_mode)) {
+            return -1;
+        }
+    } else {
+        if (TRM_LOG_MKDIR(targetDir) != 0 && errno != EEXIST) {
+            return -1;
+        }
+
+        if (stat(targetDir, &st) != 0 || !TRM_LOG_IS_DIR(st.st_mode)) {
+            return -1;
+        }
+    }
+
+    g_trmLogConfig.log_file_dir = targetDir;
+    return 0;
 }
 
 /**
@@ -421,9 +461,12 @@ void TRM_LogEnableFileInfo(uint8_t enable)
 void TRM_LogEnableFileLogging(uint8_t enable, const char* dir)
 {
     g_trmLogConfig.enable_file_logging = enable;
-    g_trmLogConfig.log_file_dir = dir;
     
     if (enable) {
+        if (prepare_log_directory(dir) != 0) {
+            g_trmFileLoggingEnabled = 0;
+            return;
+        }
         /* 初始化文件日志系统 */
         trm_mutex_lock(&g_trmLogMutex);
         
