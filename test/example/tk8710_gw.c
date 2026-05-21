@@ -121,6 +121,63 @@ static volatile uint8_t g_ns_config_started = 0;
 static volatile uint8_t g_captureDataPending = 0;         /* 采集数据待执行标志 */
 static volatile uint8_t g_captureDataPendingNum = 0;         /* 采集数据等待次数 */
 
+
+
+void read_register(void)
+{
+    uint32_t addr, value;
+    int ret;
+    
+    printf("\n=== 读取寄存器 ===\n");
+    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+    
+    if (scanf("%x", &addr) != 1) {
+        printf("无效的地址格式\n");
+        return;
+    }
+    
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, addr, &value);
+    if (ret == TK8710_OK) {
+        printf("寄存器 0x%08X = 0x%08X (%u)\n", addr, value, value);
+    } else {
+        printf("读取失败: 错误码=%d\n", ret);
+    }
+    printf("==================\n\n");
+}
+
+/**
+ * @brief 写入寄存器
+ */
+void write_register(void)
+{
+    uint32_t addr, value;
+    int ret;
+    
+    printf("\n=== 写入寄存器 ===\n");
+    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+    
+    if (scanf("%x", &addr) != 1) {
+        printf("无效的地址格式\n");
+        return;
+    }
+    
+    printf("输入写入值 (十六进制，如 0x8): ");
+    
+    if (scanf("%x", &value) != 1) {
+        printf("无效的值格式\n");
+        return;
+    }
+    
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, addr, value);
+    if (ret == TK8710_OK) {
+        printf("写入成功: 0x%08X = 0x%08X (%u)\n", addr, value, value);
+    } else {
+        printf("写入失败: 错误码=%d\n", ret);
+    }
+    printf("==================\n\n");
+}
+
+
 /* 扫频功能已移至TRM层，现在使用TRM_SweepState结构体 */
 
 /* NS速率索引到TK8710速率模式转换函数 */
@@ -440,7 +497,7 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
         .bcn_scan    = 0,
         .ant_en      = 0xFF,
         .rf_sel      = 0xFF,
-        .tx_bcn_en   = 1,
+        .tx_bcn_en   = 0xff,
         .ts_sync     = 0,
         .rf_model    = 1,
         .bcnbits     = 0,
@@ -496,7 +553,7 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
     slotCfg.rfSel = 0xFF;
     slotCfg.txBeamCtrlMode = 1;
     g_txBeamCtrlMode = (slotCfg.txBeamCtrlMode == 0);
-    slotCfg.txBcnAntEn = 0x7f;
+    slotCfg.txBcnAntEn = 0xff;
     slotCfg.rx_delay = 0;
     slotCfg.md_agc = 1024;
     slotCfg.brdFreq[0] = 20000.0;
@@ -662,7 +719,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         .bcn_scan    = 0,
         .ant_en      = 0xFF,
         .rf_sel      = 0xFF,
-        .tx_bcn_en   = 1,
+        .tx_bcn_en   = 1,//0xff
         .ts_sync     = 0,
         .rf_model    = 1,
         .bcnbits     = network_id,
@@ -716,7 +773,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     slotCfg.rfSel = 0xFF;
     slotCfg.txBeamCtrlMode = 1;
     g_txBeamCtrlMode = (slotCfg.txBeamCtrlMode == 0);
-    slotCfg.txBcnAntEn = 0x7f;
+    slotCfg.txBcnAntEn = 0xff;
     slotCfg.rx_delay = 0;
     slotCfg.md_agc = 1024;
     slotCfg.brdFreq[0] = 20000.0;
@@ -808,6 +865,14 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     }
     
     printf("✅ 根据NS配置完成时隙参数配置\n");
+
+    // printf("配置为单天线接收模式...\n");
+    // int ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0xc02c, 0x00010101);
+    // if (ret == TK8710_OK) {
+    //     printf("单天线接收模式配置成功 (0xc02c = 0x00010101)\n");
+    // } else {
+    //     printf("单天线接收模式配置失败: ret=%d\n", ret);
+    // }
 
     /* 12. 调用 TK8710HalStart 启动工作 */
     TK8710HalError halRet_start = TK8710HalStart();
@@ -1188,7 +1253,7 @@ int main(int argc, char* argv[])
         slotCfg.rfSel = 0xFF;
         slotCfg.txBeamCtrlMode = 1;
         g_txBeamCtrlMode = (slotCfg.txBeamCtrlMode == 0);
-        slotCfg.txBcnAntEn = 0x7f;
+        slotCfg.txBcnAntEn = 0xff;
         slotCfg.rx_delay = 0;
         slotCfg.md_agc = 1024;
         slotCfg.brdFreq[0] = 20000.0;
@@ -1316,7 +1381,16 @@ int main(int argc, char* argv[])
             case 'T':
                 show_trm_statistics();
                 break;
-            
+
+            case 'r':
+            case 'R':
+                read_register();
+                break;
+                
+            case 'w':
+            case 'W':
+                write_register();
+                break;            
             case 'a':
             case 'A':
                 uint32_t start_freq = 480000000; // 480 MHz

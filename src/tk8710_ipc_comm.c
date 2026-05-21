@@ -528,6 +528,7 @@ int IpcSendUplinkData(IpcCommContext *ctx, const TRM_RxDataList* rxDataList) {
         gw_data->slot = 0;  // 示例时隙计算
         gw_data->rssi = user->rssi;
         gw_data->snr = user->snr;
+        // gw_data->freq_offset = user->freq/128;
 
         // 复制用户数据
         gw_data->payload_len = user->dataLen;

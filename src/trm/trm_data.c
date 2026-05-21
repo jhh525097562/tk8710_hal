@@ -207,7 +207,7 @@ void TRM_ProcessBeamRamReleases(void)
     }
     
     /* 每100帧报告一次队列状态 */
-    if (g_trmCurrentFrame - lastReportFrame >= 30) {
+    if (g_trmCurrentFrame - lastReportFrame >= 100) {
         TRM_LOG_INFO("TRM: Queue status - BeamRelease: %u/%u, TxQueue[Pri0]=%u, [Pri1]=%u, [Pri2]=%u, [Pri3]=%u, Total=%u/%u, processed=%u", 
                      g_beamReleaseQueue.count, BEAM_RELEASE_QUEUE_SIZE, 
                      g_txQueues[0].count, g_txQueues[1].count, g_txQueues[2].count, g_txQueues[3].count,
@@ -1144,6 +1144,10 @@ int TRM_ProcessRxUserDataBatch(uint8_t* userIndices, uint8_t userCount, TK8710Cr
     /* 一次性调用接收回调，处理所有用户 */
     TrmContext* ctx = TRM_GetContext();
     if (ctx && ctx->config.callbacks.onRxData != NULL) {
+        if (userCount > 0) {
+            TRM_LOG_INFO("TRM: RX users - rateMode=%u, systemFrame=%u, userCount=%u",
+                         currentRateMode, g_trmCurrentFrame, userCount);
+        }
         TRM_LOG_DEBUG("TRM: Calling onRxData callback for %d users", userCount);
         ctx->config.callbacks.onRxData(&rxDataList);
     }

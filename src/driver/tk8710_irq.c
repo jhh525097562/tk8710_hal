@@ -1104,10 +1104,10 @@ static void tk8710_handle_slot0(void)
     /* 设置中断类型 */
     g_irqResult.irq_type = TK8710_IRQ_S0;
     
-    /* 处理BCN轮流发送 - 仅在Master模式下运行 */
-    if (TK8710GetWorkType() == TK8710_MODE_MASTER) {
-        tk8710_s0_bcn_rotation_process();
-    }
+    // /* 处理BCN轮流发送 - 仅在Master模式下运行 */
+    // if (TK8710GetWorkType() == TK8710_MODE_MASTER) {
+    //     tk8710_s0_bcn_rotation_process();
+    // }
 }
 
 /**
@@ -1120,14 +1120,14 @@ static void tk8710_s0_bcn_rotation_process(void)
     uint8_t currentAntenna;
     
     /* 检查是否启用BCN轮流发送 (txBcnEn == 0xFF) */
-    if (slotCfg->txBcnAntEn != 0xFF) {
-        TK8710_LOG_IRQ_DEBUG("BCN rotation disabled (txBcnAntEn=0x%02X)", slotCfg->txBcnAntEn);
+    // if (slotCfg->txBcnAntEn != 0xFF) {
+    //     TK8710_LOG_IRQ_DEBUG("BCN rotation disabled (txBcnAntEn=0x%02X)", slotCfg->txBcnAntEn);
         
-        /* 不是轮流发送时，设置g_currentBcnAntenna为BCN选择的天线 */
-        g_currentBcnAntenna = 0;  /* 使用天线0 */
-        TK8710_LOG_IRQ_DEBUG("Set current BCN antenna to RF selection: %d", g_currentBcnAntenna);
-        return;
-    }
+    //     /* 不是轮流发送时，设置g_currentBcnAntenna为BCN选择的天线 */
+    //     g_currentBcnAntenna = 0;  /* 使用天线0 */
+    //     TK8710_LOG_IRQ_DEBUG("Set current BCN antenna to RF selection: %d", g_currentBcnAntenna);
+    //     return;
+    // }
     
     /* 计算当前应该使用的天线 (使用中断计数器循环) */
     uint8_t rotationIndex = g_irqCounters[TK8710_IRQ_S0] % TK8710_MAX_ANTENNAS;
@@ -1432,6 +1432,10 @@ static void tk8710_handle_slot1(void)
     g_irqResult.irq_type = TK8710_IRQ_S1;
     g_irqResult.autoTxValid = 0;  /* 默认无效 */
     
+    // /* 处理BCN轮流发送 - 仅在Master模式下运行 */
+    // if (TK8710GetWorkType() == TK8710_MODE_MASTER) {
+    //     tk8710_s0_bcn_rotation_process();
+    // }
     
     /* 处理S1时隙自动发送 */
     tk8710_s1_auto_tx_process();
@@ -1836,14 +1840,20 @@ static void tk8710_s1_manual_tx_process(void)
                 for (uint8_t ant = 0; ant < 8; ant++) {
                     uint64_t ah40 = 0;
                     
-                    if (ant == 0) {  /* 广播使用天线0作为主天线 */
+                    // if (ant == 0) {  /* 广播使用天线0作为主天线 */
+                    //     /* 当前广播天线：I路=8192U, Q路=0 */
+                    //     ah40 = ((uint64_t)8192U << 20) | 0;  /* I=8192U (20bit), Q=0 (20bit) */
+                    // } else {
+                    //     /* 其他天线：I路=0, Q路=0 */
+                    //     ah40 = 0;
+                    // }
+                    if (ant == g_currentBcnAntenna) {
                         /* 当前广播天线：I路=8192U, Q路=0 */
                         ah40 = ((uint64_t)8192U << 20) | 0;  /* I=8192U (20bit), Q=0 (20bit) */
                     } else {
                         /* 其他天线：I路=0, Q路=0 */
                         ah40 = 0;
                     }
-                    
                     /* 填充AH数据到缓冲区 (每个天线5字节) */
                     spiBuffer[writeLen*40 + ant*5]     = (uint8_t)(ah40 >> 32);
                     spiBuffer[writeLen*40 + ant*5 + 1] = (uint8_t)(ah40 >> 24);
@@ -1852,7 +1862,7 @@ static void tk8710_s1_manual_tx_process(void)
                     spiBuffer[writeLen*40 + ant*5 + 4] = (uint8_t)(ah40);
                 }
                 writeLen++;
-                TK8710_LOG_IRQ_DEBUG("Manual TX broadcast[%d] AH configured (antenna 0: I=8192, Q=0)", i);
+                TK8710_LOG_IRQ_DEBUG("Manual TX broadcast[%d] AH configured (antenna %d: I=8192, Q=0)", i, g_currentBcnAntenna);
             }
         }
         

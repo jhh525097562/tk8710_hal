@@ -379,7 +379,7 @@ static int tk8710_ensure_directory(const char* directory) {
 static int tk8710_save_sweep_noise_floor(float* noise_floor, int num_antennas,
                                          uint32_t frequency, uint8_t append_result) {
     const char* result_dir = "SweepFreqResult";
-    const char* result_file = "SweepFreqResult/Reslut.txt";
+    const char* result_file = "SweepFreqResult/Result.txt";
 
     if (tk8710_ensure_directory(result_dir) != 0) {
         return -1;
@@ -507,7 +507,7 @@ static TK8710_MAYBE_UNUSED int tk8710_sweep_noise_process(const char* data_dir, 
         return -1;
     }
 
-    printf("[噪底计算] 保存扫频结果到: SweepFreqResult/Reslut.txt\n");
+    printf("[噪底计算] 保存扫频结果到: SweepFreqResult/Result.txt\n");
     if (tk8710_save_sweep_noise_floor(noise_floor, TK8710_NUM_ANTENNAS,
                                       frequency, append_result) != 0) {
         printf("[噪底计算] 错误: 保存扫频结果失败\n");

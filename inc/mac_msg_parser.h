@@ -72,6 +72,7 @@ typedef struct {
     int slot;
     int rssi;
     int snr;
+    // int freq_offset;
     size_t payload_len;                     // 二进制数据的实际长度
     unsigned char payload[MAX_PAYLOAD_LEN]; // Base64解码后的二进制数据
 } GwDataUp_t;

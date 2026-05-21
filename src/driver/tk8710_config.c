@@ -39,7 +39,7 @@ static slotCfg_t g_slotCfg = {
     .antEn = 0xFF,                        /* 使能所有天线 */
     .rfSel = 0xFF,                        /* 选择所有RF */
     .txBeamCtrlMode = 1,                      /* 外部指定信息控制模式 */
-    .txBcnAntEn = 0x7f,                      /* 发送BCN天线使能 */
+    .txBcnAntEn = 0xff,                      /* 发送BCN天线使能 */
     
     /* BCN轮流发送配置 */
     .bcnRotation = {0, 1, 2, 3, 4, 5, 6, 7},  /* 轮流使用所有天线 */
