@@ -598,7 +598,7 @@ static int tk8710_acm_calibrate(uint8_t calibCount, uint8_t snrThreshold)
         MAC_BASE + offsetof(struct mac, init_10), (1 << 3));
     if (ret != TK8710_OK) return ret;
     
-    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x9478, 0x11100010);
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x9478, 0x11100018);
     if (ret != TK8710_OK) return ret;
 
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
@@ -1122,6 +1122,7 @@ int TK8710GetConfig(TK8710ConfigType type, void* params)
  * @brief 芯片控制命令
  * @param type 控制类型:
  *        - TK8710_CTRL_TYPE_ACM_START: 触发ACM校准 (acmParam_t)
+ *        - TK8710_CTRL_TYPE_ACM_CALIBRATE_ONLY: 仅执行ACM校准 (acmParam_t)
  *        - TK8710_CTRL_TYPE_SEND_WAKEUP: 发送唤醒信号 (wakeUpParam_t)
  * @param params 控制参数指针
  * @return 0-成功, 非0-失败 (ACM时返回值非0表示异常天线位)
@@ -1147,6 +1148,17 @@ int TK8710Ctrl(TK8710CtrlType type, const void* params)
             /* 步骤2: 执行校准流程 */
             ret = tk8710_acm_calibrate(acmParam->calibCount, acmParam->snrThreshold);
             return ret;
+        }
+
+        case TK8710_CTRL_TYPE_ACM_CALIBRATE_ONLY:
+        {
+            acmParam_t* acmParam = (acmParam_t*)params;
+
+            if (acmParam == NULL) {
+                return TK8710_ERR;
+            }
+
+            return tk8710_acm_calibrate(acmParam->calibCount, acmParam->snrThreshold);
         }
         
         case TK8710_CTRL_TYPE_SEND_WAKEUP:

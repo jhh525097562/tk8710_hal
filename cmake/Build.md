@@ -23,7 +23,8 @@ mingw32-make -f cmake/Makefile.jtool example
 # Build 3506
 
 在 WSL 中执行
-
+在wsl中，选择ubuntu22.04
+然后执行如下指令
 source ~/arm-buildroot-linux-gnueabihf_sdk-buildroot/environment-setup
 
 chmod +x ./cmake/build_rk3506.sh

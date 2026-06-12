@@ -11,6 +11,12 @@
  * MAC协议帧解析辅助函数实现
  * ============================================================================= */
 
+static uint32_t TRM_ExtractUserIdFromDevEui(const uint8_t* devEui)
+{
+    return ((uint32_t)devEui[3] << 24) | ((uint32_t)devEui[2] << 16) |
+           ((uint32_t)devEui[1] << 8) | (uint32_t)devEui[0];
+}
+
 int TRM_ParseMacMhdr(const uint8_t* data, uint16_t len, TrmMacMhdr* mhdr)
 {
     if (data == NULL || mhdr == NULL || len < 3) {
@@ -24,11 +30,11 @@ int TRM_ParseMacMhdr(const uint8_t* data, uint16_t len, TrmMacMhdr* mhdr)
     mhdr->version   = (data[TRM_MHDR_BYTE1_OFFSET] >> TRM_MHDR_VERSION_SHIFT) & TRM_MHDR_VERSION_MASK;
     
     /* 解析第二个字节 (QoS相关) */
-    mhdr->qosPri = (data[TRM_MHDR_BYTE2_OFFSET] >> TRM_MHDR_QOSPRI_SHIFT) & TRM_MHDR_QOSPRI_MASK;
-    mhdr->qosTtl = (data[TRM_MHDR_BYTE2_OFFSET] >> TRM_MHDR_QOSTTL_SHIFT) & TRM_MHDR_QOSTTL_MASK;
+    mhdr->qosPri = (data[TRM_MHDR_BYTE2_OFFSET] & TRM_MHDR_QOSPRI_MASK) >> TRM_MHDR_QOSPRI_SHIFT;
+    mhdr->qosTtl = (data[TRM_MHDR_BYTE2_OFFSET] & TRM_MHDR_QOSTTL_MASK) >> TRM_MHDR_QOSTTL_SHIFT;
     
     /* 根据网络模式解析HopNum和HopCnt字段 */
-    uint8_t nwkMode = (data[TRM_MHDR_BYTE3_OFFSET] >> TRM_MHDR_NWKMODE_SHIFT) & TRM_MHDR_NWKMODE_MASK;
+    uint8_t nwkMode = (data[TRM_MHDR_BYTE3_OFFSET] & TRM_MHDR_NWKMODE_MASK) >> TRM_MHDR_NWKMODE_SHIFT;
     if (nwkMode == TRM_MAC_NWKMODE_WAN) {
         /* WAN模式：HopNum和HopCnt均为2bit */
         mhdr->hopNum = (data[TRM_MHDR_BYTE2_OFFSET] >> TRM_MHDR_HOPNUM_SHIFT) & TRM_MHDR_HOPNUM_MASK_WAN;
@@ -40,11 +46,11 @@ int TRM_ParseMacMhdr(const uint8_t* data, uint16_t len, TrmMacMhdr* mhdr)
     }
     
     /* 解析第三个字节 */
-    mhdr->securityMode = (data[TRM_MHDR_BYTE3_OFFSET] >> TRM_MHDR_SECURITYMODE_SHIFT) & TRM_MHDR_SECURITYMODE_MASK;
-    mhdr->addrMode      = (data[TRM_MHDR_BYTE3_OFFSET] >> TRM_MHDR_ADDRMODE_SHIFT) & TRM_MHDR_ADDRMODE_MASK;
-    mhdr->nwkMode       = (data[TRM_MHDR_BYTE3_OFFSET] >> TRM_MHDR_NWKMODE_SHIFT) & TRM_MHDR_NWKMODE_MASK;
-    mhdr->powerCtrlType = (data[TRM_MHDR_BYTE3_OFFSET] >> TRM_MHDR_POWERCTRL_SHIFT) & TRM_MHDR_POWERCTRL_MASK;
-    mhdr->rfu           = (data[TRM_MHDR_BYTE3_OFFSET] >> TRM_MHDR_RFU_SHIFT) & TRM_MHDR_RFU_MASK;
+    mhdr->securityMode = (data[TRM_MHDR_BYTE3_OFFSET] & TRM_MHDR_SECURITYMODE_MASK) >> TRM_MHDR_SECURITYMODE_SHIFT;
+    mhdr->addrMode      = (data[TRM_MHDR_BYTE3_OFFSET] & TRM_MHDR_ADDRMODE_MASK) >> TRM_MHDR_ADDRMODE_SHIFT;
+    mhdr->nwkMode       = nwkMode;
+    mhdr->powerCtrlType = (data[TRM_MHDR_BYTE3_OFFSET] & TRM_MHDR_POWERCTRL_MASK) >> TRM_MHDR_POWERCTRL_SHIFT;
+    mhdr->rfu           = (data[TRM_MHDR_BYTE3_OFFSET] & TRM_MHDR_RFU_MASK) >> TRM_MHDR_RFU_SHIFT;
     
     TRM_LOG_DEBUG("TRM: MHDR parsed - FrameType=0x%01X, DevType=%d, QosPri=%d, TTL=%d, AddrMode=%d", 
                   mhdr->frameType, mhdr->devType, mhdr->qosPri, mhdr->qosTtl, mhdr->addrMode);
@@ -70,10 +76,7 @@ int TRM_ExtractUserIdFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* u
         case TRM_MAC_FRAMETYPE_JOIN_ACCEPT:
             /* Join Accept帧：使用Join Accept结构中DevEUI的后四字节作为userID */
             if (len >= 3 + 4 + 8) {  /* MHDR(3) + JoinResult(1) + DevEUI(8) */
-                /* DevEUI是8字节，取后4字节（字节4-7）作为userID，小端模式处理 */
-                /* DevEUI字节4-7在内存中是小端序，需要转换为正确的32位值 */
-                *userId = (data[3 + 1 + 3] << 24) | (data[3 + 1 + 2] << 16) | 
-                          (data[3 + 1 + 1] << 8) | data[3 + 1 + 0];
+                *userId = TRM_ExtractUserIdFromDevEui(&data[3 + 1]);
                 TRM_LOG_DEBUG("TRM: Extracted user ID from Join Accept DevEUI: 0x%08X", *userId);
                 return 0;
             } else {
@@ -84,18 +87,26 @@ int TRM_ExtractUserIdFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* u
         case TRM_MAC_FRAMETYPE_JOIN_REQUEST:
             /* Join Request帧：使用Join Request结构中DevEUI的后四字节作为userID */
             if (len >= 3 + 4 + 8) {  /* MHDR(3) + Capacity(1) + DevEUI(8) */
-                /* DevEUI是8字节，取后4字节（字节4-7）作为userID，小端模式处理 */
-                /* DevEUI字节4-7在内存中是小端序，需要转换为正确的32位值 */
-                *userId = (data[3 + 1 + 3] << 24) | (data[3 + 1 + 2] << 16) | 
-                          (data[3 + 1 + 1] << 8) | data[3 + 1 + 0];
+                *userId = TRM_ExtractUserIdFromDevEui(&data[3 + 1]);
                 TRM_LOG_DEBUG("TRM: Extracted user ID from Join Request DevEUI: 0x%08X", *userId);
                 return 0;
             } else {
                 TRM_LOG_WARN("TRM: Join Request frame too short for DevEUI extraction");
                 return -1;
             }
+
+        case TRM_MAC_FRAMETYPE_DISASSOCIATION:
+            /* Disassociation帧：MAC Payload为DevEUI(8) + Status(1)，不携带普通FHDR */
+            if (len >= 3 + 8 + 1) {
+                *userId = TRM_ExtractUserIdFromDevEui(&data[3]);
+                TRM_LOG_DEBUG("TRM: Extracted user ID from Disassociation DevEUI: 0x%08X", *userId);
+                return 0;
+            } else {
+                TRM_LOG_WARN("TRM: Disassociation frame too short for DevEUI extraction");
+                return -1;
+            }
             
-        default:
+        default: {
             /* 其他帧类型：提取FHDR中SrcADDR作为UserID */
             /* FHDR从MHDR后开始，偏移3字节 */
             uint8_t fhdrOffset = 3;
@@ -113,8 +124,10 @@ int TRM_ExtractUserIdFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* u
             } else {
                 /* 长地址模式 (4字节: NwkID + NwkAddr) */
                 if (len >= fhdrOffset + 4) {
-                    *userId = (data[fhdrOffset + 3] << 24) | (data[fhdrOffset + 2] << 16) | 
-                              (data[fhdrOffset + 1] << 8) | data[fhdrOffset + 0];
+                    *userId = ((uint32_t)data[fhdrOffset + 3] << 24) |
+                              ((uint32_t)data[fhdrOffset + 2] << 16) |
+                              ((uint32_t)data[fhdrOffset + 1] << 8) |
+                              (uint32_t)data[fhdrOffset + 0];
                     TRM_LOG_DEBUG("TRM: Extracted user ID from long address: 0x%08X", *userId);
                     return 0;
                 } else {
@@ -122,6 +135,7 @@ int TRM_ExtractUserIdFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* u
                     return -1;
                 }
             }
+        }
     }
 }
 
@@ -517,4 +531,3 @@ int TRM_ConfigureTddPeriodInBroadcast(uint8_t* broadcastData, uint16_t dataLen, 
     
     return 0;
 }
-

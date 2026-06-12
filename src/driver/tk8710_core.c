@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file tk8710_core.c
  * @brief TK8710 核心功能实现
  */
@@ -16,6 +16,7 @@
 #include <stdbool.h>
 
 #define TK8710_TXADC_CONFIG_PATH "TxDC/txadc.txt"
+#define TK8710_INIT10_RF_READY_VALUE (1U << 2)
 
 /* 默认GPIO中断包装函数 */
 static void default_gpio_irq_handler(void* user)
@@ -62,6 +63,16 @@ static const ChipConfig g_defaultChipConfig = {
     .irq_ctrl1   = 0,
     .spiConfig   = NULL    /* 使用默认SPI配置 */
 };
+
+static uint8_t g_currentBcnBits = 10;
+static volatile uint32_t g_lastInit10Config = TK8710_INIT10_RF_READY_VALUE;
+static volatile uint8_t g_lastInit10ConfigValid = 0;
+
+static void TK8710RecordInit10Config(uint32_t value)
+{
+    g_lastInit10Config = value;
+    g_lastInit10ConfigValid = 1;
+}
 
 /* 注：工作类型、速率模式、天线使能、RF选择、广播用户数均已迁移到g_slotCfg中 */
 
@@ -399,6 +410,7 @@ int TK8710Init(const ChipConfig* initConfig)
     }
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_9), init9.data);
     if (ret != TK8710_OK) return ret;
+    g_currentBcnBits = cfg->bcnbits;
     uint32_t TmpBcnBits = cfg->bcnbits << 4;
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x814, TmpBcnBits);
     if (ret != TK8710_OK) return ret;
@@ -550,7 +562,7 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
         return ret;
     }
 
-    
+
     /* 根据工作类型启动传输 */
     if (workType == TK8710_MODE_MASTER) {
         /* Master模式: 配置trx_trig0寄存器 (0x74) 启动主动传输 */
@@ -564,7 +576,7 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
                 ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_12), &init12.data);
                 if (ret == TK8710_OK) {
                     init12.b.ls_en = 1;
-                    init12.b.ls_master = 1; 
+                    init12.b.ls_master = 1; //1表示Master模式启用本地同步，0表示Slave模式启用本地同步
                     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_12), init12.data);
                     if (ret == TK8710_OK) {
                         TK8710_LOG_DEBUG(TK8710_LOG_MODULE_CORE, "Set init12.ls_en = 1 for local sync mode");
@@ -593,6 +605,7 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
                 if (slotCfg->s2Cfg[0].byteLen > 0) {
                     irqCtrl0.b.md_ud_irq_mask = 0;  /* MD UD中断使能 */
                     irqCtrl0.b.md_irq_mask = 0;     /* MD中断使能 */
+                    irqCtrl0.b.s2_irq_mask = 0;     /* S2中断使能，用于TRM窗口任务 */
                 }
                 
                 if (slotCfg->s3Cfg[0].byteLen > 0) {
@@ -659,7 +672,7 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
                 
                 /* Slave模式中断配置 */
                 irqCtrl0.b.rxbcn_irq_mask = 0;  /* RX BCN中断使能 */
-                
+                // irqCtrl0.b.s0_irq_mask = 0;  /* S0中断使能 */
                 if (slotCfg->s1Cfg[0].byteLen > 0) {
                     irqCtrl0.b.brd_ud_irq_mask = 0;  /* BRD UD中断使能 */
                     irqCtrl0.b.brd_irq_mask = 0;     /* BRD中断使能 */
@@ -673,6 +686,7 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
                 if (slotCfg->s3Cfg[0].byteLen > 0) {
                     irqCtrl0.b.md_ud_irq_mask = 0;  /* MD UD中断使能 */
                     irqCtrl0.b.md_irq_mask = 0;     /* MD中断使能 */
+                    irqCtrl0.b.s3_irq_mask = 0;  /* S3中断使能 */
                 }
                 
                 ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, irq_ctrl0), irqCtrl0.data);
@@ -743,6 +757,212 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
     }
 
     TK8710_LOG_CORE_INFO("Work started: type=%d, mode=%d", workType, workMode);
+    return ret;
+}
+
+/**
+ * @brief 芯片快速进入收发状态
+ * @param workType 工作类型: 0=Slave, 1=Master, 2=Loopback
+ * @param workMode 工作模式: 1=连续, 2=单次
+ * @return 0-成功, 1-失败, 2-超时
+ */
+int TK8710FastStart(uint8_t workType, uint8_t workMode)
+{
+    int ret;
+
+    ret = TK8710FastStartPrepare(workType, workMode);
+    if (ret != TK8710_OK) {
+        return ret;
+    }
+
+    ret = TK8710FastStartTrigger(workType);
+    if (ret == TK8710_OK) {
+        TK8710_LOG_CORE_INFO("Work fast started: type=%d, mode=%d", workType, workMode);
+    }
+    return ret;
+}
+
+int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
+{
+    int ret;
+    slotCfg_t* slotCfg = (slotCfg_t*)TK8710GetSlotConfig();
+    s_init_5 init5;
+
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_5), &init5.data);
+    if (ret != TK8710_OK) return ret;
+
+    init5.b.conti_mode = (workMode == TK8710_WORK_MODE_CONTINUOUS) ? 1 : 0;
+
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_5), init5.data);
+    if (ret != TK8710_OK) return ret;
+
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x980c, 0x000FF200);
+    if (ret != TK8710_OK) return ret;
+
+    if (workType == TK8710_MODE_MASTER) {
+        uint32_t bcnBits;
+        s_init_12 init12;
+        s_init_9 init9;
+        s_irq_ctrl0 irqCtrl0;
+
+        if (slotCfg == NULL) return TK8710_ERR;
+        slotCfg->msMode = TK8710_MODE_MASTER;
+
+        ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                            MAC_BASE + offsetof(struct mac, init_9),
+                            &init9.data);
+        if (ret != TK8710_OK) return ret;
+
+        init9.b.ant_en = slotCfg->antEn;
+        init9.b.rf_sel = slotCfg->rfSel;
+        init9.b.tx_bcn_ant_en = slotCfg->txBcnAntEn;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, init_9),
+                             init9.data);
+        if (ret != TK8710_OK) return ret;
+
+        bcnBits = g_currentBcnBits << 4;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x814, bcnBits);
+        if (ret != TK8710_OK) return ret;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x1814, bcnBits);
+        if (ret != TK8710_OK) return ret;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x2814, bcnBits);
+        if (ret != TK8710_OK) return ret;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x3814, bcnBits);
+        if (ret != TK8710_OK) return ret;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x4814, bcnBits);
+        if (ret != TK8710_OK) return ret;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x5814, bcnBits);
+        if (ret != TK8710_OK) return ret;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x6814, bcnBits);
+        if (ret != TK8710_OK) return ret;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x7814, bcnBits);
+        if (ret != TK8710_OK) return ret;
+
+        ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                            MAC_BASE + offsetof(struct mac, init_12),
+                            &init12.data);
+        if (ret != TK8710_OK) return ret;
+
+        init12.b.ls_en = 1;
+        init12.b.ls_master = 1;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, init_12),
+                             init12.data);
+        if (ret != TK8710_OK) return ret;
+
+        irqCtrl0.data = 0xFFFF;
+        irqCtrl0.b.s0_irq_mask = 0;
+        if (slotCfg->s1Cfg[0].byteLen > 0) {
+            irqCtrl0.b.s1_irq_mask = 0;
+        }
+        if (slotCfg->s2Cfg[0].byteLen > 0) {
+            irqCtrl0.b.md_ud_irq_mask = 0;
+            irqCtrl0.b.md_irq_mask = 0;
+            irqCtrl0.b.s2_irq_mask = 0;
+        }
+        if (slotCfg->s3Cfg[0].byteLen > 0) {
+            irqCtrl0.b.s3_irq_mask = 0;
+        }
+
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, irq_ctrl0),
+                             irqCtrl0.data);
+        if (ret != TK8710_OK) return ret;
+    } else if (workType == TK8710_MODE_LOOPBACK) {
+        s_init_12 init12;
+        s_irq_ctrl0 irqCtrl0;
+
+        if (slotCfg == NULL) return TK8710_ERR;
+
+        ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                            MAC_BASE + offsetof(struct mac, init_12),
+                            &init12.data);
+        if (ret != TK8710_OK) return ret;
+
+        init12.b.loop = 1;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, init_12),
+                             init12.data);
+        if (ret != TK8710_OK) return ret;
+
+        irqCtrl0.data = 0xFFFF;
+        irqCtrl0.b.s0_irq_mask = 0;
+        if (slotCfg->s1Cfg[0].byteLen > 0) {
+            irqCtrl0.b.brd_ud_irq_mask = 0;
+            irqCtrl0.b.brd_irq_mask = 0;
+            irqCtrl0.b.s1_irq_mask = 0;
+        }
+        if (slotCfg->s2Cfg[0].byteLen > 0) {
+            irqCtrl0.b.s2_irq_mask = 0;
+        }
+        if (slotCfg->s3Cfg[0].byteLen > 0) {
+            irqCtrl0.b.md_ud_irq_mask = 0;
+            irqCtrl0.b.md_irq_mask = 0;
+        }
+
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, irq_ctrl0),
+                             irqCtrl0.data);
+        if (ret != TK8710_OK) return ret;
+    } else if (workType == TK8710_MODE_SLAVE) {
+        s_irq_ctrl0 irqCtrl0;
+
+        if (slotCfg == NULL) return TK8710_ERR;
+        slotCfg->msMode = TK8710_MODE_SLAVE;
+
+        irqCtrl0.data = 0xFFFF;
+        irqCtrl0.b.rxbcn_irq_mask = 0;
+        if (slotCfg->s1Cfg[0].byteLen > 0) {
+            irqCtrl0.b.brd_ud_irq_mask = 0;
+            irqCtrl0.b.brd_irq_mask = 0;
+            irqCtrl0.b.s1_irq_mask = 0;
+        }
+        if (slotCfg->s2Cfg[0].byteLen > 0) {
+            irqCtrl0.b.s2_irq_mask = 0;
+        }
+        if (slotCfg->s3Cfg[0].byteLen > 0) {
+            irqCtrl0.b.md_ud_irq_mask = 0;
+            irqCtrl0.b.md_irq_mask = 0;
+        }
+
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, irq_ctrl0),
+                             irqCtrl0.data);
+        if (ret != TK8710_OK) return ret;
+    } else {
+        TK8710_LOG_CORE_ERROR("Invalid work type for fast start prepare: %d", workType);
+        return TK8710_ERR;
+    }
+
+    return TK8710_OK;
+}
+
+int TK8710FastStartTrigger(uint8_t workType)
+{
+    int ret;
+
+    if (workType == TK8710_MODE_MASTER || workType == TK8710_MODE_LOOPBACK) {
+        s_trx_trig0 trig0;
+
+        trig0.data = 0;
+        trig0.b.active_trans = 1;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, trx_trig0),
+                             trig0.data);
+    } else if (workType == TK8710_MODE_SLAVE) {
+        s_trx_trig1 trig1;
+
+        trig1.data = 0;
+        trig1.b.passive_trans = 1;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, trx_trig1),
+                             trig1.data);
+    } else {
+        TK8710_LOG_CORE_ERROR("Invalid work type for fast start: %d", workType);
+        return TK8710_ERR;
+    }
+
     return ret;
 }
 
@@ -978,11 +1198,14 @@ int TK8710RfConfig(const ChiprfConfig* initrfConfig)
     usleep(20000);  /* 20ms等待RF完全打开和稳定 */
 
     /* 12. 打开PA */
-    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_10), (1 << 2));
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                         MAC_BASE + offsetof(struct mac, init_10),
+                         TK8710_INIT10_RF_READY_VALUE);
     if (ret != TK8710_OK) {
         TK8710_LOG_CORE_ERROR("PA enable failed: %d", ret);
         return ret;
     }
+    TK8710RecordInit10Config(TK8710_INIT10_RF_READY_VALUE);
     TK8710_LOG_CORE_DEBUG("PA enabled");
     
     /* 等待PA稳定 */
@@ -1106,6 +1329,39 @@ int TK8710ReadReg(uint8_t regType, uint16_t addr, uint32_t* data)
         /* RF寄存器: 通过内部SPI接口读取 */
         return tk8710_rf_read(regType, addr, data);
     }
+}
+
+int TK8710CheckAndRestoreInit10(void)
+{
+    uint32_t current_value;
+    uint32_t expected_value = g_lastInit10ConfigValid ?
+        g_lastInit10Config : TK8710_INIT10_RF_READY_VALUE;
+    int ret;
+
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        MAC_BASE + offsetof(struct mac, init_10),
+                        &current_value);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("init_10 check read failed: ret=%d", ret);
+        return ret;
+    }
+
+    if (current_value == expected_value) {
+        return TK8710_OK;
+    }
+
+    TK8710_LOG_CORE_ERROR("init_10 mismatch: read=0x%08X, expected=0x%08X; restoring",
+                          current_value, expected_value);
+
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                         MAC_BASE + offsetof(struct mac, init_10),
+                         expected_value);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("init_10 restore failed: ret=%d", ret);
+        return ret;
+    }
+
+    return TK8710_OK;
 }
 
 /**
@@ -1244,6 +1500,3 @@ int TK8710EfuseRead(uint16_t start_bit, uint8_t* data_bits, size_t len_bits)
     
     return TK8710_OK;
 }
-
-
-

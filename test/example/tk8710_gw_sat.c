@@ -65,12 +65,6 @@
  *============================================================================*/
 
 /* 运行标志 */
-/* Version info */
-#define TK8710_GW_VERSION          "1.0.0"
-#define TK8710_GW_VERSION_PLATFORM "RK3506"
-#define TK8710_GW_VERSION_STRING   TK8710_GW_VERSION " (" TK8710_GW_VERSION_PLATFORM ")"
-
-/* Running flag */
 static volatile int g_running = 1;
 
 #ifndef _WIN32
@@ -797,7 +791,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     TRM_MultiRateSlotCalcInput multiSlotInput = {0};
     multiSlotInput.rateCount = config->rate_num;
     multiSlotInput.superFrameNum = config->tdd_num;
-    multiSlotInput.calcType = TRM_SLOT_CALC_TYPE_GROUND_WAN;
+    multiSlotInput.calcType = TRM_SLOT_CALC_TYPE_SATELLITE;
     
     // 设置minGap位置：多速率时在最后一个速率的DL时隙添加gap，单速率时在DL时隙添加gap
     if (config->rate_num > 1) {
@@ -816,7 +810,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
         slotCfg.rateModes[i] = ConvertNsRateToTk8710Rate(config->rate_cfgs[i].rate);
         multiSlotInput.rateModes[i] = slotCfg.rateModes[i];
-        multiSlotInput.brdBlockNums[i] = 2;  // 广播包块数固定为2
+        multiSlotInput.brdBlockNums[i] = 0;  // 广播包块数固定为2
         multiSlotInput.ulBlockNums[i] = config->rate_cfgs[i].uplink_pkt;     // 上行包块数
         multiSlotInput.dlBlockNums[i] = config->rate_cfgs[i].downlink_pkt;   // 下行包块数
     }
@@ -856,7 +850,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         // 根据模式确定包块长度：模式18使用40，其他模式使用26
         int blockSize = (slotCfg.rateModes[i] == 18) ? 40 : 26;
         
-        slotCfg.s1Cfg[i].byteLen = blockSize * 2;
+        slotCfg.s1Cfg[i].byteLen = 0;
         slotCfg.s1Cfg[i].centerFreq = config->freq;
         slotCfg.s2Cfg[i].byteLen = config->rate_cfgs[i].uplink_pkt * blockSize;
         slotCfg.s2Cfg[i].centerFreq = config->freq;
@@ -914,7 +908,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
  */
 static void OnTrmRxData(const TRM_RxDataList* rxDataList)
 {
-    printf("=== TRM接收数据事件 (超帧号：%u), (系统帧号：%u) ===\n", rxDataList->frameNo, TRM_GetCurrentFrame());
+    printf("=== TRM接收数据事件 (帧号=%u) ===\n", rxDataList->frameNo);
     printf("时隙: 用户数=%d\n", 
            rxDataList->userCount);
     
@@ -984,8 +978,8 @@ static void OnTrmRxData(const TRM_RxDataList* rxDataList)
 static void OnTrmTxComplete(const TRM_TxCompleteResult* txResult)
 {
     if (!txResult) return;
-
-    printf("=== TRM发送完成事件,(超帧号: %u),(系统帧号：%u) ===\n",txResult->superFrameNo, TRM_GetCurrentFrame());
+    
+    printf("=== TRM发送完成事件,(超帧号: %u) ===\n",txResult->superFrameNo);
     printf("发送用户总数: %u, 剩余队列: %u\n", txResult->totalUsers, txResult->remainingQueue);
     g_trmSendCount += txResult->userCount;
     /* 打印每个用户的发送结果 */
@@ -1052,7 +1046,6 @@ void show_system_status(void)
     uint8_t brdUserNum = TK8710GetBrdUserNum();
     
     printf("\n=== System Status ===\n");
-    printf("Version: %s\n", TK8710_GW_VERSION_STRING);
     printf("Work mode: %s\n", workType == TK8710_MODE_MASTER ? "Master" : "Slave");
     printf("Rate mode: %d\n", rateMode);
     printf("Broadcast users: %d\n", brdUserNum);
@@ -1203,7 +1196,7 @@ int main(int argc, char* argv[])
     printf("\n");
     printf("+======================================+\n");
     printf("|   TK8710 Main Test Program           |\n");
-    printf("|   Version: %-25s|\n", TK8710_GW_VERSION_STRING);
+    printf("|   Version: 1.0 (RK3506)             |\n");
     printf("|   Complete Init, Config, Workflow   |\n");
     printf("+======================================+\n");
     

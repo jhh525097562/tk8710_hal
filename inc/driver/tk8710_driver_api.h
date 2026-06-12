@@ -35,6 +35,14 @@ int TK8710Init(const ChipConfig* initConfig);
 int TK8710Start(uint8_t workType, uint8_t workMode);
 
 /**
+ * @brief 快速启动收发状态，仅更新工作模式和触发寄存器
+ * @param workType 工作类型: 0=Slave, 1=Master, 2=Loopback
+ * @param workMode 工作模式: 1=连续, 2=单次
+ * @return 0-成功, 1-失败, 2-超时
+ */
+int TK8710FastStart(uint8_t workType, uint8_t workMode);
+
+/**
  * @brief 初始化芯片连接射频
  * @param initrfConfig 射频初始化配置参数
  * @return 0-成功, 1-失败, 2-超时

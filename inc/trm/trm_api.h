@@ -112,6 +112,11 @@ typedef struct {
     uint32_t    txQueueRemaining;   /* 剩余发送队列数量 */
 } TRM_Stats;
 
+typedef enum {
+    TRM_SLOT_CALC_TYPE_GROUND_WAN = 0,  /* Ground WAN slot calculation */
+    TRM_SLOT_CALC_TYPE_SATELLITE = 1    /* Satellite slot calculation */
+} TRM_SlotCalcType;
+
 /* 单速率时隙计算器输入参数 */
 typedef struct {
     uint8_t  rateMode;       /**< 速率模式: 5-11, 18 */
@@ -120,6 +125,7 @@ typedef struct {
     uint8_t  dlBlockNum;     /**< 下行包块数 */
     uint8_t  superFrameNum;  /**< 超帧数 */
     uint8_t  minGapPos[4];   /**< minGap位置指示: [0]=BCN, [1]=BRD, [2]=UL, [3]=DL */
+    uint8_t  calcType;       /**< TRM_SlotCalcType, default 0=ground WAN */
 } TRM_SlotCalcInput;
 
 /* 多速率时隙计算器输入参数 */
@@ -131,6 +137,8 @@ typedef struct {
     uint8_t  dlBlockNums[4]; /**< 各速率的下行包块数 */
     uint8_t  superFrameNum;  /**< 超帧数 */
     uint8_t  minGapPos[4];   /**< minGap位置指示: [0]=BCN, [1]=BRD, [2]=UL, [3]=DL */
+    uint8_t  calcType;       /**< TRM_SlotCalcType, default 0=ground WAN */
+    
 } TRM_MultiRateSlotCalcInput;
 
 /* 单速率时隙计算器输出结果 */
@@ -236,6 +244,14 @@ typedef struct {
     void* platformConfig;
 } TRM_InitConfig;
 
+/* ACM校准请求参数 */
+typedef struct {
+    uint8_t  calibCount;        /* 连续校准次数，0使用默认值5 */
+    uint8_t  snrThreshold;      /* SNR门限，0使用默认值32 */
+    uint32_t restartAdvanceUs;  /* 提前重启时隙时间，单位us */
+    uint32_t guardUs;           /* slot3剩余时间保护门限，单位us，0使用默认值 */
+} TRM_AcmCalibRequest;
+
 /* =============================================================================
  * 系统初始化与控制API
  * ============================================================================= */
@@ -299,6 +315,13 @@ int TRM_GetStats(TRM_Stats* stats);
  * @return 当前系统帧号
  */
 uint32_t TRM_GetCurrentFrame(void);
+
+/**
+ * @brief 请求在超帧最后一帧slot2结束后执行一次ACM校准
+ * @param request 校准请求参数，NULL时使用默认参数
+ * @return TRM_OK成功，其他失败
+ */
+int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request);
 
 /* =============================================================================
  * TRM日志系统API

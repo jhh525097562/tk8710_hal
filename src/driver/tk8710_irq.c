@@ -34,6 +34,7 @@ static volatile uint8_t g_irqInProgress = 0;  /* 中断处理进行标志 */
 static uint8_t g_forceProcessAllUsers = 0;  /* 是否强制处理所有用户数据（用于测试） */
 static uint8_t g_forceMaxUsersTx = 0;      /* 是否强制按最大用户数发送（用于测试） */
 static uint8_t g_simulationDataLoaded = 0; /* 是否已加载仿真数据（用于测试） */
+static uint8_t g_currentRateIndex = 0;     /* 当前多速率索引 */
 
 /* 中断计数器 */
 static uint32_t g_irqCounters[10] = {0};  /* 对应10种中断类型 */
@@ -46,6 +47,10 @@ static uint8_t g_irqTimeInitialized[10] = {0}; /* 最小时间初始化标志 */
 
 /* 当前BCN发送天线 */
 static uint8_t g_currentBcnAntenna = 0;
+static uint32_t g_bcnRotationCount = 0;
+static volatile uint64_t g_s0LastTimeUs = 0;
+static volatile uint32_t g_s0LastPeriodUs = 0;
+static volatile uint32_t g_s0PeriodCount = 0;
 
 /* Buffer管理变量 */
 static TK8710RxBuffer g_rxBuffers[128] = {0};      /* 接收数据Buffer */
@@ -67,6 +72,39 @@ static TK8710UserInfoBuffer g_userInfoTxBuffers[128] = {0}; /* 发送用户波�
 /* ANoise获取计数器 */
 static uint32_t g_aNoiseGetCount = 0;
 
+static int TK8710PadTxUserData(TK8710TxBuffer* txBuffer, uint8_t userIndex, uint16_t expectedLen)
+{
+    uint16_t oldLen;
+    uint8_t* newData;
+
+    if (txBuffer == NULL || txBuffer->data == NULL) {
+        return TK8710_ERR_PARAM;
+    }
+
+    oldLen = txBuffer->dataLen;
+    if (oldLen >= expectedLen) {
+        return TK8710_OK;
+    }
+
+    newData = realloc(txBuffer->data, expectedLen);
+    if (newData == NULL) {
+        TK8710_LOG_IRQ_ERROR("Failed to pad user[%d] TX data: actual=%d, expected=%d",
+                            userIndex, oldLen, expectedLen);
+        return TK8710_ERR;
+    }
+
+    for (uint16_t i = oldLen; i < expectedLen; i++) {
+        newData[i] = rand() % 255; /* 填充随机数据 */
+    }
+
+    txBuffer->data = newData;
+    txBuffer->dataLen = expectedLen;
+    TK8710_LOG_IRQ_DEBUG("User[%d] TX data padded with random bytes: actual=%d, expected=%d",
+                         userIndex, oldLen, expectedLen);
+
+    return TK8710_OK;
+}
+
 /* 中断处理函数声明 */
 static void tk8710_handle_rx_bcn(void);
 static void tk8710_handle_brd_ud(void);
@@ -85,6 +123,7 @@ static void tk8710_s1_auto_tx_process(void);
 static void tk8710_s1_manual_tx_process(void);
 static void tk8710_s0_bcn_rotation_process(void);
 static void tk8710_s1_broadcast_tx_process(void);
+static int tk8710_configure_multi_rate(uint8_t rateIndex);
 
 /* 中断处理函数表 */
 typedef void (*IrqHandler)(void);
@@ -100,6 +139,26 @@ static const IrqHandler g_irqHandlers[] = {
     [TK8710_IRQ_S3]       = tk8710_handle_slot3,
     [TK8710_IRQ_ACM]      = tk8710_handle_acm,
 };
+
+static uint8_t tk8710_should_call_tx_slot_callback(uint8_t irqType)
+{
+    const slotCfg_t* slotCfg = TK8710GetSlotConfig();
+
+    if (slotCfg == NULL) {
+        return (irqType == TK8710_IRQ_S1);
+    }
+
+    if (slotCfg->s1Cfg[0].byteLen == 0) {
+        if (slotCfg->msMode == TK8710_MODE_MASTER) {
+            return (irqType == TK8710_IRQ_S0);
+        }
+        if (slotCfg->msMode == TK8710_MODE_SLAVE) {
+            return (irqType == TK8710_IRQ_S2);
+        }
+    }
+
+    return (irqType == TK8710_IRQ_S1);
+}
 
 /**
  * @brief 注册Driver回调函数
@@ -119,6 +178,8 @@ void TK8710RegisterCallbacks(const TK8710DriverCallbacks* callbacks)
     
     /* 重置中断结果 */
     memset(&g_irqResult, 0, sizeof(TK8710IrqResult));
+    g_currentRateIndex = 0;
+    g_bcnRotationCount = 0;
 }
 
 /**
@@ -132,6 +193,8 @@ void TK8710_IRQHandler(void)
     
     /* 检查重入保护 */
     if (g_irqInProgress) {
+        uint32_t clearMask;
+
         /* 读取中断状态 (复用外层变量) */
         ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, 
                                 MAC_BASE + offsetof(struct mac, irq_res), 
@@ -140,12 +203,13 @@ void TK8710_IRQHandler(void)
             return; /* 读取失败，直接返回 */
         }
         
-        /* 清除中断状态，避免中断丢失 */
-        if (irqStatus != 0) {
-            TK8710ClearIrqStatus(irqStatus);
-            TK8710ClearIrqStatus(irqStatus);
-            TK8710ClearIrqStatus(irqStatus);
-            TK8710_LOG_IRQ_DEBUG("IRQ in progress, cleared status: 0x%08X", irqStatus);
+        /* ACM由校准流程轮询并清除，重入时不要提前清掉 */
+        clearMask = irqStatus & ~(1 << TK8710_IRQ_ACM);
+        if (clearMask != 0) {
+            TK8710ClearIrqStatus(clearMask);
+            TK8710ClearIrqStatus(clearMask);
+            TK8710ClearIrqStatus(clearMask);
+            TK8710_LOG_IRQ_DEBUG("IRQ in progress, cleared status: 0x%08X", clearMask);
         }
         return;
     }
@@ -170,12 +234,14 @@ void TK8710_IRQHandler(void)
         g_irqInProgress = 0;
         return;
     }
-    
-    /* 2. 如果是ACM校准中断，直接退出不做处理 */
+
     if (irqStatus & (1 << TK8710_IRQ_ACM)) {
-        TK8710_LOG_IRQ_DEBUG("ACM calibration interrupt detected, skipping processing");
-        g_irqInProgress = 0;
-        return;
+        TK8710_LOG_IRQ_DEBUG("ACM calibration interrupt detected, leave it for calibration flow");
+        irqStatus &= ~(1 << TK8710_IRQ_ACM);
+        if (irqStatus == 0) {
+            g_irqInProgress = 0;
+            return;
+        }
     }
     
     /* 3. 清除中断状态 - 先清除再处理，避免中断丢失 */
@@ -231,13 +297,16 @@ void TK8710_IRQHandler(void)
                             g_driverCallbacks.onRxData(&g_irqResult);
                         }
                         break;
+                    case TK8710_IRQ_S0:
                     case TK8710_IRQ_S1:
-                        if (g_driverCallbacks.onTxSlot) {
+                    case TK8710_IRQ_S2:
+                        if (tk8710_should_call_tx_slot_callback(i) &&
+                            g_driverCallbacks.onTxSlot) {
                             g_driverCallbacks.onTxSlot(&g_irqResult);
+                        } else if (i != TK8710_IRQ_S1 && g_driverCallbacks.onSlotEnd) {
+                            g_driverCallbacks.onSlotEnd(&g_irqResult);
                         }
                         break;
-                    case TK8710_IRQ_S0:
-                    case TK8710_IRQ_S2:
                     case TK8710_IRQ_S3:
                         if (g_driverCallbacks.onSlotEnd) {
                             g_driverCallbacks.onSlotEnd(&g_irqResult);
@@ -292,13 +361,7 @@ uint32_t TK8710GetIrqStatus(void)
 void TK8710ClearIrqStatus(uint32_t mask)
 {
     s_irq_ctrl1 irqCtrl1;
-    int ret;
-    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-                    MAC_BASE + offsetof(struct mac, irq_ctrl1),
-                    &irqCtrl1.data);
-    if (ret != TK8710_OK) {
-        return;
-    }
+    irqCtrl1.data = 0;
     
     /* 根据mask设置对应的清除位 */
     if (mask & (1 << TK8710_IRQ_RX_BCN))   irqCtrl1.b.rxbcn_intr_clr = 1;
@@ -312,7 +375,6 @@ void TK8710ClearIrqStatus(uint32_t mask)
     if (mask & (1 << TK8710_IRQ_S3))       irqCtrl1.b.s3_irq_clr = 1;
     if (mask & (1 << TK8710_IRQ_ACM))      irqCtrl1.b.acm_irq_clr = 1;
     
-    irqCtrl1.data = 0x1ff;
     TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 
                    MAC_BASE + offsetof(struct mac, irq_ctrl1), 
                    irqCtrl1.data);
@@ -476,6 +538,10 @@ void TK8710PrintIrqTimeStats(void)
 void TK8710ResetIrqCounters(void)
 {
     memset(g_irqCounters, 0, sizeof(g_irqCounters));
+    g_bcnRotationCount = 0;
+    g_s0LastTimeUs = 0;
+    g_s0LastPeriodUs = 0;
+    g_s0PeriodCount = 0;
     /* 同时重置时间统计 */
     TK8710ResetIrqTimeStats(255);
     TK8710_LOG_IRQ_INFO("IRQ counters reset");
@@ -583,6 +649,19 @@ void TK8710GetAllIrqCounters(uint32_t* counters)
     memcpy(counters, g_irqCounters, sizeof(g_irqCounters));
 }
 
+void TK8710GetS0PeriodStats(uint64_t* lastTimeUs, uint32_t* lastPeriodUs, uint32_t* count)
+{
+    if (lastTimeUs != NULL) {
+        *lastTimeUs = g_s0LastTimeUs;
+    }
+    if (lastPeriodUs != NULL) {
+        *lastPeriodUs = g_s0LastPeriodUs;
+    }
+    if (count != NULL) {
+        *count = g_s0PeriodCount;
+    }
+}
+
 /* ============================================================================
  * 多速率配置函数
  * ============================================================================
@@ -603,6 +682,11 @@ static int tk8710_configure_multi_rate(uint8_t rateIndex)
     s_init_4 init4;
     s_init_9 init9;
     int ret;
+
+    if (slotCfg == NULL || slotCfg->rateCount == 0 || rateIndex >= slotCfg->rateCount) {
+        TK8710_LOG_IRQ_ERROR("Invalid parameters for multi-rate config");
+        return TK8710_ERR;
+    }
     
     if(rateIndex % slotCfg->rateCount==0){
         init9.data = 0;
@@ -616,11 +700,6 @@ static int tk8710_configure_multi_rate(uint8_t rateIndex)
         init9.b.rf_sel = slotCfg->rfSel;
         init9.b.tx_bcn_ant_en = 0;
         ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_9), init9.data);
-    }
-    
-    if (slotCfg == NULL || rateIndex >= slotCfg->rateCount) {
-        TK8710_LOG_IRQ_ERROR("Invalid parameters for multi-rate config");
-        return TK8710_ERR;
     }
     
     TK8710_LOG_IRQ_INFO("Configuring multi-rate index %d (rate mode: %d)", 
@@ -698,6 +777,39 @@ static int tk8710_configure_multi_rate(uint8_t rateIndex)
     return TK8710_OK;
 }
 
+int TK8710AdvanceRateAfterS3(void)
+{
+    const slotCfg_t* slotCfg = TK8710GetSlotConfig();
+    int ret;
+
+    if (slotCfg == NULL || slotCfg->rateCount == 0) {
+        TK8710_LOG_IRQ_ERROR("Invalid slot config for S3 rate advance");
+        return TK8710_ERR;
+    }
+
+    if (slotCfg->rateCount > 1) {
+        g_currentRateIndex = (g_currentRateIndex + 1) % slotCfg->rateCount;
+        g_irqResult.currentRateIndex = g_currentRateIndex;
+
+        TK8710_LOG_IRQ_DEBUG("S3 rate advance: switched to rate index %d/%d",
+                            g_currentRateIndex, slotCfg->rateCount);
+
+        ret = tk8710_configure_multi_rate(g_currentRateIndex);
+        if (ret != TK8710_OK) {
+            TK8710_LOG_IRQ_ERROR("Failed to configure multi-rate %d: %d",
+                                g_currentRateIndex, ret);
+            return ret;
+        }
+    } else {
+        g_currentRateIndex = 0;
+        g_irqResult.currentRateIndex = 0;
+        TK8710_LOG_IRQ_DEBUG("S3 rate advance: single rate mode");
+    }
+
+    g_irqResult.irq_type = TK8710_IRQ_S3;
+    return TK8710_OK;
+}
+
 /* ============================================================================
  * 中断处理函数实现
  * ============================================================================
@@ -746,11 +858,11 @@ static void tk8710_handle_rx_bcn(void)
         g_irqResult.rxbcn_status = bcnObv1.b.sync_on;  /* 同步状态 */
         
         /* 打印读取到的BCN信息 */
-        TK8710_LOG_IRQ_INFO("BCN Info: bits=%u, freq_offset=%d, q=%u, sync=%u", 
+        TK8710_LOG_IRQ_WARN("BCN Info: bits=%u, freq_offset=%d, q=%u, sync=%u", 
                            bcnObv2.b.bcn_bits_out, (int16_t)bcnObv2.b.freq_offset,
                            bcnObv1.b.bcn_q, bcnObv1.b.sync_on);
     }
-    
+
 }
 
 /**
@@ -1099,15 +1211,63 @@ static void tk8710_md_data_process(void)
  */
 static void tk8710_handle_slot0(void)
 {
+    uint64_t nowUs = TK8710GetTimeUs();
+
+    if (g_s0LastTimeUs != 0) {
+        g_s0LastPeriodUs = (uint32_t)(nowUs - g_s0LastTimeUs);
+        g_s0PeriodCount++;
+    }
+    g_s0LastTimeUs = nowUs;
+
     TK8710_LOG_IRQ_DEBUG("S0 slot interrupt handled (count: %u)", g_irqCounters[TK8710_IRQ_S0]);
+    if (g_s0PeriodCount != 0 && (g_s0PeriodCount <= 5 || (g_s0PeriodCount % 10) == 0)) {
+        TK8710_LOG_IRQ_INFO("S0 period: count=%u period=%u us",
+                            g_s0PeriodCount, g_s0LastPeriodUs);
+    }
     
     /* 设置中断类型 */
     g_irqResult.irq_type = TK8710_IRQ_S0;
-    
     // /* 处理BCN轮流发送 - 仅在Master模式下运行 */
     // if (TK8710GetWorkType() == TK8710_MODE_MASTER) {
     //     tk8710_s0_bcn_rotation_process();
     // }
+    
+    const slotCfg_t* slotCfg = TK8710GetSlotConfig();
+    if(slotCfg != NULL && slotCfg->s1Cfg[0].byteLen == 0 &&
+       slotCfg->msMode == TK8710_MODE_MASTER){
+        /* 处理S1时隙自动发送 */
+        tk8710_s1_auto_tx_process();
+        
+        /* 处理S1时隙指定信息发送 */
+        if (slotCfg->txBeamCtrlMode == 1) {
+            /* 如果已加载仿真数据，跳过手动发送处理 */
+            if (g_simulationDataLoaded) {
+                    int ret;
+                    uint32_t user_val_regs[4] = {0xffffffff,0xffffffff,0xffffffff,0xffffffff}; /* user_val0, user_val1, user_val2, user_val3 */
+                    /* 写入MAC寄存器 */
+                    for (int reg = 0; reg < 4; reg++) {
+                        uint32_t reg_offset = MAC_BASE + 0x3c + reg * 4;
+                        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, reg_offset, user_val_regs[reg]);
+                        if (ret == TK8710_OK) {
+                            TK8710_LOG_IRQ_DEBUG("Set MAC user_val%d = 0x%08X", reg, user_val_regs[reg]);
+                        } else {
+                            TK8710_LOG_IRQ_ERROR("Failed to set MAC user_val%d: %d", reg, ret);
+                        }
+                    }
+                    s_init_17 brdUserVal;
+                    brdUserVal.data = 0;
+                    brdUserVal.b.brd_user_val = 0xffff;
+
+                    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_17), brdUserVal.data);
+                    TK8710_LOG_IRQ_DEBUG("Simulation data loaded, skipping manual TX process");
+                } else {
+                    tk8710_s1_manual_tx_process();
+                }
+        } else {
+            /* 处理S1时隙广播发送 */
+            tk8710_s1_broadcast_tx_process();
+        }
+    }
 }
 
 /**
@@ -1128,16 +1288,33 @@ static void tk8710_s0_bcn_rotation_process(void)
     //     TK8710_LOG_IRQ_DEBUG("Set current BCN antenna to RF selection: %d", g_currentBcnAntenna);
     //     return;
     // }
+
+    if (slotCfg == NULL) {
+        TK8710_LOG_IRQ_WARN("BCN rotation skipped: slot config is NULL");
+        return;
+    }
+
+    if (slotCfg->rateCount == 0) {
+        TK8710_LOG_IRQ_WARN("BCN rotation skipped: invalid rate count");
+        return;
+    }
+
+    if (slotCfg->rateCount > 1 && g_currentRateIndex != 0) {
+        TK8710_LOG_IRQ_DEBUG("BCN rotation skipped for non-BCN rate index %u/%u",
+                             g_currentRateIndex, slotCfg->rateCount);
+        return;
+    }
     
-    /* 计算当前应该使用的天线 (使用中断计数器循环) */
-    uint8_t rotationIndex = g_irqCounters[TK8710_IRQ_S0] % TK8710_MAX_ANTENNAS;
+    /* 仅在实际发送BCN的S0结束后，更新下一次BCN使用的天线 */
+    g_bcnRotationCount++;
+    uint8_t rotationIndex = g_bcnRotationCount % TK8710_MAX_ANTENNAS;
     currentAntenna = slotCfg->bcnRotation[rotationIndex];
     
     /* 更新全局变量，供广播发送函数使用 */
     g_currentBcnAntenna = currentAntenna;
     
-    TK8710_LOG_IRQ_DEBUG("BCN rotation: index %u -> antenna %d (count: %u)", 
-                         rotationIndex, currentAntenna, g_irqCounters[TK8710_IRQ_S0]);
+    TK8710_LOG_IRQ_DEBUG("BCN rotation: index %u -> antenna %d (bcnCount: %u, rateIndex: %u)",
+                         rotationIndex, currentAntenna, g_bcnRotationCount, g_currentRateIndex);
     
     /* 配置所有天线的BCN发送功率 */
     for (int ant = 0; ant < 8; ant++) {
@@ -1436,6 +1613,9 @@ static void tk8710_handle_slot1(void)
     // if (TK8710GetWorkType() == TK8710_MODE_MASTER) {
     //     tk8710_s0_bcn_rotation_process();
     // }
+    if (slotCfg == NULL || slotCfg->s1Cfg[0].byteLen == 0) {
+        return;
+    }
     
     /* 处理S1时隙自动发送 */
     tk8710_s1_auto_tx_process();
@@ -1548,12 +1728,17 @@ static void tk8710_s1_auto_tx_process(void)
             uint8_t txPower = g_txBuffers[i].txPower;
             
             /* 检查数据长度 */
-            if (dataLen != expectedLen) {
+            if (dataLen < expectedLen) {
+                if (TK8710PadTxUserData(&g_txBuffers[i], userIndex, expectedLen) != TK8710_OK) {
+                    errorCount++;
+                    continue;
+                }
+                userData = g_txBuffers[i].data;
                 dataLen = expectedLen;
-                // TK8710_LOG_IRQ_ERROR("User[%d] data length mismatch: expected=%d, actual=%d", 
-                //                    userIndex, expectedLen, dataLen);
-                // errorCount++;
-                // continue;
+            } else if (dataLen > expectedLen) {
+                TK8710_LOG_IRQ_DEBUG("User[%d] TX data truncated: actual=%d, expected=%d",
+                                     userIndex, dataLen, expectedLen);
+                dataLen = expectedLen;
             }
             
             /* 发送用户数据 */
@@ -1603,6 +1788,43 @@ static void tk8710_handle_slot2(void)
     
     /* 设置中断类型 */
     g_irqResult.irq_type = TK8710_IRQ_S2;
+    
+    const slotCfg_t* slotCfg = TK8710GetSlotConfig();
+    if(slotCfg != NULL && slotCfg->s1Cfg[0].byteLen == 0 &&
+       slotCfg->msMode == TK8710_MODE_SLAVE){
+        /* 处理S1时隙自动发送 */
+        tk8710_s1_auto_tx_process();
+        
+        /* 处理S1时隙指定信息发送 */
+        if (slotCfg->txBeamCtrlMode == 1) {
+            /* 如果已加载仿真数据，跳过手动发送处理 */
+            if (g_simulationDataLoaded) {
+                    int ret;
+                    uint32_t user_val_regs[4] = {0xffffffff,0xffffffff,0xffffffff,0xffffffff}; /* user_val0, user_val1, user_val2, user_val3 */
+                    /* 写入MAC寄存器 */
+                    for (int reg = 0; reg < 4; reg++) {
+                        uint32_t reg_offset = MAC_BASE + 0x3c + reg * 4;
+                        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, reg_offset, user_val_regs[reg]);
+                        if (ret == TK8710_OK) {
+                            TK8710_LOG_IRQ_DEBUG("Set MAC user_val%d = 0x%08X", reg, user_val_regs[reg]);
+                        } else {
+                            TK8710_LOG_IRQ_ERROR("Failed to set MAC user_val%d: %d", reg, ret);
+                        }
+                    }
+                    s_init_17 brdUserVal;
+                    brdUserVal.data = 0;
+                    brdUserVal.b.brd_user_val = 0xffff;
+
+                    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_17), brdUserVal.data);
+                    TK8710_LOG_IRQ_DEBUG("Simulation data loaded, skipping manual TX process");
+                } else {
+                    tk8710_s1_manual_tx_process();
+                }
+        } else {
+            /* 处理S1时隙广播发送 */
+            tk8710_s1_broadcast_tx_process();
+        }
+    }
 }
 
 /**
@@ -1610,39 +1832,19 @@ static void tk8710_handle_slot2(void)
  */
 static void tk8710_handle_slot3(void)
 {
-    const slotCfg_t* slotCfg = TK8710GetSlotConfig();
     int ret;
     
     TK8710_LOG_IRQ_DEBUG("S3 slot interrupt handled (count: %u)", g_irqCounters[TK8710_IRQ_S3]);
-    
-    /* 根据rateCount个数循环配置速率 */
-    if (slotCfg->rateCount > 1) {
-        /* 多速率模式：循环配置不同速率 */
-        static uint8_t currentRateIndex = 0;
-        
-        /* 更新中断结果中的当前速率序号（下一帧将使用的速率） */
-        g_irqResult.currentRateIndex = (currentRateIndex + 1) % slotCfg->rateCount;
-        
-        /* 更新速率索引，循环切换 */
-        currentRateIndex = (currentRateIndex + 1) % slotCfg->rateCount;
-        
-        TK8710_LOG_IRQ_DEBUG("Multi-rate mode: switched to rate index %d/%d", 
-                            currentRateIndex, slotCfg->rateCount);
 
-        /* 调用速率配置函数 */
-        ret = tk8710_configure_multi_rate(currentRateIndex);
-        if (ret != TK8710_OK) {
-            TK8710_LOG_IRQ_ERROR("Failed to configure multi-rate %d: %d", currentRateIndex, ret);
-        }
-
-    } else {
-        /* 单速率模式：保持速率序号为0 */
-        g_irqResult.currentRateIndex = 0;
-        TK8710_LOG_IRQ_DEBUG("Single rate mode: no rate switching needed");
+    ret = TK8710CheckAndRestoreInit10();
+    if (ret != TK8710_OK) {
+        TK8710_LOG_IRQ_ERROR("S3 init_10 check/restore failed: %d", ret);
     }
     
-    /* TODO: 实现S3时隙结束处理 */
-    g_irqResult.irq_type = TK8710_IRQ_S3;
+    ret = TK8710AdvanceRateAfterS3();
+    if (ret != TK8710_OK) {
+        TK8710_LOG_IRQ_ERROR("S3 rate advance failed: %d", ret);
+    }
 }
 
 /**
@@ -2165,12 +2367,17 @@ static void tk8710_s1_manual_tx_process(void)
                 uint16_t dataLen = g_txBuffers[origUserIndex].dataLen;
                 
                 /* 检查数据长度 */
-                if (dataLen != expectedLen) {
+                if (dataLen < expectedLen) {
+                    if (TK8710PadTxUserData(&g_txBuffers[origUserIndex], origUserIndex, expectedLen) != TK8710_OK) {
+                        errorCount++;
+                        continue;
+                    }
+                    userData = g_txBuffers[origUserIndex].data;
                     dataLen = expectedLen;
-                    // TK8710_LOG_IRQ_ERROR("User[%d] data length mismatch: expected=%d, actual=%d", 
-                    //                    i+1, expectedLen, dataLen);
-                    // errorCount++;
-                    // continue;
+                } else if (dataLen > expectedLen) {
+                    TK8710_LOG_IRQ_DEBUG("Manual TX user[%d] data truncated: actual=%d, expected=%d",
+                                         origUserIndex, dataLen, expectedLen);
+                    dataLen = expectedLen;
                 }
                 
                 /* 发送用户数据 - 按顺序写入buffer */

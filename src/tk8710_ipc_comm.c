@@ -30,6 +30,11 @@ IpcCommContext g_ipc_ctx = {0};
 #define IPC_MSG_TYPE_SPI_TO_MQTT 0x2001u
 #endif
 
+#define IPC_USER_DETAIL_PRINT_LIMIT 5
+
+static int g_ns_data_detail_print_count = 0;
+static int g_ns_data_suppress_notice_printed = 0;
+
 // 全局配置状态标志
 static volatile int g_config_received = 0;
 static NsConfigDown_t g_received_config;
@@ -209,8 +214,8 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
     int rc;
     struct timespec ts;
     int msg_count = 0;
+    int printed_any_log = 0;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    printf("[%ld.%03ld] 开始处理消息\n", ts.tv_sec, ts.tv_nsec/1000000);
     while (1) {
         rc = ipc_smp_recv(ctx->ch_ns_to_gw, &msg, 0);  // 非阻塞接收
         if (rc == IPC_SMP_ERR_EMPTY) {
@@ -225,10 +230,26 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
         const ipc_smp_msg_hdr_t *hdr = (const ipc_smp_msg_hdr_t *)
             ((const uint8_t *)msg.payload - sizeof(ipc_smp_msg_hdr_t));
         
-        PrintMessageDetail("RX: NS->网关", hdr, msg.payload, msg.len);
+        MacMsgType_e *msg_type_ptr = (MacMsgType_e *)msg.payload;
+        int print_ns_data_detail = 1;
+        if (msg.len >= sizeof(MacMsgType_e) && *msg_type_ptr == MSG_TYPE_NS_DATA_DOWN) {
+            print_ns_data_detail = (g_ns_data_detail_print_count < IPC_USER_DETAIL_PRINT_LIMIT);
+            if (print_ns_data_detail) {
+                PrintMessageDetail("RX: NS->网关", hdr, msg.payload, msg.len);
+                printed_any_log = 1;
+            } else if (!g_ns_data_suppress_notice_printed) {
+                printf("NS data down user details exceed %d, suppressing remaining user details\n",
+                       IPC_USER_DETAIL_PRINT_LIMIT);
+                g_ns_data_suppress_notice_printed = 1;
+                printed_any_log = 1;
+            }
+            g_ns_data_detail_print_count++;
+        } else {
+            PrintMessageDetail("RX: NS->网关", hdr, msg.payload, msg.len);
+            printed_any_log = 1;
+        }
 
         // 处理不同类型的消息
-        MacMsgType_e *msg_type_ptr = (MacMsgType_e *)msg.payload;
         switch (*msg_type_ptr) {
             case MSG_TYPE_NS_CONFIG_DOWN: {
                 // NS配置下行消息 - 用于TK8710HalInit配置
@@ -309,7 +330,9 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
                 // NS数据下行消息 - 调用TK8710HalSendData发送
                 if (msg.len >= offsetof(NsDataDown_t, payload)) {
                     const NsDataDown_t *ns_data = (const NsDataDown_t *)msg.payload;
-                    printf("收到NS下行数据，调用TK8710HalSendData发送...\n");
+                    if (print_ns_data_detail) {
+                        printf("收到NS下行数据，调用TK8710HalSendData发送...\n");
+                    }
                     
                     // 调用HAL接口发送数据
                     TK8710HalError halRet = TK8710HalSendData(
@@ -324,9 +347,12 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
                     );
                     
                     if (halRet == TK8710_HAL_OK) {
-                        printf("TK8710HalSendData调用成功\n");
+                        if (print_ns_data_detail) {
+                            printf("TK8710HalSendData调用成功\n");
+                        }
                     } else {
                         printf("TK8710HalSendData调用失败: %d\n", halRet);
+                        printed_any_log = 1;
                     }
                 }
                 break;
@@ -339,7 +365,9 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
         // 确认消息处理完成
         ipc_smp_ack(ctx->ch_ns_to_gw, msg.seq);
     }
-    printf("[%ld.%03ld] 处理了 %d 条消息\n", ts.tv_sec, ts.tv_nsec/1000000, msg_count);
+    if (printed_any_log) {
+        printf("[%ld.%03ld] 处理了 %d 条消息\n", ts.tv_sec, ts.tv_nsec/1000000, msg_count);
+    }
 }
 
 // 核间通信线程主函数
@@ -528,7 +556,7 @@ int IpcSendUplinkData(IpcCommContext *ctx, const TRM_RxDataList* rxDataList) {
         gw_data->slot = 0;  // 示例时隙计算
         gw_data->rssi = user->rssi;
         gw_data->snr = user->snr;
-        // gw_data->freq_offset = user->freq/128;
+        gw_data->freq_offset = user->freq/128;
 
         // 复制用户数据
         gw_data->payload_len = user->dataLen;
@@ -552,6 +580,18 @@ int IpcSendUplinkData(IpcCommContext *ctx, const TRM_RxDataList* rxDataList) {
             // PrintMessageDetail("TX: 网关->NS (批量)", &hdr, &batch_data, len);
         }
         printf("✅ 批量发送 %d 个用户上行数据成功\n", batch_data.total_count);
+        int print_count = (batch_data.total_count < IPC_USER_DETAIL_PRINT_LIMIT) ?
+                          batch_data.total_count : IPC_USER_DETAIL_PRINT_LIMIT;
+        for (int i = 0; i < print_count; i++) {
+            const GwDataUp_t* gw_data = &batch_data.data_list[i];
+            printf("  用户[%d]: tdd=%d, rate=%d, slot=%d, rssi=%d, snr=%d, freq_offset=%d, payload_len=%zu\n",
+                   i, gw_data->tdd, gw_data->rate, gw_data->slot, gw_data->rssi, gw_data->snr,
+                   gw_data->freq_offset, gw_data->payload_len);
+        }
+        if (batch_data.total_count > IPC_USER_DETAIL_PRINT_LIMIT) {
+            printf("  ... 已省略后续 %d 个用户信息\n",
+                   batch_data.total_count - IPC_USER_DETAIL_PRINT_LIMIT);
+        }
     } else {
         fprintf(stderr, "IPC发送批量上行数据失败: %d\n", rc);
     }

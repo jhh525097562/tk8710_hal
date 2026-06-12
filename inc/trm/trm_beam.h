@@ -34,6 +34,14 @@ int TRM_SetBeamInfo(uint32_t userId, const TRM_BeamInfo* beamInfo);
 int TRM_GetBeamInfo(uint32_t userId, TRM_BeamInfo* beamInfo);
 
 /**
+ * @brief 刷新波束信息时间戳，不改变波束内容
+ * @param userId 用户ID
+ * @return 0-成功, 非0-失败
+ * @note 调用方需要保证并发安全；用于已持有TRM临界区的发送路径
+ */
+int TRM_TouchBeamInfoNoLock(uint32_t userId);
+
+/**
  * @brief 清除波束信息
  * @param userId 用户ID (0xFFFFFFFF表示清除所有)
  * @return 0-成功, 非0-失败

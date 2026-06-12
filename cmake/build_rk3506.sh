@@ -437,6 +437,77 @@ else
     echo "⚠️  tk8710_gw 源文件不存在"
 fi
 
+# 创建 tk8710_gw_sat
+if [ -f "test/example/tk8710_gw_sat.c" ]; then
+    # 先编译验证器模块
+    echo "编译验证器模块..."
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+        -c test/example/trm_tx_validator.c \
+        -o ${BUILD_DIR}/trm_tx_validator.o
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ trm_tx_validator.c 编译成功"
+    else
+        echo "❌ trm_tx_validator.c 编译失败"
+        exit 1
+    fi
+    
+    # 编译测试程序并链接验证器（单独包含IPC对象文件）
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+        test/example/tk8710_gw_sat.c \
+        ${BUILD_DIR}/trm_tx_validator.o \
+        ${BUILD_DIR}/tk8710_ipc_comm.o \
+        -L${BUILD_DIR} -ltk8710_hal_complete \
+        -L./lib -lipc_smp \
+        -Wl,-rpath,./lib \
+        -lpthread -lgpiod -lm \
+        -o ${BUILD_DIR}/tk8710_gw_sat
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ tk8710_gw_sat 创建成功"
+    else
+        echo "❌ tk8710_gw_sat 创建失败"
+    fi
+else
+    echo "⚠️  tk8710_gw_sat 源文件不存在"
+fi
+
+
+# 创建 tk8710_gw_ground
+if [ -f "test/example/tk8710_gw_ground.c" ]; then
+    # 先编译验证器模块
+    echo "编译验证器模块..."
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+        -c test/example/trm_tx_validator.c \
+        -o ${BUILD_DIR}/trm_tx_validator.o
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ trm_tx_validator.c 编译成功"
+    else
+        echo "❌ trm_tx_validator.c 编译失败"
+        exit 1
+    fi
+    
+    # 编译测试程序并链接验证器（单独包含IPC对象文件）
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+        test/example/tk8710_gw_ground.c \
+        ${BUILD_DIR}/trm_tx_validator.o \
+        ${BUILD_DIR}/tk8710_ipc_comm.o \
+        -L${BUILD_DIR} -ltk8710_hal_complete \
+        -L./lib -lipc_smp \
+        -Wl,-rpath,./lib \
+        -lpthread -lgpiod -lm \
+        -o ${BUILD_DIR}/tk8710_gw_ground
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ tk8710_gw_ground 创建成功"
+    else
+        echo "❌ tk8710_gw_ground 创建失败"
+    fi
+else
+    echo "⚠️  tk8710_gw_ground 源文件不存在"
+fi
+
 # 显示结果
 echo ""
 echo "=========================="

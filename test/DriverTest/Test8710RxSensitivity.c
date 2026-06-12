@@ -926,7 +926,7 @@ int main(int argc, char* argv[])
     /* ========== 使用 HAL API 进行初始化 ========== */
     /* 1. 准备RF配置 */
     static ChiprfConfig rfConfig = {
-        .rftype = TK8710_RF_TYPE_1255_1M,//TK8710_RF_TYPE_1255_32M
+        .rftype = TK8710_RF_TYPE_1255_32M,//TK8710_RF_TYPE_1255_32M
         .Freq = 509100000,
         .rxgain = 0x7e,
         .txgain = 0x2a,

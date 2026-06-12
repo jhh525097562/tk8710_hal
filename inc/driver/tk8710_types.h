@@ -161,6 +161,7 @@ typedef enum {
 /* 控制类型枚举 */
 typedef enum {
     TK8710_CTRL_TYPE_ACM_START,
+    TK8710_CTRL_TYPE_ACM_CALIBRATE_ONLY,
     TK8710_CTRL_TYPE_SEND_WAKEUP,
 } TK8710CtrlType;
 

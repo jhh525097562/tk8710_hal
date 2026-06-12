@@ -22,9 +22,12 @@
 #include "driver/tk8710_driver_api.h"
 #include "driver/tk8710_internal.h"
 #include "driver/tk8710_log.h"
+#include "driver/tk8710_driver_api.h"  /* Driver API接口 */
+#include "driver/tk8710_regs.h"
 #include "trm/trm_api.h"        /* 添加TRM头文件 */
 #include "trm/trm_log.h"     /* 添加TRM日志头文件 */
 #include "trm_tx_validator.h"  /* 添加发送验证模块 */
+#include "tk8710_scan_service.h"
 
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
@@ -73,6 +76,60 @@ static void signal_handler(int sig)
     
     printf("Process bound to CPU core %d\n", cpu_core);
     return 0;
+}
+
+void read_register(void)
+{
+    uint32_t addr, value;
+    int ret;
+    
+    printf("\n=== 读取寄存器 ===\n");
+    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+    
+    if (scanf("%x", &addr) != 1) {
+        printf("无效的地址格式\n");
+        return;
+    }
+    
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, addr, &value);
+    if (ret == TK8710_OK) {
+        printf("寄存器 0x%08X = 0x%08X (%u)\n", addr, value, value);
+    } else {
+        printf("读取失败: 错误码=%d\n", ret);
+    }
+    printf("==================\n\n");
+}
+
+/**
+ * @brief 写入寄存器
+ */
+void write_register(void)
+{
+    uint32_t addr, value;
+    int ret;
+    
+    printf("\n=== 写入寄存器 ===\n");
+    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+    
+    if (scanf("%x", &addr) != 1) {
+        printf("无效的地址格式\n");
+        return;
+    }
+    
+    printf("输入写入值 (十六进制，如 0x8): ");
+    
+    if (scanf("%x", &value) != 1) {
+        printf("无效的值格式\n");
+        return;
+    }
+    
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, addr, value);
+    if (ret == TK8710_OK) {
+        printf("写入成功: 0x%08X = 0x%08X (%u)\n", addr, value, value);
+    } else {
+        printf("写入失败: 错误码=%d\n", ret);
+    }
+    printf("==================\n\n");
 }
 
 /* 下行发送状态跟踪 */
@@ -203,8 +260,9 @@ void show_help(void)
     printf("  q/Q - Quit program\n");
     printf("\nTRM Commands (when TRM enabled):\n");
     printf("  t/T - Show TRM statistics\n");
+    printf("  k/K - Request TRM ACM calibration\n");
+    printf("  a/A - Start frequency sweep\n");
     printf("\nDriver Test Commands:\n");
-    printf("  a/A - Auto downlink test (all users)\n");
     printf("  m/M - Manual downlink test (single user)\n");
     printf("  r/R - Reset chip\n");
     printf("+--------------------------------------+\n");
@@ -263,6 +321,80 @@ void show_irq_statistics(void)
     printf("=== Statistics End ===\n\n");
 }
 
+static int read_sweep_frequency_hz(const char* prompt, uint32_t* freq_hz)
+{
+    char text[32];
+    char* end_ptr;
+    double value;
+    double hz;
+
+    if (prompt == NULL || freq_hz == NULL) {
+        return -1;
+    }
+
+    printf("%s", prompt);
+    fflush(stdout);
+
+    if (scanf("%31s", text) != 1) {
+        clearerr(stdin);
+        return -1;
+    }
+
+    errno = 0;
+    value = strtod(text, &end_ptr);
+    if (end_ptr == text || errno != 0 || value <= 0.0) {
+        return -1;
+    }
+
+    if (*end_ptr == '\0') {
+        hz = (value < 1000000.0) ? value * 1000000.0 : value;
+    } else if (strcmp(end_ptr, "M") == 0 || strcmp(end_ptr, "m") == 0 ||
+               strcmp(end_ptr, "MHz") == 0 || strcmp(end_ptr, "mhz") == 0) {
+        hz = value * 1000000.0;
+    } else if (strcmp(end_ptr, "K") == 0 || strcmp(end_ptr, "k") == 0 ||
+               strcmp(end_ptr, "kHz") == 0 || strcmp(end_ptr, "khz") == 0) {
+        hz = value * 1000.0;
+    } else {
+        return -1;
+    }
+
+    if (hz <= 0.0 || hz > (double)UINT32_MAX) {
+        return -1;
+    }
+
+    *freq_hz = (uint32_t)(hz + 0.5);
+    return 0;
+}
+
+static void start_frequency_sweep_from_console(void)
+{
+    uint32_t start_freq;
+    uint32_t end_freq;
+    const int sweep_mode = 3;
+    int ret;
+
+    printf("\n=== Frequency Sweep ===\n");
+    printf("Input format: Hz or MHz, for example 470000000 or 470.5M\n");
+
+    if (read_sweep_frequency_hz("Start frequency: ", &start_freq) != 0 ||
+        read_sweep_frequency_hz("End frequency: ", &end_freq) != 0) {
+        printf("[Sweep] Invalid frequency input\n");
+        return;
+    }
+
+    if (start_freq > end_freq) {
+        printf("[Sweep] Invalid range: start=%u Hz, end=%u Hz\n", start_freq, end_freq);
+        return;
+    }
+
+    printf("[Sweep] Starting: start=%u Hz, end=%u Hz, mode=%d (500 kHz step)\n",
+           start_freq, end_freq, sweep_mode);
+    ret = TK8710ScanStart(start_freq, end_freq, sweep_mode);
+    if (ret != 0) {
+        printf("[Sweep] Start failed: ret=%d\n", ret);
+    }
+}
+
 /**
  * @brief 主函数
  */
@@ -279,6 +411,7 @@ int main(int argc, char* argv[])
     int s1ByteLen = 26;  /* 默认s1 byteLen */
     int s2ByteLen = 26;  /* 默认s2 byteLen */
     int s3ByteLen = 26;  /* 默认s3 byteLen */
+    int Tmp = 90;
     /* 检查命令行参数 */
     if (argc > 1) {
         if (strcmp(argv[1], "--multi-rate") == 0 || strcmp(argv[1], "-m") == 0) {
@@ -322,7 +455,10 @@ int main(int argc, char* argv[])
                 return 1;
             }
         }
-        
+        /* 解析s3ByteLen参数 */
+        if (argc > 5) {
+            Tmp = atoi(argv[5]);
+        }
         printf("Using test mode: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d\n", 
                testMode, s1ByteLen, s2ByteLen, s3ByteLen);
     }
@@ -358,10 +494,10 @@ int main(int argc, char* argv[])
         //     {0x0bc0, 0x04a0}, {0x0a50, 0x0780}, {0x0750, 0x0820}, {0x0bc3, 0x0940},
         //     {0x0e83, 0x05e0}, {0xfbff, 0x0850}, {0x0880, 0x0500}, {0x02a0, 0x06ff}
         // }
-        .txadc = {//2号板
-            {0x0c90, 0x1190}, {0xfe30, 0x0220}, {0x0210, 0x01a0}, {0x0b70, 0x07b0},
-            {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
-        }
+        // .txadc = {//2号板
+        //     {0x0c90, 0x1190}, {0xfe30, 0x0220}, {0x0210, 0x01a0}, {0x0b70, 0x07b0},
+        //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
+        // }
     };
     
     /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
@@ -396,7 +532,7 @@ int main(int argc, char* argv[])
     trmConfig.beamTimeoutMs = 10000;
     trmConfig.callbacks.onRxData = OnTrmRxData;
     trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
-    trmConfig.maxFrameCount = 1;
+    trmConfig.maxFrameCount = 10;
     /* 4. 准备HAL初始化配置 */
     TK8710HalInitCfg halConfig = {
         .chipInitCfg = &chipConfig,
@@ -563,7 +699,8 @@ int main(int argc, char* argv[])
             .brdBlockNum = slotCfg.s1Cfg[0].byteLen / 26,  // 广播包块数
             .ulBlockNum = slotCfg.s2Cfg[0].byteLen / 26,     // 上行包块数
             .dlBlockNum = slotCfg.s3Cfg[0].byteLen / 26,   // 下行包块数
-            .superFrameNum = 10
+            .superFrameNum = 10,
+            .calcType = TRM_SLOT_CALC_TYPE_GROUND_WAN
         };
         
     TRM_SlotCalcOutput slotOutput;
@@ -594,28 +731,28 @@ int main(int argc, char* argv[])
         printf("TX validator initialization failed: %d (non-fatal)\n", ret);
     }
     
-    /* 8. 配置测试选项 */
-    printf("Configure test options:\n");
-    printf("Enable force process all users for testing? (y/n): ");
-    char testChoice;
-    scanf(" %c", &testChoice);
-    if (testChoice == 'y' || testChoice == 'Y') {
-        TK8710SetForceProcessAllUsers(1);
-        printf("Force process all users: ENABLED\n");
-    } else {
-        TK8710SetForceProcessAllUsers(0);
-        printf("Force process all users: DISABLED\n");
-    }
+    // /* 8. 配置测试选项 */
+    // printf("Configure test options:\n");
+    // printf("Enable force process all users for testing? (y/n): ");
+    // char testChoice;
+    // scanf(" %c", &testChoice);
+    // if (testChoice == 'y' || testChoice == 'Y') {
+    //     TK8710SetForceProcessAllUsers(1);
+    //     printf("Force process all users: ENABLED\n");
+    // } else {
+    //     TK8710SetForceProcessAllUsers(0);
+    //     printf("Force process all users: DISABLED\n");
+    // }
     
-    printf("Enable force max users TX for testing? (y/n): ");
-    scanf(" %c", &testChoice);
-    if (testChoice == 'y' || testChoice == 'Y') {
-        TK8710SetForceMaxUsersTx(1);
-        printf("Force max users TX: ENABLED\n");
-    } else {
-        TK8710SetForceMaxUsersTx(0);
-        printf("Force max users TX: DISABLED\n");
-    }
+    // printf("Enable force max users TX for testing? (y/n): ");
+    // scanf(" %c", &testChoice);
+    // if (testChoice == 'y' || testChoice == 'Y') {
+    //     TK8710SetForceMaxUsersTx(1);
+    //     printf("Force max users TX: ENABLED\n");
+    // } else {
+    //     TK8710SetForceMaxUsersTx(0);
+    //     printf("Force max users TX: DISABLED\n");
+    // }
     uint8_t data[30] = {0};
     halRet = TK8710HalSendData(
         TK8710_DOWNLINK_A,  // slot=1->A, slot=3->B
@@ -664,7 +801,17 @@ int main(int argc, char* argv[])
             case 'S':
                 show_system_status();
                 break;
+
+            case 'r':
+            case 'R':
+                read_register();
+                break;
                 
+            case 'w':
+            case 'W':
+                write_register();
+                break;
+
             case 'i':
             case 'I':
                 show_irq_statistics();
@@ -683,6 +830,30 @@ int main(int argc, char* argv[])
             case 'T':
                 show_trm_statistics();
                 break;
+
+            case 'a':
+            case 'A':
+                start_frequency_sweep_from_console();
+                break;
+
+            case 'k':
+            case 'K':
+            {
+                TRM_AcmCalibRequest acmRequest = {
+                    .calibCount = 1,
+                    .snrThreshold = 32,
+                    .restartAdvanceUs = Tmp,//mode5-6:200,mode7:212,mode8:
+                    .guardUs = 1000
+                };
+
+                ret = TRM_RequestAcmCalibration(&acmRequest);
+                if (ret == TRM_OK) {
+                    printf("TRM ACM calibration request submitted; it will run at last-frame S2 end\n");
+                } else {
+                    printf("TRM ACM calibration request failed: ret=%d\n", ret);
+                }
+                break;
+            }
                 
             case 'q':
             case 'Q':

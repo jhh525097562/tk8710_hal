@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include "hal_api.h"   /* HAL API接口 */
 #include "tk8710_hal.h"
 #include "driver/tk8710_driver_api.h"  /* Driver API接口 */
@@ -71,6 +72,57 @@ static void signal_handler(int sig)
     }
     
     printf("Process bound to CPU core %d\n", cpu_core);
+    return 0;
+}
+
+static int parse_frequency_arg(const char* text, uint32_t* freq)
+{
+    char* end;
+    double value;
+    double multiplier = 1.0;
+
+    if (text == NULL || freq == NULL || text[0] == '\0') {
+        return -1;
+    }
+
+    errno = 0;
+    value = strtod(text, &end);
+    if (end == text || errno == ERANGE || value <= 0.0) {
+        return -1;
+    }
+
+    while (isspace((unsigned char)*end)) {
+        end++;
+    }
+
+    if (*end != '\0') {
+        if ((end[0] == 'M' || end[0] == 'm') &&
+            (end[1] == '\0' ||
+             ((end[1] == 'H' || end[1] == 'h') &&
+              (end[2] == 'Z' || end[2] == 'z') &&
+              end[3] == '\0'))) {
+            multiplier = 1000000.0;
+        } else if ((end[0] == 'K' || end[0] == 'k') &&
+                   (end[1] == '\0' ||
+                    ((end[1] == 'H' || end[1] == 'h') &&
+                     (end[2] == 'Z' || end[2] == 'z') &&
+                     end[3] == '\0'))) {
+            multiplier = 1000.0;
+        } else if ((end[0] == 'H' || end[0] == 'h') &&
+                   (end[1] == 'Z' || end[1] == 'z') &&
+                   end[2] == '\0') {
+            multiplier = 1.0;
+        } else {
+            return -1;
+        }
+    }
+
+    value *= multiplier;
+    if (value < 1.0 || value > (double)UINT32_MAX) {
+        return -1;
+    }
+
+    *freq = (uint32_t)(value + 0.5);
     return 0;
 }
 
@@ -1010,6 +1062,7 @@ int main(int argc, char* argv[])
     int s1ByteLen = 22;  /* 默认s1 byteLen */
     int s2ByteLen = 22;  /* 默认s2 byteLen */
     int s3ByteLen = 22;  /* 默认s3 byteLen */
+    uint32_t freq = 509100000U;
     
     /* 设置全局测试模式 */
     g_testMode = testMode;
@@ -1017,7 +1070,7 @@ int main(int argc, char* argv[])
     /* 检查命令行参数 */
     if (argc > 1) {
         if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-            printf("Usage: %s [mode] [class] [case] [s1ByteLen] [s2ByteLen] [s3ByteLen] [--help|-h]\n", argv[0]);
+            printf("Usage: %s [mode] [class] [case] [s1ByteLen] [s2ByteLen] [s3ByteLen] [Freq] [--help|-h]\n", argv[0]);
             printf("  mode: Test mode (5,6,7,8,9,10,11,18), default: 6\n");
             printf("    Mode 5:  s0=40*256, s1=0, s2=0, s3=135072\n");
             printf("    Mode 6:  s0=46*256, s1=0, s2=0, s3=69536\n");
@@ -1032,11 +1085,13 @@ int main(int argc, char* argv[])
             printf("  s1ByteLen: Slot1 byte length, default: 22\n");
             printf("  s2ByteLen: Slot2 byte length, default: 22\n");
             printf("  s3ByteLen: Slot3 byte length, default: 22\n");
+            printf("  Freq: RF/slot center frequency, default: 509100000 Hz. Supports Hz, kHz, MHz suffixes\n");
             printf("  --help, -h: Show this help\n");
             printf("\nExamples:\n");
             printf("  %s 6 3 11           # Use mode 6, class 3, case 11, default byteLen\n", argv[0]);
             printf("  %s 6 3 11 24 24 24  # Use mode 6, class 3, case 11, s1=24, s2=24, s3=24\n", argv[0]);
             printf("  %s 6 1 17 20 30 25  # Use mode 6, class 1, case 17, s1=20, s2=30, s3=25\n", argv[0]);
+            printf("  %s 6 3 17 22 22 22 509.1MHz  # Use 509.1 MHz RF/slot frequency\n", argv[0]);
             return 0;
         }
         
@@ -1069,7 +1124,7 @@ int main(int argc, char* argv[])
         /* 解析s1ByteLen参数 */
         if (argc > 4) {
             s1ByteLen = atoi(argv[4]);
-            if (s1ByteLen <= 0 || s1ByteLen > 255) {
+            if (s1ByteLen < 0 || s1ByteLen > 255) {
                 printf("Error: Invalid s1ByteLen %d. Must be positive integer <= 255\n", s1ByteLen);
                 return 1;
             }
@@ -1078,7 +1133,7 @@ int main(int argc, char* argv[])
         /* 解析s2ByteLen参数 */
         if (argc > 5) {
             s2ByteLen = atoi(argv[5]);
-            if (s2ByteLen <= 0 || s2ByteLen > 255) {
+            if (s2ByteLen < 0 || s2ByteLen > 255) {
                 printf("Error: Invalid s2ByteLen %d. Must be positive integer <= 255\n", s2ByteLen);
                 return 1;
             }
@@ -1087,17 +1142,24 @@ int main(int argc, char* argv[])
         /* 解析s3ByteLen参数 */
         if (argc > 6) {
             s3ByteLen = atoi(argv[6]);
-            if (s3ByteLen <= 0 || s3ByteLen > 255) {
+            if (s3ByteLen < 0 || s3ByteLen > 255) {
                 printf("Error: Invalid s3ByteLen %d. Must be positive integer <= 255\n", s3ByteLen);
                 return 1;
             }
         }
+
+        if (argc > 7) {
+            if (parse_frequency_arg(argv[7], &freq) != 0) {
+                printf("Error: Invalid Freq '%s'. Use Hz or suffixes like 509.1MHz/509100kHz\n", argv[7]);
+                return 1;
+            }
+        }
         
-        printf("Using test mode: %d, class: %d, case: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d\n", 
-               testMode, classNum, caseNum, s1ByteLen, s2ByteLen, s3ByteLen);
+        printf("Using test mode: %d, class: %d, case: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d, Freq: %u Hz\n", 
+               testMode, classNum, caseNum, s1ByteLen, s2ByteLen, s3ByteLen, freq);
     } else {
-        printf("Using default: mode %d, class %d, case %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d\n", 
-               testMode, classNum, caseNum, s1ByteLen, s2ByteLen, s3ByteLen);
+        printf("Using default: mode %d, class %d, case %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d, Freq: %u Hz\n", 
+               testMode, classNum, caseNum, s1ByteLen, s2ByteLen, s3ByteLen, freq);
     }
     
 #ifdef _WIN32
@@ -1153,11 +1215,12 @@ int main(int argc, char* argv[])
         //     {0x0450, 0x04a0}, {0x0500, 0x0500}, {0x0490, 0x0350}, {0x0490, 0x0420},
         //     {0x0300, 0x0250}, {0x05c0, 0x0450}, {0x0200, 0x0250}, {0x0330, 0x0390}
         // }
-        .txadc = {//710：板（slave）
-            {0x0300, 0x0250}, {0x0450, 0x0590}, {0x0350, 0x0490}, {0x0450, 0x02c0},
-            {0x02a0, 0x0390}, {0x01a0, 0x0220}, {0x0240, 0x0250}, {0x0250, 0x0680}
-        }
+        // .txadc = {//710：板（slave）
+        //     {0x0300, 0x0250}, {0x0450, 0x0590}, {0x0350, 0x0490}, {0x0450, 0x02c0},
+        //     {0x02a0, 0x0390}, {0x01a0, 0x0220}, {0x0240, 0x0250}, {0x0250, 0x0680}
+        // }
     };
+    rfConfig.Freq = freq;
     
     /* 尝试从TxDC目录加载txadc配置 */
     if (LoadTxadcConfig("txadc.txt", (uint16_t (*)[2])rfConfig.txadc) != 0) {
@@ -1244,45 +1307,46 @@ int main(int argc, char* argv[])
     switch (testMode) {
         case 5:
             slotCfg.s0Cfg[0].da_m = 0;
-            slotCfg.s1Cfg[0].da_m = 1300;
-            slotCfg.s2Cfg[0].da_m = 0;
+            slotCfg.s1Cfg[0].da_m = 21492;
+            slotCfg.s2Cfg[0].da_m = 21492;
             slotCfg.s3Cfg[0].da_m = 65000;
             break;
         case 6:
             slotCfg.s0Cfg[0].da_m = 0;
-            slotCfg.s1Cfg[0].da_m = 1400;
-            slotCfg.s2Cfg[0].da_m = 0;
-            slotCfg.s3Cfg[0].da_m = 31500;
+            slotCfg.s1Cfg[0].da_m = 19728;
+            slotCfg.s2Cfg[0].da_m = 19728;
+            // slotCfg.s3Cfg[0].da_m = 31500;
+            slotCfg.s3Cfg[0].da_m = 31500+17168;
             break;
         case 7:
             slotCfg.s0Cfg[0].da_m = 0;
-            slotCfg.s1Cfg[0].da_m = 7000;
-            slotCfg.s2Cfg[0].da_m = 0;
+            slotCfg.s1Cfg[0].da_m = 12000;
+            slotCfg.s2Cfg[0].da_m = 12000;
             slotCfg.s3Cfg[0].da_m = 14500;
             break;
         case 8:
             slotCfg.s0Cfg[0].da_m = 0;
-            slotCfg.s1Cfg[0].da_m = 3600;
-            slotCfg.s2Cfg[0].da_m = 0;
+            slotCfg.s1Cfg[0].da_m = 5600;
+            slotCfg.s2Cfg[0].da_m = 5600;
             slotCfg.s3Cfg[0].da_m = 8000;
             break;
         case 9:
             slotCfg.s0Cfg[0].da_m = 0;
-            slotCfg.s1Cfg[0].da_m = 1900;
-            slotCfg.s2Cfg[0].da_m = 0;
+            slotCfg.s1Cfg[0].da_m = 2800;
+            slotCfg.s2Cfg[0].da_m = 2800;
             slotCfg.s3Cfg[0].da_m = 4500;
             break;
         case 10:
             slotCfg.s0Cfg[0].da_m = 0;
-            slotCfg.s1Cfg[0].da_m = 1200;
-            slotCfg.s2Cfg[0].da_m = 0;
+            slotCfg.s1Cfg[0].da_m = 1400;
+            slotCfg.s2Cfg[0].da_m = 1400;
             slotCfg.s3Cfg[0].da_m = 1200;
             break;
         case 11:
         case 18:
             slotCfg.s0Cfg[0].da_m = 0;
             slotCfg.s1Cfg[0].da_m = 800;
-            slotCfg.s2Cfg[0].da_m = 0;
+            slotCfg.s2Cfg[0].da_m = 800;
             slotCfg.s3Cfg[0].da_m = 800;
             break;
         default:
@@ -1290,13 +1354,13 @@ int main(int argc, char* argv[])
             return -1;
     }
     slotCfg.s0Cfg[0].byteLen = 0;
-    slotCfg.s0Cfg[0].centerFreq = 509100000;
+    slotCfg.s0Cfg[0].centerFreq = freq;
     slotCfg.s1Cfg[0].byteLen = s1ByteLen;
-    slotCfg.s1Cfg[0].centerFreq = 509100000;
+    slotCfg.s1Cfg[0].centerFreq = freq;
     slotCfg.s2Cfg[0].byteLen = s2ByteLen;
-    slotCfg.s2Cfg[0].centerFreq = 509100000;
+    slotCfg.s2Cfg[0].centerFreq = freq;
     slotCfg.s3Cfg[0].byteLen = s3ByteLen;
-    slotCfg.s3Cfg[0].centerFreq = 509100000;
+    slotCfg.s3Cfg[0].centerFreq = freq;
     
     /* 调用 8710 config 配置时隙 */
     ret = TK8710SetConfig(TK8710_CFG_TYPE_SLOT_CFG, &slotCfg);

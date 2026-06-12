@@ -142,9 +142,12 @@ void TRM_ScheduleBeamRamRelease(uint32_t userId, uint32_t delayFrames)
         
         if (item->valid && item->userId == userId) {
             /* 已存在该用户的释放任务，更新释放时间 */
-            item->releaseFrame = g_trmCurrentFrame + delayFrames;
-            TRM_LOG_DEBUG("TRM: Updated existing beam RAM release for user[%u] at frame=%u (delay=%u)", 
-                          userId, item->releaseFrame, delayFrames);
+            uint32_t newReleaseFrame = g_trmCurrentFrame + delayFrames;
+            if (newReleaseFrame > item->releaseFrame) {
+                item->releaseFrame = newReleaseFrame;
+            }
+            // TRM_LOG_INFO("TRM: Updated beam RAM release for user[%u] at frame=%u (delay=%u, current=%u)",
+            //              userId, item->releaseFrame, delayFrames, g_trmCurrentFrame);
             return;
         }
         count++;
@@ -165,8 +168,8 @@ void TRM_ScheduleBeamRamRelease(uint32_t userId, uint32_t delayFrames)
     
     g_beamReleaseQueue.count++;
     
-    TRM_LOG_DEBUG("TRM: Scheduled beam RAM release for user[%u] at frame=%u (delay=%u)", 
-                  userId, item->releaseFrame, delayFrames);
+    // TRM_LOG_INFO("TRM: Scheduled beam RAM release for user[%u] at frame=%u (delay=%u, current=%u)",
+    //              userId, item->releaseFrame, delayFrames, g_trmCurrentFrame);
 }
 
 /**
@@ -190,8 +193,8 @@ void TRM_ProcessBeamRamReleases(void)
         
         if (item->releaseFrame <= g_trmCurrentFrame) {
             /* 到达释放时间，执行释放 */
-            TRM_LOG_DEBUG("TRM: Releasing beam RAM for user[%u] at frame=%u (scheduled=%u)", 
-                          item->userId, g_trmCurrentFrame, item->releaseFrame);
+            TRM_LOG_INFO("TRM: Releasing beam RAM for user[%u] at frame=%u (scheduled=%u)",
+                         item->userId, g_trmCurrentFrame, item->releaseFrame);
             
             /* 调用波束信息清理函数 */
             TRM_ClearBeamInfo(item->userId);
@@ -812,7 +815,9 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
                                ((uint32_t)((uint8_t*)freqBytes)[3]);
             uint32_t freq26 = freqRaw & 0x03FFFFFF;  /* 取26位 */
             int32_t freqValue = freq26 > (1<<25) ? (int32_t)(freq26 - (1<<26)) : (int32_t)freq26;
-            TRM_LOG_INFO("TRM: User ID[%u], freq = %d", user->userId, freqValue/128);
+            if(i < 5){
+                TRM_LOG_INFO("TRM: User ID[%u], freq = %d", user->userId, freqValue/128);
+            }
             ret = TK8710SetTxUserInfo(txUserIndex, user->beam.freq, user->beam.ahData, user->beam.pilotPower);
             
             if (ret == TK8710_OK) {
@@ -824,6 +829,13 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
                     (*resultCount)++;
                 }
                 TRM_ScheduleBeamRamRelease(user->userId, 10);
+                if (user->beamType != TK8710_DATA_TYPE_BRD) {
+                    int touchRet = TRM_TouchBeamInfoNoLock(user->userId);
+                    if (touchRet != TRM_OK) {
+                        TRM_LOG_WARN("TRM: Failed to refresh beam timestamp for user[%u]: %d",
+                                     user->userId, touchRet);
+                    }
+                }
                 TRM_LOG_DEBUG("TRM: Successfully sent user[%u] with power=%u", user->userId, user->finalPower);
             } else {
                 /* 设置用户信息失败 */

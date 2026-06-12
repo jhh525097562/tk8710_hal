@@ -58,6 +58,8 @@ int TK8710GetConfig(TK8710ConfigType type, void* params);
  * @return 0-成功, 非0-失败(ACM时表示异常天线位)
  */
 int TK8710Ctrl(TK8710CtrlType type, const void* params);
+int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode);
+int TK8710FastStartTrigger(uint8_t workType);
 
 /* ============================================================================
  * 寄存器读写API (内部使用)
@@ -81,6 +83,7 @@ int TK8710WriteReg(uint8_t regType, uint16_t addr, uint32_t data);
  * @return 0-成功, 1-失败, 2-超时
  */
 int TK8710ReadReg(uint8_t regType, uint16_t addr, uint32_t* data);
+int TK8710CheckAndRestoreInit10(void);
 
 /* ============================================================================
  * Buffer读写API (内部使用)
@@ -235,6 +238,7 @@ uint32_t TK8710GetIrqCounter(uint8_t irqType);
  * @param counters 输出数组指针，至少10个元素
  */
 void TK8710GetAllIrqCounters(uint32_t* counters);
+void TK8710GetS0PeriodStats(uint64_t* lastTimeUs, uint32_t* lastPeriodUs, uint32_t* count);
 
 /**
  * @brief 重置中断计数器
@@ -315,6 +319,13 @@ uint8_t TK8710GetTxBeamCtrlMode(void);
  * @note 内部函数，不建议应用层直接调用
  */
 int TK8710GetAcmCalibrationFactors(AcmCalibrationFactors* calFactors);
+
+/**
+ * @brief 补偿一次S3结束后的速率状态更新
+ * @return 0-成功, 非0-失败
+ * @note ACM校准打断真实S3中断后，由TRM在恢复时隙前调用
+ */
+int TK8710AdvanceRateAfterS3(void);
 
 /* ============================================================================
  * RF寄存器读写API (内部使用)
