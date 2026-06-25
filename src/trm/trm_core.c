@@ -8,6 +8,7 @@
 #include "../inc/trm/trm_log.h"
 #include "../inc/trm/trm_beam.h"
 #include "../inc/trm/trm_data.h"
+#include "../inc/trm/trm_satellite.h"
 #include "../inc/driver/tk8710_driver_api.h"
 #include "../inc/driver/tk8710_internal.h"
 #include "../inc/driver/tk8710_regs.h"
@@ -163,6 +164,15 @@ int TRM_Init(const TRM_InitConfig* config)
         g_trmCtx.config.maxFrameCount = 254;  /* 默认最大帧数 */
         TRM_LOG_DEBUG("使用默认最大帧数: %u", g_trmCtx.config.maxFrameCount);
     }
+    if (g_trmCtx.config.nodeRole > TRM_NODE_ROLE_GROUND_STATION) {
+        TRM_LOG_WARN("TRM节点角色无效，回退为地面网关: %d", g_trmCtx.config.nodeRole);
+        g_trmCtx.config.nodeRole = TRM_NODE_ROLE_GROUND_GATEWAY;
+    }
+    if (g_trmCtx.config.nodeRole == TRM_NODE_ROLE_GROUND_STATION) {
+        g_trmCtx.config.beamMaxUsers = g_trmCtx.config.groundStationTerminalBeamMax != 0 ?
+            g_trmCtx.config.groundStationTerminalBeamMax : TRM_GS_TERMINAL_BEAM_DEFAULT;
+        TRM_LOG_DEBUG("地面站终端波束容量: %u", g_trmCtx.config.beamMaxUsers);
+    }
     
     /* 设置全局帧管理参数 */
     g_trmMaxFrameCount = g_trmCtx.config.maxFrameCount;
@@ -175,6 +185,9 @@ int TRM_Init(const TRM_InitConfig* config)
     /* 初始化发送队列 */
     TRM_DataInit();
     TRM_LOG_INFO("发送队列初始化完成");
+
+    /* 初始化卫星物联网角色状态 */
+    TRM_SatelliteInit(&g_trmCtx.config);
     
     g_trmCtx.state = TRM_STATE_INIT;
     TRM_LOG_INFO("TRM系统初始化完成，状态: INIT");
@@ -208,6 +221,8 @@ int TRM_Deinit(void)
     /* 清理发送队列 */
     TRM_DataDeinit();
     TRM_LOG_INFO("发送队列清理完成");
+
+    TRM_SatelliteDeinit();
     
     g_trmCtx.state = TRM_STATE_UNINIT;
     TRM_LOG_INFO("TRM系统清理完成，状态: UNINIT");
@@ -224,6 +239,8 @@ int TRM_Reset(void)
     
     /* 清理发送队列 */
     TRM_ClearTxData(0xFFFFFFFF);
+
+    TRM_SatelliteReset();
     
     return TRM_OK;
 }
@@ -247,6 +264,7 @@ int TRM_GetStats(TRM_Stats* stats)
     uint32_t currentCount = TRM_GetTxQueueCount();
     uint32_t maxCapacity = TRM_GetTxQueueCapacity();
     stats->txQueueRemaining = (maxCapacity > currentCount) ? (maxCapacity - currentCount) : 0;
+    TRM_SatelliteUpdateStats(stats);
     
     return TRM_OK;
 }
@@ -508,6 +526,10 @@ static void TRM_OnDriverSlotRxAdapter(TK8710IrqResult* irqResult)
         TRM_ProcessSweepCaptureInRx();
     }
 
+    TRM_SatelliteProcessIrq(irqResult);
+    if (irqResult->irq_type == TK8710_IRQ_RX_BCN) {
+        return;
+    }
     TRM_OnDriverSlotRx(irqResult);
 }
 
@@ -708,6 +730,9 @@ static void TRM_OnDriverSlotEnd(uint8_t slotType, uint8_t slotIndex, uint32_t fr
 static void TRM_OnDriverTxSlot(uint8_t slotIndex, uint8_t maxUserCount, TK8710IrqResult* irqResult)
 {
     TRM_LOG_DEBUG("TRM: TxSlot: slot=%d, maxUsers=%d\n", slotIndex, maxUserCount);
+
+    TRM_SatelliteProcessTxSlot(maxUserCount, irqResult);
+    maxUserCount = TRM_SatelliteLimitTxUserCount(maxUserCount);
     
     /* 处理广播发送管理 */
     TRM_ManageBroadcast();

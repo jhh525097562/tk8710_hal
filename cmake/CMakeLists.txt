@@ -50,6 +50,8 @@ set(LEGACY_SOURCES
     ../src/trm/trm_core.c
     ../src/trm/trm_beam.c
     ../src/trm/trm_data.c
+    ../src/trm/trm_satellite.c
+    ../src/trm/trm_mac_parser.c
     ../src/trm/trm_slot.c
     ../src/trm/trm_freq.c
     ../src/trm/trm_power.c

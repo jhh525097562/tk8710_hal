@@ -78,6 +78,17 @@ else
 fi
 
 arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+    -c src/trm/trm_satellite.c \
+    -o ${BUILD_DIR}/trm_satellite.o
+
+if [ $? -eq 0 ]; then
+    echo "✅ src/trm/trm_satellite.c 编译成功"
+else
+    echo "❌ src/trm/trm_satellite.c 编译失败"
+    exit 1
+fi
+
+arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
     -c src/trm/trm_log.c \
     -o ${BUILD_DIR}/trm_log.o
 
@@ -273,6 +284,7 @@ ar rcs ${BUILD_DIR}/libtk8710_hal_complete.a \
     ${BUILD_DIR}/trm_core.o \
     ${BUILD_DIR}/trm_beam.o \
     ${BUILD_DIR}/trm_data.o \
+    ${BUILD_DIR}/trm_satellite.o \
     ${BUILD_DIR}/trm_queue.o \
     ${BUILD_DIR}/trm_log.o \
     ${BUILD_DIR}/trm_mac_parser.o \

@@ -222,6 +222,15 @@ int TRM_ParseMacMhdr(const uint8_t* data, uint16_t len, TrmMacMhdr* mhdr);
 int TRM_ExtractUserIdFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* userId);
 
 /**
+ * @brief 从MAC帧中提取Src Addr；Join帧无FHDR，返回DevEUI低4字节
+ * @param data MAC帧数据指针
+ * @param len 数据长度
+ * @param srcAddr 输出的源地址
+ * @return 成功返回0，失败返回负数
+ */
+int TRM_ExtractSrcAddrFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* srcAddr);
+
+/**
  * @brief 获取MAC帧的QoS信息
  * @param data MAC帧数据指针
  * @param len 数据长度

@@ -7,6 +7,7 @@
 #include "../inc/trm/trm_internal.h"
 #include "../inc/trm/trm_log.h"
 #include "../inc/trm/trm_beam.h"
+#include "../inc/trm/trm_satellite.h"
 #include "../inc/driver/tk8710_driver_api.h"
 #include "../inc/driver/tk8710_internal.h"
 #include "../port/tk8710_hal.h"
@@ -30,7 +31,7 @@ extern uint32_t g_trmMaxFrameCount;
 
 #define TX_QUEUE_SIZE   512       /* 每个优先级队列大小 */
 #define TX_QUEUE_PRIORITY_COUNT 4 /* 优先级队列数量 (Pri=0最高, Pri=3最低) */
-#define TX_DATA_MAX_LEN 512       /* 最大发送数据长度 */
+#define TX_DATA_MAX_LEN 520       /* 最大发送数据长度 */
 #define BEAM_RELEASE_QUEUE_SIZE 2048  /* 波束RAM释放队列大小 */
 #define MAX_PENDING_USERS 128      /* 最大待发送用户数量 */
 
@@ -63,6 +64,8 @@ typedef struct {
     uint8_t  priority;       /* 优先级 */
     uint8_t  queueIndex;     /* 在原队列中的位置 */
     uint8_t  queuePriority;  /* 队列优先级 */
+    uint8_t  satelliteForward;
+    uint8_t  groundStationTx;
 } PendingTxUser;
 
 /* 发送队列 */
@@ -116,6 +119,20 @@ static TrmBroadcastData g_broadcastData;  /* 广播数据存储 */
 static uint32_t TRM_GetTotalQueueCount(void);
 static uint8_t TRM_CollectPendingUsers(PendingTxUser* pendingUsers, uint8_t maxUserCount, uint8_t isMultiRate, uint8_t currentRateMode, uint8_t nextRateMode);
 static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userCount, TRM_TxUserResult* txResults, uint32_t* resultCount);
+static uint32_t TRM_EncodeFreqForTxCache(uint32_t freqRaw);
+
+static uint32_t TRM_EncodeFreqForTxCache(uint32_t freqRaw)
+{
+    uint32_t encoded = 0;
+    uint8_t* bytes = (uint8_t*)&encoded;
+
+    bytes[0] = (uint8_t)((freqRaw >> 24) & 0xFF);
+    bytes[1] = (uint8_t)((freqRaw >> 16) & 0xFF);
+    bytes[2] = (uint8_t)((freqRaw >> 8) & 0xFF);
+    bytes[3] = (uint8_t)(freqRaw & 0xFF);
+
+    return encoded;
+}
 
 /*==============================================================================
  * 公共接口实现
@@ -265,11 +282,19 @@ int TRM_SetTxData(TK8710DownlinkType downlinkType, uint32_t userId_brdIndex, con
         
     } else if (downlinkType == TK8710_DOWNLINK_B) {
         uint32_t userId;
-        TRM_ExtractUserIdFromMacFrame(data, len, &userId);
+        if (TRM_ExtractUserIdFromMacFrame(data, len, &userId) != 0) {
+            userId = userId_brdIndex;
+        }
+        int satRet = TRM_SatelliteBeforeTxData(userId, data, len);
+        if (satRet != TRM_OK) {
+            return satRet;
+        }
         /* 用户数据模式 - 缓存到发送队列 */
         TRM_LOG_DEBUG("TRM_SetTxData发送用户数据 - 用户ID=0x%08X, 长度=%d, 功率=%d, 帧号=%u, 速率模式=%d", 
                       userId, len, txPower, frameNo, targetRateMode);
-        return TRM_SendData(userId, data, len, txPower, frameNo, targetRateMode, BeamType);
+        int ret = TRM_SendData(userId, data, len, txPower, frameNo, targetRateMode, BeamType);
+        TRM_SatelliteAfterTxData(userId, ret);
+        return ret;
         
     } else {
         TRM_LOG_ERROR("TRM_SetTxData失败: 无效的下行类型 - downlinkType=%d", downlinkType);
@@ -570,7 +595,9 @@ static uint8_t __attribute__((unused)) TRM_ProcessQueueItem(TxQueue* queue, TxIt
                             txResults[*resultCount].result = TRM_TX_OK;
                             (*resultCount)++;
                         }
-                        TRM_ScheduleBeamRamRelease(item->userId, 4);
+                        if (!TRM_SatelliteKeepTxBeam(item->userId)) {
+                            TRM_ScheduleBeamRamRelease(item->userId, 4);
+                        }
                     } else {
                         if (*resultCount < TX_QUEUE_SIZE) {
                             txResults[*resultCount].userId = item->userId;
@@ -707,6 +734,8 @@ static uint8_t TRM_CollectPendingUsers(PendingTxUser* pendingUsers, uint8_t maxU
                 pendingUser->priority = item->priority;
                 pendingUser->queueIndex = queue->head;
                 pendingUser->queuePriority = pri;
+                pendingUser->satelliteForward = 0;
+                pendingUser->groundStationTx = 0;
                 
                 /* 根据波束类型处理波束信息 */
                 if (item->beamType == TK8710_DATA_TYPE_BRD) {
@@ -726,9 +755,14 @@ static uint8_t TRM_CollectPendingUsers(PendingTxUser* pendingUsers, uint8_t maxU
                     /* 指定波束：需要获取波束信息 */
                     TRM_BeamInfo beam;
                     int beamRet = TRM_GetBeamInfo(item->userId, &beam);
+                    if (beamRet != TRM_OK) {
+                        beamRet = TRM_SatelliteGetTxBeam(item->userId, &beam);
+                        pendingUser->satelliteForward = (beamRet == TRM_OK);
+                    }
                     
                     if (beamRet == TRM_OK) {
                         pendingUser->beam = beam;
+                        pendingUser->groundStationTx = TRM_SatelliteIsGroundStationTx();
                         collectedCount++;
                         shouldRemove = 1;  /* 标记为需要移除 */
                     } else {
@@ -791,6 +825,8 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
 {
     uint8_t sentCount = 0;
     uint8_t txUserIndex = 0;
+    uint8_t satelliteForwardCount = 0;
+    uint8_t satelliteForwardIndex = 0;
     
     /* 功率设置阶段：所有用户使用固定功率 */
     uint8_t fixedPower = 35;  /* 固定功率值，可根据需要调整 */
@@ -798,12 +834,23 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
     for (uint8_t i = 0; i < userCount; i++) {
         PendingTxUser* user = &pendingUsers[i];
         user->finalPower = fixedPower;  /* 统一设置固定功率 */
+        if (user->satelliteForward) {
+            satelliteForwardCount++;
+        }
     }
     
     /* 发送阶段：统一调用发送接口 */
     for (uint8_t i = 0; i < userCount; i++) {
         PendingTxUser* user = &pendingUsers[i];
         
+        if (user->satelliteForward) {
+            TRM_SatelliteAdjustForwardBeam(satelliteForwardIndex, satelliteForwardCount,
+                                           TK8710GetRateMode(), &user->beam);
+            satelliteForwardIndex++;
+        } else if (user->groundStationTx) {
+            TRM_SatelliteAdjustGroundStationTxBeam(TK8710GetRateMode(), &user->beam);
+        }
+
         /* 调用发送接口 */
         int ret = TK8710SetTxData(TK8710_DOWNLINK_B, txUserIndex, user->data, user->len, user->finalPower, user->beamType);
         
@@ -828,8 +875,10 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
                     txResults[*resultCount].result = TRM_TX_OK;
                     (*resultCount)++;
                 }
-                TRM_ScheduleBeamRamRelease(user->userId, 10);
-                if (user->beamType != TK8710_DATA_TYPE_BRD) {
+                if (!TRM_SatelliteKeepTxBeam(user->userId)) {
+                    TRM_ScheduleBeamRamRelease(user->userId, 10);
+                }
+                if (user->beamType != TK8710_DATA_TYPE_BRD && !user->satelliteForward) {
                     int touchRet = TRM_TouchBeamInfoNoLock(user->userId);
                     if (touchRet != TRM_OK) {
                         TRM_LOG_WARN("TRM: Failed to refresh beam timestamp for user[%u]: %d",
@@ -994,9 +1043,10 @@ int TRM_ProcessRxUserDataBatch(uint8_t* userIndices, uint8_t userCount, TK8710Cr
     /* 创建用户数据存储数组 */
     static TRM_RxUserData userStorage[128];  /* 静态存储用户数据数组 */
     TRM_RxDataList rxDataList;
+    uint8_t deliverCount = 0;
     // rxDataList.frameNo = TRM_GetCurrentFrame();  /* 获取当前系统帧号 */
     rxDataList.frameNo = TRM_GetSuperFramePosition();  /* 获取当前超帧帧号 */
-    rxDataList.userCount = userCount;
+    rxDataList.userCount = 0;
     rxDataList.users = userStorage;  /* 指向用户数据数组 */
     
     TRM_LOG_DEBUG("TRM: Processing %d valid users in batch", userCount);
@@ -1047,6 +1097,7 @@ int TRM_ProcessRxUserDataBatch(uint8_t* userIndices, uint8_t userCount, TK8710Cr
         uint32_t ahData[16];
         uint64_t pilotPower;
         TRM_BeamInfo beam;
+        uint8_t deliverUser = 1;
         memset(&beam, 0, sizeof(beam));
         
         /* 调用TK8710GetRxUserInfo获取实际的用户信息 */
@@ -1092,25 +1143,72 @@ int TRM_ProcessRxUserDataBatch(uint8_t* userIndices, uint8_t userCount, TK8710Cr
             
             beam.valid = 1;
             beam.timestamp = TK8710GetTickMs();
-            
-            /* 存储波束信息 */
-            int ret = TRM_SetBeamInfo(beam.userId, &beam);
-            if (ret == TRM_OK) {
-                /* 创建波束后，延时30个帧周期释放波束RAM */
-                TRM_ScheduleBeamRamRelease(beam.userId, 30);
-                TRM_LOG_DEBUG("TRM: Beam info stored successfully for user ID=0x%08X", beam.userId);
+
+            uint32_t rssi;
+            uint32_t freqSignal;
+            uint8_t snr;
+            if (TK8710GetRxUserSignalQuality(userIndex, &rssi, &snr, &freqSignal) == TK8710_OK) {
+                uint8_t snrValue = snr / 4;
+                uint32_t rssiRaw = rssi;
+                int16_t rssiValue = (int16_t)(rssiRaw - 2048) / 4;
+                uint32_t freq26 = freqSignal & 0x03FFFFFF;
+                int32_t freqValue = freq26 > (1 << 25) ?
+                    (int32_t)(freq26 - (1 << 26)) : (int32_t)freq26;
+
+                if (snrValue > 28) {
+                    snrValue = 28;
+                }
+
+                currentUser->rssi = rssiValue;
+                currentUser->snr = snrValue;
+                currentUser->freq = freqValue;
+
+                if (beam.freq == 0 && freqSignal != 0) {
+                    beam.freq = TRM_EncodeFreqForTxCache(freqSignal);
+                    TRM_LOG_INFO("TRM: RX beam freq fallback user[%d], freqRaw=0x%08X",
+                                 userIndex, freqSignal);
+                }
             } else {
-                TRM_LOG_WARN("TRM: Failed to store beam info for user ID=0x%08X, error=%d", beam.userId, ret);
+                currentUser->rssi = 0;
+                currentUser->snr = 0;
+                currentUser->freq = 0;
+                TRM_LOG_WARN("TRM: Failed to get signal info for user[%d]", userIndex);
             }
             
             /* 填充用户数据 */
             currentUser->userId = beam.userId;
             currentUser->data = userData;
             currentUser->dataLen = dataLen;
+            currentUser->beam = beam;
+            deliverUser = TRM_SatelliteShouldDeliverRxUser(userData, dataLen);
+
+            /* 存储波束信息 */
+            int beamStoreRet = TRM_OK;
+            uint8_t storedBeam = 0;
+            if (TRM_SatelliteAllowRxBeamStore(userData, dataLen)) {
+                TRM_SatelliteBeforeRxBeamStore(beam.userId, userData, dataLen);
+                beamStoreRet = TRM_SetBeamInfo(beam.userId, &beam);
+                storedBeam = (beamStoreRet == TRM_OK);
+            }
+            if (beamStoreRet == TRM_OK) {
+                if (storedBeam) {
+                    TRM_SatelliteAfterRxBeamStore(beam.userId, userData, dataLen);
+                }
+                TRM_SatelliteProcessRxUser(currentUser);
+                /* 创建波束后，延时30个帧周期释放波束RAM */
+                if (storedBeam && !TRM_SatelliteKeepRxBeam(userData, dataLen)) {
+                    TRM_ScheduleBeamRamRelease(beam.userId, 30);
+                    TRM_LOG_DEBUG("TRM: Beam info stored successfully for user ID=0x%08X", beam.userId);
+                } else if (storedBeam) {
+                    TRM_LOG_DEBUG("TRM: Beam info stored permanently for user ID=0x%08X", beam.userId);
+                } else {
+                    TRM_LOG_DEBUG("TRM: RX data processed without generic beam store for user ID=0x%08X", beam.userId);
+                }
+            } else {
+                TRM_LOG_WARN("TRM: Failed to store beam info for user ID=0x%08X, error=%d", beam.userId, beamStoreRet);
+            }
             
             /* 获取信号质量信息 - 参考test_Driver_TRM_main_3506.c:TK8710GetRxUserSignalQuality实现 */
-            uint32_t rssi, freqSignal;
-            uint8_t snr;
             if (TK8710GetRxUserSignalQuality(userIndex, &rssi, &snr, &freqSignal) == TK8710_OK) {
                 /* SNR转换：uint8_t最大255，直接除以4 */
                 uint8_t snrValue = snr / 4;
@@ -1151,16 +1249,27 @@ int TRM_ProcessRxUserDataBatch(uint8_t* userIndices, uint8_t userCount, TK8710Cr
             currentUser->beam = beam;
             TRM_LOG_WARN("TRM: Failed to get RX data for user[%d]", userIndex);
         }
+
+        if (deliverUser) {
+            if (deliverCount != i) {
+                userStorage[deliverCount] = *currentUser;
+            }
+            deliverCount++;
+        } else {
+            TRM_LOG_INFO("TRM: RX user filtered from upper callback userId=0x%08X",
+                         currentUser->userId);
+        }
     }
+    rxDataList.userCount = deliverCount;
     
     /* 一次性调用接收回调，处理所有用户 */
     TrmContext* ctx = TRM_GetContext();
-    if (ctx && ctx->config.callbacks.onRxData != NULL) {
-        if (userCount > 0) {
+    if (ctx && ctx->config.callbacks.onRxData != NULL && deliverCount > 0) {
+        if (deliverCount > 0) {
             TRM_LOG_INFO("TRM: RX users - rateMode=%u, systemFrame=%u, userCount=%u",
-                         currentRateMode, g_trmCurrentFrame, userCount);
+                         currentRateMode, g_trmCurrentFrame, deliverCount);
         }
-        TRM_LOG_DEBUG("TRM: Calling onRxData callback for %d users", userCount);
+        TRM_LOG_DEBUG("TRM: Calling onRxData callback for %d users", deliverCount);
         ctx->config.callbacks.onRxData(&rxDataList);
     }
     

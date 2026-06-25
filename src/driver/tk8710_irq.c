@@ -315,6 +315,9 @@ void TK8710_IRQHandler(void)
                     case TK8710_IRQ_MD_UD:
                         break;
                     case TK8710_IRQ_RX_BCN:
+                        if (g_driverCallbacks.onRxData) {
+                            g_driverCallbacks.onRxData(&g_irqResult);
+                        }
                         break;
                     case TK8710_IRQ_BRD_UD://slave时，TRM需要考虑
                         break;
@@ -858,9 +861,13 @@ static void tk8710_handle_rx_bcn(void)
         g_irqResult.rxbcn_status = bcnObv1.b.sync_on;  /* 同步状态 */
         
         /* 打印读取到的BCN信息 */
-        TK8710_LOG_IRQ_WARN("BCN Info: bits=%u, freq_offset=%d, q=%u, sync=%u", 
-                           bcnObv2.b.bcn_bits_out, (int16_t)bcnObv2.b.freq_offset,
-                           bcnObv1.b.bcn_q, bcnObv1.b.sync_on);
+        static uint32_t bcnLogCount = 0;
+        bcnLogCount++;
+        if ((bcnLogCount % 20) == 0) {
+            TK8710_LOG_IRQ_WARN("BCN Info: bits=%u, freq_offset=%d, q=%u, sync=%u",
+                               bcnObv2.b.bcn_bits_out, (int16_t)bcnObv2.b.freq_offset,
+                               bcnObv1.b.bcn_q, bcnObv1.b.sync_on);
+        }
     }
 
 }

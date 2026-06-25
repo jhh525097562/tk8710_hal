@@ -60,6 +60,8 @@
 #define PATH_MAX 4096
 #endif
 
+#define GROUND_STATION_JOIN_MAINTAIN_MS 50000u
+
 /*============================================================================
  * 全局变量和配置
  *============================================================================*/
@@ -519,6 +521,8 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
     trmConfig.callbacks.onRxData = OnTrmRxData;
     trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
     trmConfig.maxFrameCount = 0;  /* 扫频模式: 持续运行 */
+    trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
+    trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
     printf("[扫频] 步骤5: TRM配置已准备\n");
     
     /* 6. 准备HAL初始化配置 */
@@ -528,6 +532,8 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
             .beamMaxUsers = trmConfig.beamMaxUsers,
             .beamTimeoutMs = trmConfig.beamTimeoutMs,
             .maxFrameCount = trmConfig.maxFrameCount,
+            .nodeRole = trmConfig.nodeRole,
+            .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
             .onRxData = trmConfig.callbacks.onRxData,
             .onTxComplete = trmConfig.callbacks.onTxComplete
         }
@@ -740,6 +746,8 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     trmConfig.callbacks.onRxData = OnTrmRxData;
     trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
     trmConfig.maxFrameCount = config->tdd_num;
+    trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
+    trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
     /* 4. 准备HAL初始化配置 */
     TK8710HalInitCfg halConfig = {
         .chipInitCfg = &chipConfig,
@@ -747,6 +755,8 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
             .beamMaxUsers = trmConfig.beamMaxUsers,
             .beamTimeoutMs = trmConfig.beamTimeoutMs,
             .maxFrameCount = trmConfig.maxFrameCount,
+            .nodeRole = trmConfig.nodeRole,
+            .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
             .onRxData = trmConfig.callbacks.onRxData,
             .onTxComplete = trmConfig.callbacks.onTxComplete
         }
@@ -909,7 +919,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
  */
 static void OnTrmRxData(const TRM_RxDataList* rxDataList)
 {
-    printf("=== TRM接收数据事件 (帧号=%u) ===\n", rxDataList->frameNo);
+    printf("=== TRM接收数据事件 (超帧号：%u), (系统帧号：%u) ===\n", rxDataList->frameNo, TRM_GetCurrentFrame());
     printf("时隙: 用户数=%d\n", 
            rxDataList->userCount);
     
@@ -980,7 +990,7 @@ static void OnTrmTxComplete(const TRM_TxCompleteResult* txResult)
 {
     if (!txResult) return;
     
-    printf("=== TRM发送完成事件,(超帧号: %u) ===\n",txResult->superFrameNo);
+    printf("=== TRM发送完成事件,(超帧号: %u),(系统帧号：%u) ===\n",txResult->superFrameNo, TRM_GetCurrentFrame());
     printf("发送用户总数: %u, 剩余队列: %u\n", txResult->totalUsers, txResult->remainingQueue);
     g_trmSendCount += txResult->userCount;
     /* 打印每个用户的发送结果 */
@@ -1015,6 +1025,38 @@ void show_trm_statistics(void)
     printf("==================\n\n");
 }
 
+void show_satellite_observability(void)
+{
+    TRM_Stats stats;
+
+    printf("\n=== TRM卫星可观测统计 ===\n");
+    if (TRM_GetStats(&stats) != TRM_OK) {
+        printf("TRM统计读取失败\n");
+        printf("==================\n\n");
+        return;
+    }
+
+    printf("基础状态:\n");
+    printf("  TRM状态: %u\n", stats.state);
+    printf("  当前帧号: %u\n", TRM_GetCurrentFrame());
+    printf("  发送次数: %u\n", stats.txCount);
+    printf("  发送成功: %u\n", stats.txSuccessCount);
+    printf("  接收次数: %u\n", stats.rxCount);
+    printf("  通用波束数量: %u\n", stats.beamCount);
+    printf("  发送队列剩余: %u\n", stats.txQueueRemaining);
+
+    printf("卫星载荷统计:\n");
+    printf("  终端上行缓存数量: %u\n", stats.satelliteCacheCount);
+    printf("  地面站波束数量: %u\n", stats.satelliteGroundStationBeamCount);
+    printf("  终端到地面站路由数量: %u\n", stats.satelliteRouteCount);
+    printf("  波束未命中次数: %u\n", stats.satelliteBeamMissCount);
+
+    printf("地面站统计:\n");
+    printf("  地面站在线状态: %u\n", stats.groundStationOnline);
+    printf("  地面站终端波束数量: %u\n", stats.groundStationBeamCount);
+    printf("==================\n\n");
+}
+
 /*============================================================================
  * 主程序
  *============================================================================*/
@@ -1033,6 +1075,7 @@ void show_help(void)
     printf("  q/Q - Quit program\n");
     printf("\nTRM Commands (when TRM enabled):\n");
     printf("  t/T - Show TRM statistics\n");
+    printf("  v/V - Show TRM satellite observability stats\n");
     printf("  a/A - Start frequency sweep\n");
     printf("\nDriver Test Commands:\n");
     printf("  m/M - Manual downlink test (single user)\n");
@@ -1298,6 +1341,8 @@ int main(int argc, char* argv[])
         trmConfig.callbacks.onRxData = OnTrmRxData;
         trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
         trmConfig.maxFrameCount = 2;
+        trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
+        trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
         /* 4. 准备HAL初始化配置 */
         TK8710HalInitCfg halConfig = {
             .chipInitCfg = &chipConfig,
@@ -1305,6 +1350,8 @@ int main(int argc, char* argv[])
                 .beamMaxUsers = trmConfig.beamMaxUsers,
                 .beamTimeoutMs = trmConfig.beamTimeoutMs,
                 .maxFrameCount = trmConfig.maxFrameCount,
+                .nodeRole = trmConfig.nodeRole,
+                .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
                 .onRxData = trmConfig.callbacks.onRxData,
                 .onTxComplete = trmConfig.callbacks.onTxComplete
             }
@@ -1324,7 +1371,7 @@ int main(int argc, char* argv[])
         // 配置基本参数 (使用默认值)
         slotCfg.msMode = TK8710_MODE_MASTER;
         slotCfg.plCrcEn = 0;
-        slotCfg.brdUserNum = 1;
+        slotCfg.brdUserNum = 0;
         slotCfg.antEn = 0xFF;
         slotCfg.rfSel = 0xFF;
         slotCfg.txBeamCtrlMode = 1;
@@ -1457,6 +1504,11 @@ int main(int argc, char* argv[])
             case 't':
             case 'T':
                 show_trm_statistics();
+                break;
+
+            case 'v':
+            case 'V':
+                show_satellite_observability();
                 break;
 
             case 'r':

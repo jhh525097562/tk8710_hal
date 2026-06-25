@@ -31,6 +31,8 @@ DRIVER_SRC = src/driver/tk8710_core.c \
 TRM_SRC = src/trm/trm_core.c \
           src/trm/trm_beam.c \
           src/trm/trm_data.c \
+          src/trm/trm_satellite.c \
+          src/trm/trm_mac_parser.c \
           src/trm/trm_slot.c
 PORT_SRC = port/rk3506/port_rk3506.c
 
@@ -84,6 +86,12 @@ $(BUILD_DIR)/trm_beam.o: src/trm/trm_beam.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD_DIR)/trm_data.o: src/trm/trm_data.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/trm_satellite.o: src/trm/trm_satellite.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/trm_mac_parser.o: src/trm/trm_mac_parser.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD_DIR)/trm_slot.o: src/trm/trm_slot.c | $(BUILD_DIR)
