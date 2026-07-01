@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 
 /* IPC通信头文件 - 仅在RK3506平台需要 */
 #ifdef PLATFORM_RK3506
@@ -64,8 +65,10 @@ static volatile uint32_t g_sweepCaptureFreq = 0;
 #define TRM_ACM_DEFAULT_SNR_THRESHOLD     32
 #define TRM_ACM_DEFAULT_RESTART_ADVANCE_US 90
 #define TRM_ACM_DEFAULT_GUARD_US          1000
-#define TRM_ACM_BUSY_WAIT_US              2000
+#define TRM_ACM_BUSY_WAIT_US              150
 #define TRM_ACM_S0_PERIOD_WARN_US         5000
+#define TRM_ACM_CALIB_TIME_BUDGET_US      28000
+#define TRM_ACM_PHASE_MARGIN_WARN_US      150
 
 typedef struct {
     volatile uint8_t pending;
@@ -74,6 +77,7 @@ typedef struct {
     int lastResult;
     uint32_t lastElapsedUs;
     uint32_t lastWaitUs;
+    uint32_t completedCount;
 } TRM_AcmCalibState;
 
 static volatile TRM_AcmCalibState g_acmCalibState = {
@@ -81,12 +85,14 @@ static volatile TRM_AcmCalibState g_acmCalibState = {
     .running = 0,
     .lastResult = TRM_OK,
     .lastElapsedUs = 0,
-    .lastWaitUs = 0
+    .lastWaitUs = 0,
+    .completedCount = 0
 };
 
 static volatile uint8_t g_acmS0MonitorRemaining = 0;
 static volatile uint32_t g_acmS0MonitorSeq = 0;
 static volatile uint32_t g_acmS0PeriodBeforeUs = 0;
+static volatile uint32_t g_acmS0FirstExpectedPeriodUs = 0;
 static volatile uint32_t g_acmS0CountBefore = 0;
 static volatile uint64_t g_acmFastStartEndUs = 0;
 
@@ -111,10 +117,15 @@ static int TRM_ConfigSweepCapture(void);
 static void TRM_ProcessSweepCaptureInRx(void);
 static void TRM_UpdateSweepFrequencyAfterCapture(void);
 static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult);
+static uint32_t TRM_GetSlotConfigTimeUs(const SlotConfig* slotConfig);
 static uint32_t TRM_GetAcmSlot3WindowUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult);
+static uint32_t TRM_GetAcmFramePeriodUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult);
+static int TRM_GetAcmSlotLengthsUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult,
+                                   uint32_t* s0Us, uint32_t* s1Us,
+                                   uint32_t* s2Us, uint32_t* s3Us);
 static uint32_t TRM_ReadAcmSlot3LenUs(void);
 static int TRM_RefreshAcmSlotConfig(const slotCfg_t* slotCfg);
-static void TRM_CompleteVirtualS3(void);
+static void TRM_CompleteVirtualS3(uint32_t frameCount);
 static uint32_t TRM_WaitUntilUs(uint64_t targetUs);
 
 /*==============================================================================
@@ -304,6 +315,22 @@ int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request)
     TRM_LOG_INFO("TRM: ACM calibration requested: count=%u, snr=%u, restartAdvance=%u us, guard=%u us",
                  normalized.calibCount, normalized.snrThreshold,
                  normalized.restartAdvanceUs, normalized.guardUs);
+
+    return TRM_OK;
+}
+
+int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status)
+{
+    if (status == NULL) {
+        return TRM_ERR_PARAM;
+    }
+
+    status->pending = g_acmCalibState.pending;
+    status->running = g_acmCalibState.running;
+    status->completedCount = g_acmCalibState.completedCount;
+    status->lastResult = g_acmCalibState.lastResult;
+    status->lastElapsedUs = g_acmCalibState.lastElapsedUs;
+    status->lastWaitUs = g_acmCalibState.lastWaitUs;
 
     return TRM_OK;
 }
@@ -666,6 +693,9 @@ static void TRM_OnDriverSlotEnd(uint8_t slotType, uint8_t slotIndex, uint32_t fr
                 int32_t diffUs = 0;
 
                 TK8710GetS0PeriodStats(&s0TimeUs, &s0PeriodUs, &s0Count);
+                if (g_acmS0MonitorSeq == 0 && g_acmS0FirstExpectedPeriodUs != 0) {
+                    expectedPeriodUs = g_acmS0FirstExpectedPeriodUs;
+                }
                 if (expectedPeriodUs != 0) {
                     diffUs = (int32_t)s0PeriodUs - (int32_t)expectedPeriodUs;
                 }
@@ -721,10 +751,22 @@ static void TRM_OnDriverTxSlot(uint8_t slotIndex, uint8_t maxUserCount, TK8710Ir
     }
 }
 
+static uint32_t TRM_GetSlotConfigTimeUs(const SlotConfig* slotConfig)
+{
+    if (slotConfig == NULL) {
+        return 0;
+    }
+
+    if (slotConfig->timeLen > 0) {
+        return slotConfig->timeLen;
+    }
+
+    return slotConfig->da_m;
+}
+
 static uint32_t TRM_GetAcmSlot3WindowUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult)
 {
     uint8_t rateIndex = 0;
-    uint32_t slot3Us;
     s_obv_4 obv4;
 
     if (slotCfg == NULL) {
@@ -740,12 +782,132 @@ static uint32_t TRM_GetAcmSlot3WindowUs(const slotCfg_t* slotCfg, const TK8710Ir
         rateIndex = irqResult->currentRateIndex;
     }
 
-    slot3Us = slotCfg->s3Cfg[rateIndex].timeLen;
-    if (slot3Us == 0) {
-        slot3Us = slotCfg->s3Cfg[rateIndex].da_m;
+    return TRM_GetSlotConfigTimeUs(&slotCfg->s3Cfg[rateIndex]);
+}
+
+static uint32_t TRM_GetAcmFramePeriodUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult)
+{
+    uint8_t rateIndex = 0;
+    uint32_t s0Us;
+    uint32_t s1Us;
+    uint32_t s2Us;
+    uint32_t s3Us;
+    s_obv_1 obv1;
+    s_obv_2 obv2;
+    s_obv_3 obv3;
+    s_obv_4 obv4;
+
+    if (slotCfg == NULL) {
+        return 0;
     }
 
-    return slot3Us;
+    obv1.data = 0;
+    obv2.data = 0;
+    obv3.data = 0;
+    obv4.data = 0;
+    if (TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_1),
+                      &obv1.data) == TK8710_OK &&
+        TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_2),
+                      &obv2.data) == TK8710_OK &&
+        TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_3),
+                      &obv3.data) == TK8710_OK &&
+        TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_4),
+                      &obv4.data) == TK8710_OK) {
+        uint32_t framePeriodUs = obv1.b.s0_len + obv2.b.s1_len +
+                                 obv3.b.s2_len + obv4.b.s3_len;
+        if (framePeriodUs > 0) {
+            return framePeriodUs;
+        }
+    }
+
+    if (irqResult != NULL && irqResult->currentRateIndex < slotCfg->rateCount) {
+        rateIndex = irqResult->currentRateIndex;
+    }
+
+    s0Us = TRM_GetSlotConfigTimeUs(&slotCfg->s0Cfg[rateIndex]);
+    s1Us = TRM_GetSlotConfigTimeUs(&slotCfg->s1Cfg[rateIndex]);
+    s2Us = TRM_GetSlotConfigTimeUs(&slotCfg->s2Cfg[rateIndex]);
+    s3Us = TRM_GetSlotConfigTimeUs(&slotCfg->s3Cfg[rateIndex]);
+
+    if (s0Us == 0 && rateIndex != 0) {
+        s0Us = TRM_GetSlotConfigTimeUs(&slotCfg->s0Cfg[0]);
+    }
+    if (s1Us == 0 && rateIndex != 0) {
+        s1Us = TRM_GetSlotConfigTimeUs(&slotCfg->s1Cfg[0]);
+    }
+    if (s2Us == 0 && rateIndex != 0) {
+        s2Us = TRM_GetSlotConfigTimeUs(&slotCfg->s2Cfg[0]);
+    }
+    if (s3Us == 0 && rateIndex != 0) {
+        s3Us = TRM_GetSlotConfigTimeUs(&slotCfg->s3Cfg[0]);
+    }
+
+    return s0Us + s1Us + s2Us + s3Us;
+}
+
+static int TRM_GetAcmSlotLengthsUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult,
+                                   uint32_t* s0Us, uint32_t* s1Us,
+                                   uint32_t* s2Us, uint32_t* s3Us)
+{
+    uint8_t rateIndex = 0;
+    s_obv_1 obv1;
+    s_obv_2 obv2;
+    s_obv_3 obv3;
+    s_obv_4 obv4;
+
+    if (slotCfg == NULL || s0Us == NULL || s1Us == NULL || s2Us == NULL || s3Us == NULL) {
+        return TRM_ERR_PARAM;
+    }
+
+    obv1.data = 0;
+    obv2.data = 0;
+    obv3.data = 0;
+    obv4.data = 0;
+
+    if (TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_1),
+                      &obv1.data) == TK8710_OK &&
+        TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_2),
+                      &obv2.data) == TK8710_OK &&
+        TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_3),
+                      &obv3.data) == TK8710_OK &&
+        TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_4),
+                      &obv4.data) == TK8710_OK &&
+        obv1.b.s0_len > 0 && obv2.b.s1_len > 0 &&
+        obv3.b.s2_len > 0 && obv4.b.s3_len > 0) {
+        *s0Us = obv1.b.s0_len;
+        *s1Us = obv2.b.s1_len;
+        *s2Us = obv3.b.s2_len;
+        *s3Us = obv4.b.s3_len;
+        return TRM_OK;
+    }
+
+    if (irqResult != NULL && irqResult->currentRateIndex < slotCfg->rateCount) {
+        rateIndex = irqResult->currentRateIndex;
+    }
+
+    *s0Us = TRM_GetSlotConfigTimeUs(&slotCfg->s0Cfg[rateIndex]);
+    *s1Us = TRM_GetSlotConfigTimeUs(&slotCfg->s1Cfg[rateIndex]);
+    *s2Us = TRM_GetSlotConfigTimeUs(&slotCfg->s2Cfg[rateIndex]);
+    *s3Us = TRM_GetSlotConfigTimeUs(&slotCfg->s3Cfg[rateIndex]);
+
+    if (*s0Us == 0 && rateIndex != 0) {
+        *s0Us = TRM_GetSlotConfigTimeUs(&slotCfg->s0Cfg[0]);
+    }
+    if (*s1Us == 0 && rateIndex != 0) {
+        *s1Us = TRM_GetSlotConfigTimeUs(&slotCfg->s1Cfg[0]);
+    }
+    if (*s2Us == 0 && rateIndex != 0) {
+        *s2Us = TRM_GetSlotConfigTimeUs(&slotCfg->s2Cfg[0]);
+    }
+    if (*s3Us == 0 && rateIndex != 0) {
+        *s3Us = TRM_GetSlotConfigTimeUs(&slotCfg->s3Cfg[0]);
+    }
+
+    if (*s0Us == 0 || *s1Us == 0 || *s2Us == 0 || *s3Us == 0) {
+        return TRM_ERR_STATE;
+    }
+
+    return TRM_OK;
 }
 
 static uint32_t TRM_ReadAcmSlot3LenUs(void)
@@ -775,31 +937,39 @@ static int TRM_RefreshAcmSlotConfig(const slotCfg_t* slotCfg)
     return TK8710SetConfig(TK8710_CFG_TYPE_SLOT_CFG, &refreshCfg);
 }
 
-static void TRM_CompleteVirtualS3(void)
+static void TRM_CompleteVirtualS3(uint32_t frameCount)
 {
-    uint32_t frameNo = g_trmCurrentFrame + 1;
+    uint32_t frameNo;
+
+    if (frameCount == 0) {
+        return;
+    }
+
+    frameNo = g_trmCurrentFrame + frameCount;
 
     TRM_SetCurrentFrame(frameNo);
-    TRM_LOG_DEBUG("TRM: Virtual S3 completed, frame updated to %u", frameNo);
+    TRM_LOG_DEBUG("TRM: Virtual S3 completed, skipped=%u, frame updated to %u",
+                  frameCount, frameNo);
 }
 
 static uint32_t TRM_WaitUntilUs(uint64_t targetUs)
 {
     uint64_t nowUs;
-    uint32_t coarseWaitUs;
+    uint64_t sleepTargetUs;
 
-    while (1) {
+    nowUs = TK8710GetTimeUs();
+    if (nowUs >= targetUs) {
+        return (uint32_t)(nowUs - targetUs);
+    }
+
+    if (targetUs - nowUs > TRM_ACM_BUSY_WAIT_US) {
+        sleepTargetUs = targetUs - TRM_ACM_BUSY_WAIT_US;
+        (void)TK8710SleepUntilUs(sleepTargetUs);
+
         nowUs = TK8710GetTimeUs();
         if (nowUs >= targetUs) {
             return (uint32_t)(nowUs - targetUs);
         }
-
-        if (targetUs - nowUs <= TRM_ACM_BUSY_WAIT_US) {
-            break;
-        }
-
-        coarseWaitUs = (uint32_t)(targetUs - nowUs - TRM_ACM_BUSY_WAIT_US);
-        TK8710DelayUs(coarseWaitUs);
     }
 
     do {
@@ -816,11 +986,17 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     TRM_AcmCalibRequest request;
     acmParam_t acmParam;
     uint64_t startUs;
+    uint64_t calibStartUs;
     uint64_t endUs;
     uint64_t slot3EndUs;
+    uint64_t slot3EndByS0Us = 0;
+    uint64_t slot3EndByS2Us = 0;
+    uint64_t restartSlot3EndUs;
     uint64_t restartTargetUs;
     uint64_t fastStartBeginUs;
     uint64_t fastStartEndUs;
+    uint64_t restartNowUs;
+    uint64_t expectedS2EndUs = 0;
     uint64_t s0BeforeTimeUs = 0;
     uint64_t s0AfterStartTimeUs = 0;
     uint32_t s0BeforePeriodUs = 0;
@@ -828,13 +1004,30 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     uint32_t s0BeforeCount = 0;
     uint32_t s0AfterStartCount = 0;
     uint32_t elapsedUs;
+    uint32_t s0SlotUs = 0;
+    uint32_t s1SlotUs = 0;
+    uint32_t s2SlotUs = 0;
+    uint32_t s3SlotUs = 0;
     uint32_t slot3Us;
+    uint32_t framePeriodUs;
     uint32_t slot3AfterCalibUs;
     uint32_t slot3AfterRefreshUs;
     uint32_t waitUs = 0;
     uint32_t triggerLateUs = 0;
+    uint32_t targetOffsetUs = 0;
+    uint32_t targetByS0OffsetUs = 0;
+    uint32_t targetByS2OffsetUs = 0;
     uint32_t irqAfterCalib = 0;
     uint32_t irqAfterStart = 0;
+    uint32_t virtualS3Count = 1;
+    uint32_t frameAdvanceIndex;
+    int32_t s2CallbackOffsetUs = 0;
+    int32_t phaseMarginToS3EndUs = 0;
+    uint8_t deferNextSlot3 = 0;
+    uint8_t retryNextSuperFrame = 0;
+    uint8_t haveS0Anchor = 0;
+    const char* restartReason = "current-slot3";
+    const char* restartAnchor = "s2-only";
     int calibRet;
     int ret;
 
@@ -851,6 +1044,8 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
         return TRM_ERR_STATE;
     }
 
+    startUs = TK8710GetTimeUs();
+
     slotCfg = TK8710GetSlotConfig();
     if (slotCfg == NULL || slotCfg->msMode != TK8710_MODE_MASTER) {
         TRM_LOG_WARN("TRM: ACM calibration rejected, invalid slot config or mode");
@@ -863,6 +1058,10 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
         TRM_LOG_WARN("TRM: ACM calibration rejected, slot3 window is unknown");
         return TRM_ERR_STATE;
     }
+    framePeriodUs = TRM_GetAcmFramePeriodUs(slotCfg, irqResult);
+    if (framePeriodUs == 0) {
+        framePeriodUs = slotCfg->frameTimeLen;
+    }
 
     request = g_acmCalibState.request;
     g_acmCalibState.pending = 0;
@@ -872,13 +1071,66 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     acmParam.snrThreshold = request.snrThreshold;
     acmParam.snrPassCount = 0;
 
+    slot3EndByS2Us = startUs + slot3Us;
+    slot3EndUs = slot3EndByS2Us;
+    expectedS2EndUs = startUs;
+
     TK8710GetS0PeriodStats(&s0BeforeTimeUs, &s0BeforePeriodUs, &s0BeforeCount);
+    ret = TRM_GetAcmSlotLengthsUs(slotCfg, irqResult,
+                                  &s0SlotUs, &s1SlotUs, &s2SlotUs, &s3SlotUs);
+    if (ret == TRM_OK && s0BeforeTimeUs != 0 && s3SlotUs != 0) {
+        uint64_t s0AnchoredS2EndUs = s0BeforeTimeUs + s1SlotUs + s2SlotUs;
+        uint64_t s0AnchoredS3EndUs = s0AnchoredS2EndUs + s3SlotUs;
 
-    startUs = TK8710GetTimeUs();
+        if (s0AnchoredS3EndUs > startUs) {
+            expectedS2EndUs = s0AnchoredS2EndUs;
+            slot3EndByS0Us = s0AnchoredS3EndUs;
+            haveS0Anchor = 1;
+            if (startUs >= expectedS2EndUs) {
+                uint64_t callbackOffsetUs = startUs - expectedS2EndUs;
+                s2CallbackOffsetUs = (callbackOffsetUs > INT32_MAX) ?
+                                     INT32_MAX : (int32_t)callbackOffsetUs;
+            } else {
+                uint64_t callbackEarlyUs = expectedS2EndUs - startUs;
+                s2CallbackOffsetUs = (callbackEarlyUs > INT32_MAX) ?
+                                     -INT32_MAX : -(int32_t)callbackEarlyUs;
+            }
+
+            if (slot3EndByS0Us <= slot3EndByS2Us) {
+                slot3EndUs = slot3EndByS0Us;
+                restartAnchor = "min-s0";
+            } else {
+                slot3EndUs = slot3EndByS2Us;
+                restartAnchor = "min-s2";
+            }
+        }
+    }
+    if (!haveS0Anchor) {
+        TRM_LOG_WARN("TRM: ACM restart uses S2 callback anchor: s0Time=%u, "
+                     "slotLens=%u/%u/%u/%u",
+                     (uint32_t)s0BeforeTimeUs, s0SlotUs, s1SlotUs, s2SlotUs, s3SlotUs);
+    }
+    if (slot3EndByS2Us > request.restartAdvanceUs &&
+        slot3EndByS2Us - request.restartAdvanceUs >= startUs) {
+        targetByS2OffsetUs =
+            (uint32_t)(slot3EndByS2Us - request.restartAdvanceUs - startUs);
+    }
+    if (haveS0Anchor && slot3EndByS0Us > request.restartAdvanceUs &&
+        slot3EndByS0Us - request.restartAdvanceUs >= startUs) {
+        targetByS0OffsetUs =
+            (uint32_t)(slot3EndByS0Us - request.restartAdvanceUs - startUs);
+    }
+
     TRM_LOG_INFO("TRM: ACM calibration starts at last-frame S2 end, slot3 window=%u us, "
-                 "s0PeriodBefore=%u us, s0CountBefore=%u",
-                 slot3Us, s0BeforePeriodUs, s0BeforeCount);
+                 "framePeriod=%u us, s0PeriodBefore=%u us, s0CountBefore=%u, "
+                 "anchor=%s, s2CbOffset=%d us, targetByS0=%u us targetByS2=%u us, "
+                 "slotLens=%u/%u/%u/%u",
+                 slot3Us, framePeriodUs, s0BeforePeriodUs, s0BeforeCount,
+                 restartAnchor, s2CallbackOffsetUs,
+                 targetByS0OffsetUs, targetByS2OffsetUs,
+                 s0SlotUs, s1SlotUs, s2SlotUs, s3SlotUs);
 
+    calibStartUs = TK8710GetTimeUs();
     TK8710ClearIrqStatus(1 << TK8710_IRQ_ACM);
     TK8710ClearIrqStatus(1 << TK8710_IRQ_ACM);
     TK8710ClearIrqStatus(1 << TK8710_IRQ_ACM);
@@ -890,15 +1142,21 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     TK8710ClearIrqStatus(1 << TK8710_IRQ_ACM);
     TK8710ClearIrqStatus(1 << TK8710_IRQ_ACM);
     TK8710ClearIrqStatus(1 << TK8710_IRQ_ACM);
-    elapsedUs = (uint32_t)(endUs - startUs);
+    elapsedUs = (uint32_t)(endUs - calibStartUs);
     g_acmCalibState.lastElapsedUs = elapsedUs;
     g_acmCalibState.lastResult = calibRet;
-    slot3EndUs = startUs + slot3Us;
+    restartSlot3EndUs = slot3EndUs;
 
     if (calibRet < 0) {
         TRM_LOG_ERROR("TRM: ACM calibration failed: ret=%d elapsed=%u us", calibRet, elapsedUs);
         g_acmCalibState.running = 0;
         return TRM_ERR_DRIVER;
+    }
+
+    if (calibRet == 0) {
+        retryNextSuperFrame = 1;
+        TRM_LOG_WARN("TRM: ACM calibration has no valid result, will keep slot timing and "
+                     "retry at next superframe: elapsed=%u us", elapsedUs);
     }
 
     ret = TRM_RefreshAcmSlotConfig(&slotCfgBeforeAcm);
@@ -916,17 +1174,47 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
                      slot3Us, slot3AfterCalibUs, slot3AfterRefreshUs);
     }
 
-    if (slot3Us > elapsedUs + request.restartAdvanceUs + request.guardUs) {
+    if (slot3Us < TRM_ACM_CALIB_TIME_BUDGET_US) {
+        deferNextSlot3 = 1;
+        restartReason = "short-slot3";
+    } else if (slot3Us <= elapsedUs + request.restartAdvanceUs + request.guardUs) {
+        deferNextSlot3 = 1;
+        restartReason = "current-slot3-overrun";
+    }
+
+    if (deferNextSlot3 && framePeriodUs > request.restartAdvanceUs) {
+        restartSlot3EndUs = slot3EndUs + framePeriodUs;
+        restartTargetUs = restartSlot3EndUs - request.restartAdvanceUs;
+        virtualS3Count = 2;
+        restartNowUs = TK8710GetTimeUs();
+        while (restartTargetUs <= restartNowUs + request.guardUs) {
+            restartSlot3EndUs += framePeriodUs;
+            restartTargetUs = restartSlot3EndUs - request.restartAdvanceUs;
+            virtualS3Count++;
+        }
+        waitUs = (restartTargetUs > restartNowUs) ?
+                 (uint32_t)(restartTargetUs - restartNowUs) : 0;
+        TRM_LOG_WARN("TRM: ACM restart deferred to later S3 end: reason=%s "
+                     "slot3=%u us budget=%u us elapsed=%u us framePeriod=%u us "
+                     "virtualS3=%u",
+                     restartReason, slot3Us, TRM_ACM_CALIB_TIME_BUDGET_US,
+                     elapsedUs, framePeriodUs, virtualS3Count);
+    } else if (slot3Us > elapsedUs + request.restartAdvanceUs + request.guardUs) {
         restartTargetUs = slot3EndUs - request.restartAdvanceUs;
+        restartSlot3EndUs = slot3EndUs;
         {
             uint64_t nowUs = TK8710GetTimeUs();
             waitUs = (restartTargetUs > nowUs) ? (uint32_t)(restartTargetUs - nowUs) : 0;
         }
     } else {
-        TRM_LOG_WARN("TRM: ACM elapsed %u us exceeds slot3 window %u us, restart immediately",
-                     elapsedUs, slot3Us);
+        TRM_LOG_WARN("TRM: ACM elapsed %u us exceeds slot3 window %u us, restart immediately "
+                     "(framePeriod=%u us, reason=%s)",
+                     elapsedUs, slot3Us, framePeriodUs, restartReason);
         restartTargetUs = TK8710GetTimeUs();
+        restartSlot3EndUs = slot3EndUs;
     }
+    targetOffsetUs = (restartTargetUs >= startUs) ?
+                     (uint32_t)(restartTargetUs - startUs) : 0;
 
     g_acmCalibState.lastWaitUs = waitUs;
 
@@ -941,10 +1229,23 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     fastStartBeginUs = TK8710GetTimeUs();
     ret = TK8710FastStartTrigger(TK8710_MODE_MASTER);
     fastStartEndUs = TK8710GetTimeUs();
+    if (restartSlot3EndUs >= fastStartEndUs) {
+        uint64_t marginUs = restartSlot3EndUs - fastStartEndUs;
+        phaseMarginToS3EndUs = (marginUs > INT32_MAX) ? INT32_MAX : (int32_t)marginUs;
+    } else {
+        uint64_t overrunUs = fastStartEndUs - restartSlot3EndUs;
+        phaseMarginToS3EndUs = (overrunUs > INT32_MAX) ? -INT32_MAX : -(int32_t)overrunUs;
+    }
     irqAfterStart = TK8710GetIrqStatus();
     TK8710GetS0PeriodStats(&s0AfterStartTimeUs, &s0AfterStartPeriodUs, &s0AfterStartCount);
     g_acmFastStartEndUs = fastStartEndUs;
     g_acmS0PeriodBeforeUs = s0BeforePeriodUs;
+    if (virtualS3Count > 1 && s0BeforePeriodUs != 0 && framePeriodUs != 0) {
+        g_acmS0FirstExpectedPeriodUs =
+            s0BeforePeriodUs + framePeriodUs * (virtualS3Count - 1);
+    } else {
+        g_acmS0FirstExpectedPeriodUs = 0;
+    }
     g_acmS0CountBefore = s0BeforeCount;
     g_acmS0MonitorSeq = 0;
     g_acmS0MonitorRemaining = 4;
@@ -953,28 +1254,50 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
         g_acmCalibState.running = 0;
         return TRM_ERR_DRIVER;
     }
-
-    ret = TK8710AdvanceRateAfterS3();
-    if (ret != TK8710_OK) {
-        TRM_LOG_ERROR("TRM: Failed to advance rate after ACM: %d", ret);
-        g_acmCalibState.running = 0;
-        return TRM_ERR_DRIVER;
+    if (phaseMarginToS3EndUs < (int32_t)TRM_ACM_PHASE_MARGIN_WARN_US) {
+        TRM_LOG_WARN("TRM: ACM fast restart phase margin is low: margin=%d us "
+                     "anchor=%s s2CbOffset=%d us targetByS0=%u us targetByS2=%u us "
+                     "restartAdvance=%u us triggerCost=%u us",
+                     phaseMarginToS3EndUs, restartAnchor, s2CallbackOffsetUs,
+                     targetByS0OffsetUs, targetByS2OffsetUs,
+                     request.restartAdvanceUs,
+                     (uint32_t)(fastStartEndUs - fastStartBeginUs));
     }
 
-    TRM_CompleteVirtualS3();
+    for (frameAdvanceIndex = 0; frameAdvanceIndex < virtualS3Count; frameAdvanceIndex++) {
+        ret = TK8710AdvanceRateAfterS3();
+        if (ret != TK8710_OK) {
+            TRM_LOG_ERROR("TRM: Failed to advance rate after ACM: %d", ret);
+            g_acmCalibState.running = 0;
+            return TRM_ERR_DRIVER;
+        }
+    }
+
+    TRM_CompleteVirtualS3(virtualS3Count);
 
     TRM_LOG_INFO("TRM: ACM hidden in slot3: valid=%d elapsed=%u us wait=%u us restartAdvance=%u us "
-                 "targetOffset=%u us triggerLate=%u us triggerCost=%u us "
-                 "irqAfterCalib=0x%08X irqAfterStart=0x%08X "
-                 "s0PeriodBefore=%u us s0PeriodAfterStart=%u us "
-                 "s0CountBefore=%u s0CountAfterStart=%u s0DeltaToStart=%u us",
+                  "targetOffset=%u us triggerLate=%u us triggerCost=%u us deferNextSlot3=%u "
+                  "retryNext=%u "
+                  "virtualS3=%u framePeriod=%u us anchor=%s "
+                  "s2CbOffset=%d us targetByS0=%u us targetByS2=%u us "
+                  "phaseMarginToS3End=%d us "
+                  "irqAfterCalib=0x%08X irqAfterStart=0x%08X "
+                  "s0PeriodBefore=%u us s0PeriodAfterStart=%u us "
+                  "s0CountBefore=%u s0CountAfterStart=%u s0DeltaToStart=%u us",
                  calibRet, elapsedUs, waitUs, request.restartAdvanceUs,
-                 (uint32_t)(restartTargetUs - startUs), triggerLateUs,
-                 (uint32_t)(fastStartEndUs - fastStartBeginUs),
-                 irqAfterCalib, irqAfterStart,
+                 targetOffsetUs, triggerLateUs,
+                  (uint32_t)(fastStartEndUs - fastStartBeginUs),
+                  deferNextSlot3, retryNextSuperFrame, virtualS3Count, framePeriodUs,
+                  restartAnchor, s2CallbackOffsetUs,
+                  targetByS0OffsetUs, targetByS2OffsetUs, phaseMarginToS3EndUs,
+                  irqAfterCalib, irqAfterStart,
                  s0BeforePeriodUs, s0AfterStartPeriodUs,
                  s0BeforeCount, s0AfterStartCount,
                  (uint32_t)(fastStartEndUs - s0BeforeTimeUs));
+    g_acmCalibState.completedCount++;
+    if (retryNextSuperFrame) {
+        g_acmCalibState.pending = 1;
+    }
     g_acmCalibState.running = 0;
 
     return TRM_OK;

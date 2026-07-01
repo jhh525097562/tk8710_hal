@@ -30,7 +30,7 @@ extern uint32_t g_trmMaxFrameCount;
 
 #define TX_QUEUE_SIZE   512       /* 每个优先级队列大小 */
 #define TX_QUEUE_PRIORITY_COUNT 4 /* 优先级队列数量 (Pri=0最高, Pri=3最低) */
-#define TX_DATA_MAX_LEN 512       /* 最大发送数据长度 */
+#define TX_DATA_MAX_LEN 520       /* 最大发送数据长度 */
 #define BEAM_RELEASE_QUEUE_SIZE 2048  /* 波束RAM释放队列大小 */
 #define MAX_PENDING_USERS 128      /* 最大待发送用户数量 */
 
@@ -193,8 +193,8 @@ void TRM_ProcessBeamRamReleases(void)
         
         if (item->releaseFrame <= g_trmCurrentFrame) {
             /* 到达释放时间，执行释放 */
-            TRM_LOG_INFO("TRM: Releasing beam RAM for user[%u] at frame=%u (scheduled=%u)",
-                         item->userId, g_trmCurrentFrame, item->releaseFrame);
+            // TRM_LOG_INFO("TRM: Releasing beam RAM for user[%u] at frame=%u (scheduled=%u)",
+            //              item->userId, g_trmCurrentFrame, item->releaseFrame);
             
             /* 调用波束信息清理函数 */
             TRM_ClearBeamInfo(item->userId);
@@ -792,8 +792,21 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
     uint8_t sentCount = 0;
     uint8_t txUserIndex = 0;
     
-    /* 功率设置阶段：所有用户使用固定功率 */
-    uint8_t fixedPower = 35;  /* 固定功率值，可根据需要调整 */
+    /* 功率设置阶段：根据发送用户数量设置功率 */
+    uint8_t fixedPower = 31;
+    if (userCount > 64) {
+        fixedPower = 55;
+    } else if (userCount > 32) {
+        fixedPower = 52;
+    } else if (userCount > 16) {
+        fixedPower = 46;
+    } else if (userCount > 8) {
+        fixedPower = 43;
+    } else if (userCount > 4) {
+        fixedPower = 37;
+    } else if (userCount > 1) {
+        fixedPower = 34;
+    }
     
     for (uint8_t i = 0; i < userCount; i++) {
         PendingTxUser* user = &pendingUsers[i];

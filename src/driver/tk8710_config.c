@@ -1157,8 +1157,12 @@ int TK8710Ctrl(TK8710CtrlType type, const void* params)
             if (acmParam == NULL) {
                 return TK8710_ERR;
             }
-
-            return tk8710_acm_calibrate(acmParam->calibCount, acmParam->snrThreshold);
+            int ret;
+            ret = tk8710_rf_write(0xff, 0x8C7e >> 8, 0x9e);
+            ret =  tk8710_acm_calibrate(acmParam->calibCount, acmParam->snrThreshold);
+            tk8710_rf_write(0xff, 0x8C7e >> 8, 0x7e);
+            TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_9), 0x1ffff);
+            return ret;
         }
         
         case TK8710_CTRL_TYPE_SEND_WAKEUP:

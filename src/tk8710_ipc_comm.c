@@ -39,6 +39,22 @@ static int g_ns_data_suppress_notice_printed = 0;
 static volatile int g_config_received = 0;
 static NsConfigDown_t g_received_config;
 
+static int ValidateNsDataDownPayload(const NsDataDown_t* ns_data, uint32_t msg_len)
+{
+    size_t min_len;
+
+    if (ns_data == NULL || msg_len < offsetof(NsDataDown_t, payload)) {
+        return 0;
+    }
+
+    if (ns_data->payload_len > MAX_PAYLOAD_LEN) {
+        return 0;
+    }
+
+    min_len = offsetof(NsDataDown_t, payload) + ns_data->payload_len;
+    return msg_len >= min_len;
+}
+
 /**
  * @brief NS速率索引到TK8710速率模式转换函数
  * @param ns_rate NS速率索引
@@ -164,8 +180,8 @@ static void PrintMessageDetail(const char *prefix, const ipc_smp_msg_hdr_t *hdr,
                 break;
             }
             case MSG_TYPE_NS_DATA_DOWN: {
-                if (payload_len >= offsetof(NsDataDown_t, payload)) {
-                    const NsDataDown_t *ns_data = (const NsDataDown_t *)payload;
+                const NsDataDown_t *ns_data = (const NsDataDown_t *)payload;
+                if (ValidateNsDataDownPayload(ns_data, payload_len)) {
                     printf("  [NS数据下行] TDD=%d, 速率=%d, 时隙=%d, 载荷长度=%zu\n",
                            ns_data->tdd, ns_data->rate, ns_data->slot, ns_data->payload_len);
                     printf("    载荷数据: ");
@@ -328,8 +344,8 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
             }
             case MSG_TYPE_NS_DATA_DOWN: {
                 // NS数据下行消息 - 调用TK8710HalSendData发送
-                if (msg.len >= offsetof(NsDataDown_t, payload)) {
-                    const NsDataDown_t *ns_data = (const NsDataDown_t *)msg.payload;
+                const NsDataDown_t *ns_data = (const NsDataDown_t *)msg.payload;
+                if (ValidateNsDataDownPayload(ns_data, msg.len)) {
                     if (print_ns_data_detail) {
                         printf("收到NS下行数据，调用TK8710HalSendData发送...\n");
                     }

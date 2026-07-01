@@ -339,7 +339,31 @@ TRM: ACM hidden in slot3: ...
 - `ACM post S0 period mismatch`
 - `afterRefresh` 是否没有恢复到预期 slot3 时长
 
-## 11. 编译命令
+## 11. 高精度等待尝试
+
+为降低 ACM 校准后等待恢复点的 CPU 占用，同时保持最终触发精度，等待逻辑改为：
+
+```text
+clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME) 睡到目标前 200us
+最后 200us 使用短 busy wait 对齐目标时间
+TK8710FastStartTrigger()
+```
+
+改动点：
+
+- RK3506 新增 `TK8710SleepUntilUs()`，内部使用 `clock_nanosleep` 的绝对时间模式。
+- RK3506 的 `TK8710GetTimeUs()` 改为 `CLOCK_MONOTONIC`，与绝对睡眠使用同一时间基准。
+- `TRM_ACM_BUSY_WAIT_US` 从 2000us 收敛为 200us。
+- JTOOL 平台补充退化实现，避免非 RK3506 目标缺符号。
+
+下一轮板端验证重点：
+
+- `triggerLate` 是否仍接近 0。
+- `triggerCost` 是否保持稳定。
+- `s0DeltaToStart` 是否仍接近原周期减 slot0 长度。
+- 若系统负载较高导致 `triggerLate` 增大，可将 busy wait 窗口从 200us 调到 300us 或 500us。
+
+## 12. 编译命令
 
 RK3506 编译命令：
 

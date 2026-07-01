@@ -167,22 +167,39 @@ static void OnTrmRxData(const TRM_RxDataList* rxDataList)
     
     g_trmRxCount += rxDataList->userCount;
     
-    // for (uint8_t i = 0; i < rxDataList->userCount; i++) {
-    //     TRM_RxUserData* user = &rxDataList->users[i];
-    //     printf("  用户[%d]: ID=0x%08X, 长度=%d, RSSI=%d, SNR=%d, Freq=%d Hz\n", 
-    //            i, user->userId, user->dataLen, user->rssi, user->snr, user->freq/128);
+    for (uint8_t i = 0; i < rxDataList->userCount; i++) {
+        TRM_RxUserData* user = &rxDataList->users[i];
+        printf("  用户[%d]: ID=0x%08X, 长度=%d, RSSI=%d, SNR=%d, Freq=%d Hz\n", 
+               i, user->userId, user->dataLen, user->rssi, user->snr, user->freq/128);
         
-    //     /* 显示数据内容 */
-    //     if (user->data != NULL && user->dataLen > 0) {
-    //         printf("    数据: ");
-    //         for (int k = 0; k < user->dataLen && k < 8; k++) {
-    //             printf("%02X ", user->data[k]);
-    //         }
-    //         if (user->dataLen > 8) printf("...");
-    //         printf("\n");
-    //     }
-    // }
+        /* 显示数据内容 */
+        if (user->data != NULL && user->dataLen > 0) {
+            printf("    数据: ");
+            for (int k = 0; k < user->dataLen && k < 8; k++) {
+                printf("%02X ", user->data[k]);
+            }
+            if (user->dataLen > 8) printf("...");
+            printf("\n");
+        }
+    }
     
+    static int CalibrateCount = 0; // 默认值
+    CalibrateCount++;
+    int Tmp = 400;
+    if(CalibrateCount % 10 == 0 && CalibrateCount <= 1000) {
+        TRM_AcmCalibRequest acmRequest = {
+            .calibCount = 1,
+            .snrThreshold = 28,
+            .restartAdvanceUs = Tmp,//mode5-6:200,mode7:212,mode8:
+            .guardUs = 1000
+        };
+        int ret0 = TRM_RequestAcmCalibration(&acmRequest);
+        if (ret0 == TRM_OK) {
+            printf("TRM ACM calibration request submitted; it will run at last-frame S2 end\n");
+        } else {
+            printf("TRM ACM calibration request failed: ret=%d\n", ret0);
+        }
+    }
     /* 调用发送验证器 */
     int ret = TRM_TxValidatorOnRxData(rxDataList);
     if (ret != TRM_OK) {
@@ -412,6 +429,8 @@ int main(int argc, char* argv[])
     int s2ByteLen = 26;  /* 默认s2 byteLen */
     int s3ByteLen = 26;  /* 默认s3 byteLen */
     int Tmp = 90;
+    uint32_t Rxgain = 0x7e;
+    uint32_t freq = 509100000U;
     /* 检查命令行参数 */
     if (argc > 1) {
         if (strcmp(argv[1], "--multi-rate") == 0 || strcmp(argv[1], "-m") == 0) {
@@ -459,6 +478,9 @@ int main(int argc, char* argv[])
         if (argc > 5) {
             Tmp = atoi(argv[5]);
         }
+
+        Rxgain = atoi(argv[6]);
+        freq = atoi(argv[7]);
         printf("Using test mode: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d\n", 
                testMode, s1ByteLen, s2ByteLen, s3ByteLen);
     }
@@ -499,7 +521,8 @@ int main(int argc, char* argv[])
         //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
         // }
     };
-    
+    rfConfig.rxgain = Rxgain;
+    rfConfig.Freq = freq;
     /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
     ChipConfig chipConfig = {
         .bcn_agc     = 32,
@@ -802,6 +825,17 @@ int main(int argc, char* argv[])
                 show_system_status();
                 break;
 
+            case 'x':
+            case 'X':
+                printf("启动TK8710芯片...\n");
+                ret = TK8710Start(TK8710_MODE_MASTER, TK8710_WORK_MODE_CONTINUOUS);
+                if (ret == TK8710_OK) {
+                    printf("TK8710芯片启动成功 (Master模式, 连续工作)\n");
+                } else {
+                    printf("TK8710芯片启动失败: ret=%d\n", ret);
+                }
+                break;
+
             case 'r':
             case 'R':
                 read_register();
@@ -830,18 +864,87 @@ int main(int argc, char* argv[])
             case 'T':
                 show_trm_statistics();
                 break;
+                
+            case '1':
+                printf("配置为单天线接收模式...\n");
+                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0xc02c, 0x00010101);
+                if (ret == TK8710_OK) {
+                    printf("单天线接收模式配置成功 (0xc02c = 0x00010101)\n");
+                } else {
+                    printf("单天线接收模式配置失败: ret=%d\n", ret);
+                }
+                break;
+                
+            case '2':
+                printf("配置为多天线接收模式...\n");
+                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0xc02c, 0x0001ffff);
+                if (ret == TK8710_OK) {
+                    printf("多天线接收模式配置成功 (0xc02c = 0x0001ffff)\n");
+                } else {
+                    printf("多天线接收模式配置失败: ret=%d\n", ret);
+                }
+                break;
 
             case 'a':
             case 'A':
                 start_frequency_sweep_from_console();
                 break;
 
+            case 'g':
+            case 'G':
+            {
+                ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
+                if (ret == TK8710_OK) {
+                    printf("ACM增益自动获取完成\n");
+                } else {
+                    printf("ACM增益自动获取失败: ret=%d\n", ret);
+                }
+                break;
+            }
+            
+            // case 'k':
+            // case 'K':
+            // {
+            //     uint32_t gain1255;
+            //     printf("请输入1255gain (hex, e.g. 0x2a): ");
+            //     fflush(stdout);
+            //     if (scanf("%x", &gain1255) != 1 || gain1255 > 0xFF) {
+            //         printf("无效的1255gain，范围: 0x00~0xFF\n");
+            //         break;
+            //     }
+            //     ret = tk8710_rf_write(0xff, 0x8C7e >> 8, gain1255);
+            //     if (ret == TK8710_OK) {
+            //         printf("校准时1255增益设置成功\n");
+            //     } else {
+            //         printf("校准时1255增益设置失败: ret=%d\n", ret);
+            //     }
+            //     printf("执行ACM增益自动获取, 1255gain=0x%02X...\n", (uint8_t)gain1255);
+            //     AcmCalibParams calibParams;
+            //     calibParams.calibCount = 100;
+            //     calibParams.snrThreshold = 5;//20
+            //     int calibRet;
+            //     ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE, 
+            //                         &calibParams, &calibRet);
+            //     if (ret == TK8710_OK) {
+            //         printf("ACM校准完成\n");
+            //     } else {
+            //         printf("ACM校准失败: ret=%d\n", ret);
+            //     }
+
+            //     ret = tk8710_rf_write(0xff, 0x8C7e >> 8, Rxgain);
+            //     if (ret == TK8710_OK) {
+            //         printf("校准后1255增益恢复成功\n");
+            //     } else {
+            //         printf("校准后1255增益恢复失败: ret=%d\n", ret);
+            //     }
+            //     break;
+            // }
             case 'k':
             case 'K':
             {
                 TRM_AcmCalibRequest acmRequest = {
                     .calibCount = 1,
-                    .snrThreshold = 32,
+                    .snrThreshold = 28,
                     .restartAdvanceUs = Tmp,//mode5-6:200,mode7:212,mode8:
                     .guardUs = 1000
                 };

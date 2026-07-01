@@ -157,7 +157,9 @@ static void build_join_request_frame(uint8_t* data, uint8_t len, uint32_t user_i
     data[13] = (uint8_t)((dev_nonce >> 8) & 0xFF);
 
     if (len > 14) {
-        data[14] = rand()%255; /* PowerClass=0, RFU=0 */
+        for(int i = 14; i < len; i++) {
+            data[i] = rand()%255; /* PowerClass=0, RFU=0 */
+        }
     }
 }
 
@@ -894,8 +896,8 @@ int load_and_send_simulation_data(int classNum, int caseNum)
         /* 按用户顺序直接复制8bit数据到字节数组 */
         size_t byteIndex = 0;
         int ret = 0;
-        uint8_t Data[30];
-        uint8_t Len = 22;
+        uint8_t Data[500];
+        uint8_t Len = 500;
 
         for (int user = 0; user < userCount; user++) {
             build_join_request_frame(Data, Len, 0xFF00U + (uint32_t)user);
@@ -923,7 +925,38 @@ int load_and_send_simulation_data(int classNum, int caseNum)
                ret = TK8710WriteBuffer(user + 128, Data, Len);
             }
         }
-        
+        // for (int user = 0; user < userCount; user++) {
+        //     for(int i = 0; i < Len; i++){
+        //         if(i < 4){
+        //             Data[i] = user + i;
+        //         }else{
+        //             Data[i] = rand()%255;
+        //         }
+                
+        //     }
+        //     if ((size_t)byteIndex < sizeof(spiDataBuffer)) {
+        //         spiDataBuffer[byteIndex] = txPowerData[user];
+        //         byteIndex++;
+        //     }
+        //     s_tx_pow_ctrl tx_pow_ctrl;
+        //     tx_pow_ctrl.data = 0;
+        //     tx_pow_ctrl.b.UserIndex = user;
+        //     tx_pow_ctrl.b.power = txPowerData[user];
+            
+        //     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 
+        //         MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
+
+        //     ret = TK8710WriteBuffer(user, Data, Len);
+        //     if(user < 16){
+        //         tx_pow_ctrl.data = 0;
+        //         tx_pow_ctrl.b.UserIndex = user + 128;
+        //         tx_pow_ctrl.b.power = txPowerData[user];
+        //         ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 
+        //             MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
+        //                             /* 发送广播数据 */
+        //        ret = TK8710WriteBuffer(user + 128, Data, Len);
+        //     }
+        // }        
         /* 打印前16个输入数据 (十六进制格式) */
         int printLen = (byteIndex < 16) ? byteIndex : 16;
         printf("TxPower SPI输入数据 (前%d字节): ", printLen);
@@ -1238,7 +1271,7 @@ int main(int argc, char* argv[])
         .offset_adj  = 0,
         .tx_pre      = 0,
         .conti_mode  = 1,
-        .bcn_scan    = 1,
+        .bcn_scan    = 0,
         .ant_en      = 0xFF,
         .rf_sel      = 0xFF,
         .tx_bcn_en   = 1,

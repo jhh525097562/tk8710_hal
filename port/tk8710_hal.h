@@ -98,6 +98,13 @@ void TK8710DelayMs(uint32_t ms);
 void TK8710DelayUs(uint32_t us);
 
 /**
+ * @brief Sleep until an absolute monotonic timestamp.
+ * @param targetUs Target timestamp in us, using the same time base as TK8710GetTimeUs.
+ * @return 0 on success, non-zero on failure or unsupported platform.
+ */
+int TK8710SleepUntilUs(uint64_t targetUs);
+
+/**
  * @brief 获取系统时间戳 (毫秒)
  * @return 系统时间戳
  */

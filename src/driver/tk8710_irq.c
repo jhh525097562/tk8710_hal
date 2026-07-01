@@ -51,6 +51,7 @@ static uint32_t g_bcnRotationCount = 0;
 static volatile uint64_t g_s0LastTimeUs = 0;
 static volatile uint32_t g_s0LastPeriodUs = 0;
 static volatile uint32_t g_s0PeriodCount = 0;
+static volatile uint64_t g_lastAllUserValRegSetTimeUs = 0;
 
 /* Buffer管理变量 */
 static TK8710RxBuffer g_rxBuffers[128] = {0};      /* 接收数据Buffer */
@@ -863,6 +864,50 @@ static void tk8710_handle_rx_bcn(void)
                            bcnObv1.b.bcn_q, bcnObv1.b.sync_on);
     }
 
+    // const slotCfg_t* slotCfg = TK8710GetSlotConfig();
+    // // if(slotCfg != NULL && slotCfg->s1Cfg[0].byteLen == 0 &&
+    // //    slotCfg->msMode == TK8710_MODE_SLAVE){
+    // if(slotCfg != NULL && slotCfg->msMode == TK8710_MODE_SLAVE){
+    //     /* 处理S1时隙自动发送 */
+    //     tk8710_s1_auto_tx_process();
+        
+    //     /* 处理S1时隙指定信息发送 */
+    //     if (slotCfg->txBeamCtrlMode == 1) {
+    //         /* 如果已加载仿真数据，跳过手动发送处理 */
+    //         if (g_simulationDataLoaded) {
+    //                 int ret;
+    //                 uint64_t nowUs = TK8710GetTimeUs();
+    //                 uint32_t userVal = 0;
+    //                 if (g_lastAllUserValRegSetTimeUs == 0 ||
+    //                     nowUs - g_lastAllUserValRegSetTimeUs >= 5000000ULL) {
+    //                     userVal = 0xffffffff;
+    //                     g_lastAllUserValRegSetTimeUs = nowUs;
+    //                 }
+    //                 uint32_t user_val_regs[4] = {userVal,userVal,userVal,userVal}; /* user_val0, user_val1, user_val2, user_val3 */
+    //                 /* 写入MAC寄存器 */
+    //                 for (int reg = 0; reg < 4; reg++) {
+    //                     uint32_t reg_offset = MAC_BASE + 0x3c + reg * 4;
+    //                     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, reg_offset, user_val_regs[reg]);
+    //                     if (ret == TK8710_OK) {
+    //                         TK8710_LOG_IRQ_DEBUG("Set MAC user_val%d = 0x%08X", reg, user_val_regs[reg]);
+    //                     } else {
+    //                         TK8710_LOG_IRQ_ERROR("Failed to set MAC user_val%d: %d", reg, ret);
+    //                     }
+    //                 }
+    //                 s_init_17 brdUserVal;
+    //                 brdUserVal.data = 0;
+    //                 brdUserVal.b.brd_user_val = 0xffff;
+
+    //                 ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_17), brdUserVal.data);
+    //                 TK8710_LOG_IRQ_DEBUG("Simulation data loaded, skipping manual TX process");
+    //             } else {
+    //                 tk8710_s1_manual_tx_process();
+    //             }
+    //     } else {
+    //         /* 处理S1时隙广播发送 */
+    //         tk8710_s1_broadcast_tx_process();
+    //     }
+    // }
 }
 
 /**
@@ -1233,8 +1278,7 @@ static void tk8710_handle_slot0(void)
     // }
     
     const slotCfg_t* slotCfg = TK8710GetSlotConfig();
-    if(slotCfg != NULL && slotCfg->s1Cfg[0].byteLen == 0 &&
-       slotCfg->msMode == TK8710_MODE_MASTER){
+    if(slotCfg != NULL && slotCfg->s1Cfg[0].byteLen == 0 && slotCfg->msMode == TK8710_MODE_MASTER){
         /* 处理S1时隙自动发送 */
         tk8710_s1_auto_tx_process();
         
@@ -1621,11 +1665,19 @@ static void tk8710_handle_slot1(void)
     tk8710_s1_auto_tx_process();
     
     /* 处理S1时隙指定信息发送 */
+    // if (slotCfg->txBeamCtrlMode == 1  && slotCfg->msMode == TK8710_MODE_MASTER) {
     if (slotCfg->txBeamCtrlMode == 1) {
         /* 如果已加载仿真数据，跳过手动发送处理 */
         if (g_simulationDataLoaded) {
                 int ret;
-                uint32_t user_val_regs[4] = {0xffffffff,0xffffffff,0xffffffff,0xffffffff}; /* user_val0, user_val1, user_val2, user_val3 */
+                uint64_t nowUs = TK8710GetTimeUs();
+                uint32_t userVal = 0;
+                if (g_lastAllUserValRegSetTimeUs == 0 ||
+                    nowUs - g_lastAllUserValRegSetTimeUs >= 5000000ULL) {
+                    userVal = 0xffffffff;
+                    g_lastAllUserValRegSetTimeUs = nowUs;
+                }
+                uint32_t user_val_regs[4] = {userVal,userVal,userVal,userVal}; /* user_val0, user_val1, user_val2, user_val3 */
                 /* 写入MAC寄存器 */
                 for (int reg = 0; reg < 4; reg++) {
                     uint32_t reg_offset = MAC_BASE + 0x3c + reg * 4;
@@ -1792,6 +1844,7 @@ static void tk8710_handle_slot2(void)
     const slotCfg_t* slotCfg = TK8710GetSlotConfig();
     if(slotCfg != NULL && slotCfg->s1Cfg[0].byteLen == 0 &&
        slotCfg->msMode == TK8710_MODE_SLAVE){
+    // if(slotCfg != NULL && slotCfg->msMode == TK8710_MODE_SLAVE){
         /* 处理S1时隙自动发送 */
         tk8710_s1_auto_tx_process();
         
@@ -1800,6 +1853,13 @@ static void tk8710_handle_slot2(void)
             /* 如果已加载仿真数据，跳过手动发送处理 */
             if (g_simulationDataLoaded) {
                     int ret;
+                    // uint64_t nowUs = TK8710GetTimeUs();
+                    // uint32_t userVal = 0;
+                    // if (g_lastAllUserValRegSetTimeUs == 0 ||
+                    //     nowUs - g_lastAllUserValRegSetTimeUs >= 5000000ULL) {
+                    //     userVal = 0xffffffff;
+                    //     g_lastAllUserValRegSetTimeUs = nowUs;
+                    // }
                     uint32_t user_val_regs[4] = {0xffffffff,0xffffffff,0xffffffff,0xffffffff}; /* user_val0, user_val1, user_val2, user_val3 */
                     /* 写入MAC寄存器 */
                     for (int reg = 0; reg < 4; reg++) {

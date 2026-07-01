@@ -1063,7 +1063,8 @@ int main(int argc, char* argv[])
     int s2ByteLen = 22;  /* 默认s2 byteLen */
     int s3ByteLen = 22;  /* 默认s3 byteLen */
     uint32_t freq = 509100000U;
-    
+    uint32_t Txgain = 0x2a;
+    uint32_t Rxgain = 0x7e;
     /* 设置全局测试模式 */
     g_testMode = testMode;
     
@@ -1155,6 +1156,9 @@ int main(int argc, char* argv[])
             }
         }
         
+        Txgain = atoi(argv[8]);
+        Rxgain = atoi(argv[9]);
+        
         printf("Using test mode: %d, class: %d, case: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d, Freq: %u Hz\n", 
                testMode, classNum, caseNum, s1ByteLen, s2ByteLen, s3ByteLen, freq);
     } else {
@@ -1221,13 +1225,14 @@ int main(int argc, char* argv[])
         // }
     };
     rfConfig.Freq = freq;
-    
-    /* 尝试从TxDC目录加载txadc配置 */
-    if (LoadTxadcConfig("txadc.txt", (uint16_t (*)[2])rfConfig.txadc) != 0) {
-        printf("使用默认txadc配置\n");
-    } else {
-        printf("已加载文件中的txadc配置\n");
-    }
+    rfConfig.txgain = Txgain;
+    rfConfig.rxgain = Rxgain;
+    // /* 尝试从TxDC目录加载txadc配置 */
+    // if (LoadTxadcConfig("txadc.txt", (uint16_t (*)[2])rfConfig.txadc) != 0) {
+    //     printf("使用默认txadc配置\n");
+    // } else {
+    //     printf("已加载文件中的txadc配置\n");
+    // }
     
     /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
     ChipConfig chipConfig = {
@@ -1539,7 +1544,7 @@ int main(int argc, char* argv[])
                 
             case 'g':
             case 'G':
-                printf("执行ACM增益自动获取...\n");
+            {
                 ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
                 if (ret == TK8710_OK) {
                     printf("ACM增益自动获取完成\n");
@@ -1547,53 +1552,28 @@ int main(int argc, char* argv[])
                     printf("ACM增益自动获取失败: ret=%d\n", ret);
                 }
                 break;
+            }
                 
             case 'k':
             case 'K':
             {
+                uint32_t gain1255;
+                printf("请输入1255gain (hex, e.g. 0x2a): ");
+                fflush(stdout);
+                if (scanf("%x", &gain1255) != 1 || gain1255 > 0xFF) {
+                    printf("无效的1255gain，范围: 0x00~0xFF\n");
+                    break;
+                }
+                ret = tk8710_rf_write(0xff, 0x8C7e >> 8, gain1255);
+                if (ret == TK8710_OK) {
+                    printf("1255增益设置成功\n");
+                } else {
+                    printf("1255增益设置失败: ret=%d\n", ret);
+                }
+                printf("执行ACM增益自动获取, 1255gain=0x%02X...\n", (uint8_t)gain1255);
                 AcmCalibParams calibParams;
-                // char input[100];
-                // int c;
-                
-                // printf("执行ACM校准...\n");
-                
-                // /* 清理输入缓冲区 */
-                // while ((c = getchar()) != '\n' && c != EOF);
-                
-                // /* 获取校准次数 */
-                // printf("请输入校准次数 (默认5): \n");
-                // fflush(stdout);  /* 确保提示信息立即显示 */
-                // if (fgets(input, sizeof(input), stdin) != NULL) {
-                //     /* 移除换行符 */
-                //     input[strcspn(input, "\n")] = 0;
-                //     if (strlen(input) > 0) {
-                //         calibParams.calibCount = (uint8_t)atoi(input);
-                //     } else {
-                //         calibParams.calibCount = 5;  /* 默认值 */
-                //     }
-                // } else {
-                //     calibParams.calibCount = 5;  /* 默认值 */
-                // }
-                
-                // /* 获取SNR门限值 */
-                // printf("请输入SNR门限值 (默认32): \n");
-                // fflush(stdout);  /* 确保提示信息立即显示 */
-                // if (fgets(input, sizeof(input), stdin) != NULL) {
-                //     /* 移除换行符 */
-                //     input[strcspn(input, "\n")] = 0;
-                //     if (strlen(input) > 0) {
-                //         calibParams.snrThreshold = (uint8_t)atoi(input);
-                //     } else {
-                //         calibParams.snrThreshold = 32;  /* 默认值 */
-                //     }
-                // } else {
-                //     calibParams.snrThreshold = 32;  /* 默认值 */
-                // }
-                
-                // printf("开始ACM校准 (校准次数: %d, SNR门限: %d)...\n", 
-                //        calibParams.calibCount, calibParams.snrThreshold);
                 calibParams.calibCount = 100;
-                calibParams.snrThreshold = 28;
+                calibParams.snrThreshold = 5;//20
                 int calibRet; 
                 ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE, 
                                     &calibParams, &calibRet);

@@ -32,7 +32,7 @@
 
 /* GPIO配置 - 使用libgpiod */
 #define TK8710_GPIO_CHIP_PATH       "/dev/gpiochip0"
-#define TK8710_IRQ_LINE_OFFSET      18      /* 3506开发板：20,3506网关板：18*/
+#define TK8710_IRQ_LINE_OFFSET      18      /* 3506开发板：20,880网关板：18*/
 #define TK8710_CS_LINE_OFFSET       0       /* CS引脚偏移，根据实际硬件配置 */
 #define TK8710_RST_LINE_OFFSET      0       /* RST引脚偏移，根据实际硬件配置 */
 
@@ -479,6 +479,25 @@ void TK8710DelayUs(uint32_t us)
     usleep(us);
 }
 
+int TK8710SleepUntilUs(uint64_t targetUs)
+{
+    struct timespec ts;
+    int ret;
+
+    ts.tv_sec = (time_t)(targetUs / 1000000ULL);
+    ts.tv_nsec = (long)((targetUs % 1000000ULL) * 1000ULL);
+
+    do {
+        ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL);
+    } while (ret == EINTR);
+
+    if (ret != 0) {
+        return -ret;
+    }
+
+    return 0;
+}
+
 /**
  * @brief 获取系统时间戳 (毫秒)
  */
@@ -494,9 +513,10 @@ uint32_t TK8710GetTickMs(void)
  */
 uint64_t TK8710GetTimeUs(void)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint64_t)(tv.tv_sec * 1000000 + tv.tv_usec);
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)(ts.tv_nsec / 1000ULL);
 }
 
 /**

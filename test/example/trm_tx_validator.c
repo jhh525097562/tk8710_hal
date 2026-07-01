@@ -21,6 +21,8 @@ static TRM_TxValidatorStats g_validatorStats;
 static bool g_validatorInitialized = false;
 static uint32_t g_lastPeriodicFrame = 0;
 
+#define TRM_TX_VALIDATOR_MAX_DATA_LEN 520
+
 /* ============================================================================
  * 内部函数
  * ============================================================================
@@ -163,9 +165,12 @@ int TRM_TxValidatorOnRxData(const TRM_RxDataList* rxDataList)
             TRM_RxUserData* user = &rxDataList->users[i];
             
             /* 生成应答数据 - 使用配置的数据长度 */
-            uint8_t respData[512];  /* 增大缓冲区以支持更长的数据 */
+            uint8_t respData[TRM_TX_VALIDATOR_MAX_DATA_LEN];  /* Downlink test buffer */
             // uint16_t dataLen = g_validatorConfig.responseDataLength;
             uint16_t dataLen = user->dataLen;
+            if (dataLen > TRM_TX_VALIDATOR_MAX_DATA_LEN) {
+                dataLen = TRM_TX_VALIDATOR_MAX_DATA_LEN;
+            }
             /* 限制最大长度 */
             // if (dataLen > 64) dataLen = 64;
             // if (dataLen == 0) dataLen = 12;  /* 默认长度 */
@@ -175,6 +180,9 @@ int TRM_TxValidatorOnRxData(const TRM_RxDataList* rxDataList)
             /* 如果接收到了数据，复制部分数据作为应答 */
             if (user->data != NULL && user->dataLen > 0) {
                 uint16_t copyLen = (user->dataLen > 12) ? 12 : user->dataLen;
+                if (copyLen > dataLen) {
+                    copyLen = dataLen;
+                }
                 memcpy(&respData[0], user->data, copyLen);
             }
             
@@ -203,9 +211,12 @@ int TRM_TxValidatorOnRxData(const TRM_RxDataList* rxDataList)
                 TRM_RxUserData* user = &rxDataList->users[i];
                 
                 /* 生成应答数据 - 使用配置的数据长度 */
-                uint8_t respData[512];  /* 增大缓冲区以支持更长的数据 */
+                uint8_t respData[TRM_TX_VALIDATOR_MAX_DATA_LEN];  /* Downlink test buffer */
                 // uint16_t dataLen = g_validatorConfig.responseDataLength;
                 uint16_t dataLen = user->dataLen;
+                if (dataLen > TRM_TX_VALIDATOR_MAX_DATA_LEN) {
+                    dataLen = TRM_TX_VALIDATOR_MAX_DATA_LEN;
+                }
                 /* 限制最大长度 */
                 // if (dataLen > 64) dataLen = 64;
                 // if (dataLen == 0) dataLen = 12;  /* 默认长度 */
@@ -215,6 +226,9 @@ int TRM_TxValidatorOnRxData(const TRM_RxDataList* rxDataList)
                 /* 如果接收到了数据，复制部分数据作为应答 */
                 if (user->data != NULL && user->dataLen > 0) {
                     uint16_t copyLen = (user->dataLen > 12) ? 12 : user->dataLen;
+                    if (copyLen > dataLen) {
+                        copyLen = dataLen;
+                    }
                     memcpy(&respData[0], user->data, copyLen);
                 }
                 

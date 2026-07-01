@@ -10,7 +10,7 @@ extern "C" {
 
 // 定义支持的最大速率配置数量和最大有效载荷长度，避免动态内存碎片
 #define MAX_RATE_CFGS 8
-#define MAX_PAYLOAD_LEN 512
+#define MAX_PAYLOAD_LEN 520
 #define MAX_VER_LEN 64
 #define MAX_NET_NAME_LEN 16
 #define MAX_UP_USER_NUM 128

@@ -6,6 +6,8 @@
 
 #include "tk8710_hal.h"
 
+uint64_t TK8710GetTimeUs(void);
+
 #ifdef _WIN32
 #include <windows.h>
 #include "jtool/x64/jtool.h"
@@ -433,6 +435,18 @@ void TK8710DelayUs(uint32_t us)
 /**
  * @brief 获取系统时间戳
  */
+int TK8710SleepUntilUs(uint64_t targetUs)
+{
+    uint64_t nowUs = TK8710GetTimeUs();
+
+    if (targetUs <= nowUs) {
+        return 0;
+    }
+
+    TK8710DelayUs((uint32_t)(targetUs - nowUs));
+    return 0;
+}
+
 uint32_t TK8710GetTickMs(void)
 {
 #ifdef _WIN32
