@@ -24,12 +24,15 @@
 #define TRM_SAT_DEFAULT_FREQ_OFFSET 20000
 #define TRM_SAT_DEFAULT_PILOT_PWR  1000000ULL
 #define TRM_SAT_DEFAULT_AH_BASE    8192u
+#define TRM_SAT_JOIN_RESPONSE_STATUS_OFFSET 15u
+#define TRM_SAT_JOIN_RESPONSE_STATUS_MASK   0x20u
 
 typedef struct {
     uint8_t frameType;
     uint8_t devType;
     uint8_t nwkMode;
     uint8_t targetRateMode;
+    uint8_t responseStatus;
     uint32_t srcAddr;
     uint8_t valid;
 } TRM_SatMacInfo;
@@ -38,6 +41,8 @@ typedef struct {
     uint32_t addr;
     TRM_BeamInfo beam;
     uint32_t lastUpdateMs;
+    uint8_t snr;
+    int16_t rssi;
     uint8_t valid;
 } TRM_SatBeamEntry;
 
@@ -81,6 +86,7 @@ typedef struct {
     uint8_t gsOnline;
     uint8_t bcnOkCount;
     uint8_t joinPending;
+    uint8_t joinResponseStatus;
     uint32_t lastGsTxMs;
     uint32_t lastJoinReqMs;
     TRM_SatBeamEntry gsBeams[TRM_SAT_GS_BEAM_MAX];
@@ -214,6 +220,51 @@ static int32_t trm_sat_random_join_freq_offset(uint8_t rateMode)
     return (int32_t)(trm_sat_rand_u32() % span) - limit;
 }
 
+static int32_t trm_sat_random_signed_offset(int32_t limit)
+{
+    uint32_t span;
+
+    if (limit <= 0) {
+        return 0;
+    }
+
+    span = (uint32_t)(limit * 2 + 1);
+    return (int32_t)(trm_sat_rand_u32() % span) - limit;
+}
+
+static uint8_t trm_sat_center_out_freq_index(uint8_t userIndex, uint8_t count)
+{
+    uint8_t distance;
+    uint8_t centerLeft;
+    uint8_t centerRight;
+    uint8_t center;
+
+    if (count == 0 || userIndex >= count) {
+        return 0;
+    }
+
+    if ((count & 0x01u) == 0) {
+        centerRight = count / 2;
+        centerLeft = centerRight - 1;
+        distance = userIndex / 2;
+        if ((userIndex & 0x01u) == 0) {
+            return (uint8_t)(centerLeft - distance);
+        }
+        return (uint8_t)(centerRight + distance);
+    }
+
+    center = count / 2;
+    if (userIndex == 0) {
+        return center;
+    }
+
+    distance = (uint8_t)((userIndex + 1) / 2);
+    if ((userIndex & 0x01u) != 0) {
+        return (uint8_t)(center + distance);
+    }
+    return (uint8_t)(center - distance);
+}
+
 static void trm_sat_set_cached_ah(TRM_BeamInfo* beam, uint8_t ant, uint32_t iData,
     uint32_t qData)
 {
@@ -302,6 +353,13 @@ static int trm_sat_parse_mac(const uint8_t* data, uint16_t len, TRM_SatMacInfo* 
     info->devType = mhdr.devType;
     info->nwkMode = mhdr.nwkMode;
     info->targetRateMode = 0;
+    info->responseStatus = TRM_GS_JOIN_RESPONSE_REQUIRED_DEFAULT;
+    if (info->frameType == TRM_MAC_FRAMETYPE_JOIN_REQUEST &&
+        len > TRM_SAT_JOIN_RESPONSE_STATUS_OFFSET) {
+        info->responseStatus =
+            (data[TRM_SAT_JOIN_RESPONSE_STATUS_OFFSET] &
+             TRM_SAT_JOIN_RESPONSE_STATUS_MASK) ? 1 : 0;
+    }
     info->valid = 1;
     return TRM_OK;
 }
@@ -436,21 +494,26 @@ static int trm_sat_is_ground_station_terminal_data(const uint8_t* data, uint16_t
     return trm_sat_is_terminal_uplink_frame(&info);
 }
 
-static void trm_sat_gs_beam_put(uint32_t gsAddr, const TRM_BeamInfo* beam)
+static void trm_sat_gs_beam_put(uint32_t gsAddr, const TRM_RxUserData* user)
 {
     int freeIndex = -1;
     uint32_t now = trm_sat_now_ms();
+    const TRM_BeamInfo* beam;
 
-    if (beam == NULL) {
+    if (user == NULL) {
         return;
     }
+    beam = &user->beam;
 
     for (uint32_t i = 0; i < g_satCtx.gsBeamMax; i++) {
         if (g_satCtx.gsBeams[i].valid && g_satCtx.gsBeams[i].addr == gsAddr) {
             g_satCtx.gsBeams[i].beam = *beam;
             g_satCtx.gsBeams[i].beam.userId = gsAddr;
             g_satCtx.gsBeams[i].lastUpdateMs = now;
-            TRM_LOG_INFO("TRM SAT: ground-station beam update addr=0x%08X", gsAddr);
+            g_satCtx.gsBeams[i].snr = user->snr;
+            g_satCtx.gsBeams[i].rssi = user->rssi;
+            TRM_LOG_INFO("TRM SAT: ground-station beam update addr=0x%08X snr=%u rssi=%d",
+                         gsAddr, user->snr, user->rssi);
             return;
         }
         if (!g_satCtx.gsBeams[i].valid && freeIndex < 0) {
@@ -476,14 +539,18 @@ static void trm_sat_gs_beam_put(uint32_t gsAddr, const TRM_BeamInfo* beam)
     g_satCtx.gsBeams[freeIndex].beam = *beam;
     g_satCtx.gsBeams[freeIndex].beam.userId = gsAddr;
     g_satCtx.gsBeams[freeIndex].lastUpdateMs = now;
+    g_satCtx.gsBeams[freeIndex].snr = user->snr;
+    g_satCtx.gsBeams[freeIndex].rssi = user->rssi;
     g_satCtx.gsBeams[freeIndex].valid = 1;
-    TRM_LOG_INFO("TRM SAT: ground-station beam add addr=0x%08X", gsAddr);
+    TRM_LOG_INFO("TRM SAT: ground-station beam add addr=0x%08X snr=%u rssi=%d",
+                 gsAddr, user->snr, user->rssi);
 }
 
-static int trm_sat_get_latest_gs(uint32_t* gsAddr, TRM_BeamInfo* beam)
+static int trm_sat_get_best_gs(uint32_t* gsAddr, TRM_BeamInfo* beam)
 {
     int found = -1;
-    uint32_t latestMs = 0;
+    uint8_t bestSnr = 0;
+    uint32_t bestMs = 0;
     uint32_t now = trm_sat_now_ms();
 
     for (uint32_t i = 0; i < g_satCtx.gsBeamMax; i++) {
@@ -499,8 +566,11 @@ static int trm_sat_get_latest_gs(uint32_t* gsAddr, TRM_BeamInfo* beam)
             }
             continue;
         }
-        if (found < 0 || entry->lastUpdateMs >= latestMs) {
-            latestMs = entry->lastUpdateMs;
+        if (found < 0 ||
+            entry->snr > bestSnr ||
+            (entry->snr == bestSnr && entry->lastUpdateMs >= bestMs)) {
+            bestSnr = entry->snr;
+            bestMs = entry->lastUpdateMs;
             found = (int)i;
         }
     }
@@ -514,6 +584,10 @@ static int trm_sat_get_latest_gs(uint32_t* gsAddr, TRM_BeamInfo* beam)
     if (beam != NULL) {
         *beam = g_satCtx.gsBeams[found].beam;
     }
+    TRM_LOG_DEBUG("TRM SAT: selected ground-station beam addr=0x%08X snr=%u rssi=%d",
+                  g_satCtx.gsBeams[found].addr,
+                  g_satCtx.gsBeams[found].snr,
+                  g_satCtx.gsBeams[found].rssi);
     return TRM_OK;
 }
 
@@ -590,7 +664,7 @@ static void trm_sat_flush_cache(uint8_t maxUserCount)
             continue;
         }
 
-        if (trm_sat_get_latest_gs(&gsAddr, NULL) != TRM_OK) {
+        if (trm_sat_get_best_gs(&gsAddr, NULL) != TRM_OK) {
             TRM_LOG_WARN("TRM SAT: uplink cache flush deferred, no ground-station beam cache=%u/%u",
                          g_satCtx.cacheCount, g_satCtx.uplinkCacheMax);
             return;
@@ -616,6 +690,7 @@ static void trm_sat_flush_cache(uint8_t maxUserCount)
 }
 
 static void trm_sat_build_join_frame(uint8_t frameType, uint32_t srcAddr,
+                                     uint8_t responseStatus,
                                      uint8_t* data, uint16_t* len)
 {
     TrmMacMhdr mhdr;
@@ -634,6 +709,9 @@ static void trm_sat_build_join_frame(uint8_t frameType, uint32_t srcAddr,
     data[5] = (uint8_t)((srcAddr >> 8) & 0xFF);
     data[6] = (uint8_t)((srcAddr >> 16) & 0xFF);
     data[7] = (uint8_t)((srcAddr >> 24) & 0xFF);
+    if (frameType == TRM_MAC_FRAMETYPE_JOIN_REQUEST && responseStatus != 0) {
+        data[TRM_SAT_JOIN_RESPONSE_STATUS_OFFSET] |= TRM_SAT_JOIN_RESPONSE_STATUS_MASK;
+    }
     *len = TRM_SAT_JOIN_FRAME_LEN;
 }
 
@@ -649,7 +727,8 @@ static int trm_sat_queue_join_request(void)
     int ret;
 
     trm_sat_build_join_frame(TRM_MAC_FRAMETYPE_JOIN_REQUEST,
-                             g_satCtx.localAddr, data, &len);
+                             g_satCtx.localAddr, g_satCtx.joinResponseStatus,
+                             data, &len);
     trm_sat_randomize_join_beam(rateMode, &freqOffset, &freqRaw);
     g_satCtx.autoForwarding = 1;
     ret = TRM_SendData(g_satCtx.localAddr, data, len, TRM_SAT_DEFAULT_TX_POWER,
@@ -659,8 +738,13 @@ static int trm_sat_queue_join_request(void)
         g_satCtx.joinPending = 1;
         g_satCtx.lastJoinReqMs = now;
         g_satCtx.lastGsTxMs = now;
-        TRM_LOG_INFO("TRM SAT: ground-station join request queued addr=0x%08X mode=%u freqOffset=%d freqRaw=0x%08X",
-                     g_satCtx.localAddr, rateMode, freqOffset, freqRaw);
+        if (g_satCtx.joinResponseStatus == 0) {
+            g_satCtx.gsOnline = 1;
+            g_satCtx.joinPending = 0;
+        }
+        TRM_LOG_INFO("TRM SAT: ground-station join request queued addr=0x%08X mode=%u responseStatus=%u freqOffset=%d freqRaw=0x%08X",
+                     g_satCtx.localAddr, rateMode, g_satCtx.joinResponseStatus,
+                     freqOffset, freqRaw);
     } else {
         TRM_LOG_WARN("TRM SAT: ground-station join request queue failed ret=%d", ret);
     }
@@ -673,7 +757,7 @@ static int trm_sat_queue_join_accept(uint32_t gsAddr)
     uint16_t len = 0;
 
     trm_sat_build_join_frame(TRM_MAC_FRAMETYPE_JOIN_ACCEPT,
-                             g_satCtx.localAddr, data, &len);
+                             g_satCtx.localAddr, 0, data, &len);
     return trm_sat_forward_to_beam(gsAddr, data, len,
                                    TRM_SAT_DEFAULT_TX_POWER, 0);
 }
@@ -684,7 +768,7 @@ static void trm_sat_payload_process_terminal(const TRM_RxUserData* user,
     uint32_t gsAddr;
     int ret;
 
-    ret = trm_sat_get_latest_gs(&gsAddr, NULL);
+    ret = trm_sat_get_best_gs(&gsAddr, NULL);
     if (ret != TRM_OK) {
         g_satCtx.beamMissCount++;
         (void)trm_sat_cache_push(info->srcAddr, user->data, user->dataLen,
@@ -713,11 +797,16 @@ static void trm_sat_payload_process_ground_station(const TRM_RxUserData* user,
     int ret;
 
     if (info->frameType == TRM_MAC_FRAMETYPE_JOIN_REQUEST) {
-        trm_sat_gs_beam_put(info->srcAddr, &user->beam);
+        trm_sat_gs_beam_put(info->srcAddr, user);
         trm_sat_flush_cache(TRM_SAT_MAX_FORWARD_USERS);
+        if (info->responseStatus == 0) {
+            TRM_LOG_INFO("TRM SAT: join request from gs=0x%08X responseStatus=0, accept skipped",
+                         info->srcAddr);
+            return;
+        }
         ret = trm_sat_queue_join_accept(info->srcAddr);
-        TRM_LOG_INFO("TRM SAT: join request from gs=0x%08X, accept ret=%d",
-                     info->srcAddr, ret);
+        TRM_LOG_INFO("TRM SAT: join request from gs=0x%08X responseStatus=%u, accept ret=%d",
+                     info->srcAddr, info->responseStatus, ret);
         return;
     }
 
@@ -726,7 +815,7 @@ static void trm_sat_payload_process_ground_station(const TRM_RxUserData* user,
     }
 
     if (trm_sat_route_get(info->srcAddr, &routeGsAddr) == TRM_OK) {
-        trm_sat_gs_beam_put(routeGsAddr, &user->beam);
+        trm_sat_gs_beam_put(routeGsAddr, user);
         trm_sat_flush_cache(TRM_SAT_MAX_FORWARD_USERS);
     } else {
         g_satCtx.beamMissCount++;
@@ -788,11 +877,15 @@ void TRM_SatelliteInit(const TRM_InitConfig* config)
         TRM_GS_TERMINAL_BEAM_DEFAULT, TRM_SAT_ROUTE_MAX);
     g_satCtx.bcnThreshold = trm_sat_default_u32(config->groundStationBcnThreshold,
         TRM_GS_BCN_THRESHOLD_DEFAULT, 0);
+    g_satCtx.joinResponseStatus = config->groundStationJoinResponseStatusSet ?
+        (config->groundStationJoinResponseStatus ? 1 : 0) :
+        TRM_GS_JOIN_RESPONSE_REQUIRED_DEFAULT;
 
-    TRM_LOG_INFO("TRM SAT: role=%d local=0x%08X gsBeamMax=%u gsBeamTimeoutMs=%u joinMaintainMs=%u cache=%u",
+    TRM_LOG_INFO("TRM SAT: role=%d local=0x%08X gsBeamMax=%u gsBeamTimeoutMs=%u joinMaintainMs=%u joinResp=%u cache=%u",
                  g_satCtx.role, g_satCtx.localAddr,
                  g_satCtx.gsBeamMax, g_satCtx.gsBeamTimeoutMs,
-                 g_satCtx.joinMaintainMs, g_satCtx.uplinkCacheMax);
+                 g_satCtx.joinMaintainMs, g_satCtx.joinResponseStatus,
+                 g_satCtx.uplinkCacheMax);
 }
 
 void TRM_SatelliteDeinit(void)
@@ -810,6 +903,7 @@ void TRM_SatelliteReset(void)
     uint32_t gsTerminalBeamMax = g_satCtx.gsTerminalBeamMax;
     uint32_t joinMaintainMs = g_satCtx.joinMaintainMs;
     uint32_t bcnThreshold = g_satCtx.bcnThreshold;
+    uint8_t joinResponseStatus = g_satCtx.joinResponseStatus;
 
     memset(&g_satCtx, 0, sizeof(g_satCtx));
     g_satCtx.role = role;
@@ -820,6 +914,7 @@ void TRM_SatelliteReset(void)
     g_satCtx.gsTerminalBeamMax = gsTerminalBeamMax;
     g_satCtx.joinMaintainMs = joinMaintainMs;
     g_satCtx.bcnThreshold = bcnThreshold;
+    g_satCtx.joinResponseStatus = joinResponseStatus;
 }
 
 int TRM_SatelliteAllowRxBeamStore(const uint8_t* data, uint16_t len)
@@ -911,9 +1006,13 @@ void TRM_SatelliteAdjustForwardBeam(uint8_t userIndex, uint8_t userCount,
 {
     RateModeParams rateParams;
     uint8_t effectiveCount;
+    uint8_t freqIndex;
     uint64_t stepHz128;
     int64_t startOffsetHz128;
+    int64_t avgOffsetHz128;
     int64_t offsetHz128;
+    int32_t randomLimitHz;
+    int32_t randomOffsetHz;
 
     if (beamInfo == NULL || g_satCtx.role != TRM_NODE_ROLE_SAT_PAYLOAD) {
         return;
@@ -939,11 +1038,19 @@ void TRM_SatelliteAdjustForwardBeam(uint8_t userIndex, uint8_t userCount,
         return;
     }
     startOffsetHz128 = -((int64_t)stepHz128 * (int64_t)(effectiveCount - 1)) / 2;
-    offsetHz128 = startOffsetHz128 + ((int64_t)stepHz128 * userIndex);
+    freqIndex = trm_sat_center_out_freq_index(userIndex, effectiveCount);
+    avgOffsetHz128 = startOffsetHz128 + ((int64_t)stepHz128 * freqIndex);
+    offsetHz128 = avgOffsetHz128;
+    randomLimitHz = (int32_t)(stepHz128 / 128 / 2) -
+                    ((int32_t)rateParams.signalBwKHz * 1000 / 2);
+    randomOffsetHz = trm_sat_random_signed_offset(randomLimitHz);
+    offsetHz128 += (int64_t)randomOffsetHz * 128;
     uint32_t freqRaw = (uint32_t)((uint64_t)offsetHz128 & 0x03FFFFFFu);
     beamInfo->freq = trm_sat_to_spi_u32(freqRaw);
-    TRM_LOG_DEBUG("TRM SAT: forward freq assign idx=%u/%u mode=%u offset=%d freqRaw=0x%08X",
-                  userIndex, effectiveCount, rateMode, (int)(offsetHz128 / 128), freqRaw);
+    TRM_LOG_DEBUG("TRM SAT: forward freq assign userIdx=%u freqIdx=%u/%u mode=%u avgOffset=%d randLimit=%d randOffset=%d finalOffset=%d freqRaw=0x%08X",
+                  userIndex, freqIndex, effectiveCount, rateMode,
+                  (int)(avgOffsetHz128 / 128), randomLimitHz,
+                  randomOffsetHz, (int)(offsetHz128 / 128), freqRaw);
 }
 
 void TRM_SatelliteAdjustGroundStationTxBeam(uint8_t rateMode, TRM_BeamInfo* beamInfo)

@@ -829,7 +829,7 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
     uint8_t satelliteForwardIndex = 0;
     
     /* 功率设置阶段：所有用户使用固定功率 */
-    uint8_t fixedPower = 35;  /* 固定功率值，可根据需要调整 */
+    uint8_t fixedPower = 55;  /* 固定功率值，可根据需要调整 */
     
     for (uint8_t i = 0; i < userCount; i++) {
         PendingTxUser* user = &pendingUsers[i];

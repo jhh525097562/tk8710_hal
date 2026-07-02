@@ -43,6 +43,8 @@ typedef struct {
     uint32_t groundStationTerminalBeamMax;
     uint32_t groundStationJoinMaintainMs;
     uint32_t groundStationBcnThreshold;
+    uint8_t groundStationJoinResponseStatus;
+    uint8_t groundStationJoinResponseStatusSet;
     TrmOnRxData onRxData;
     TrmOnTxComplete onTxComplete;
 } TK8710HalTrmCfg;

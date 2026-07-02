@@ -60,7 +60,8 @@
 #define PATH_MAX 4096
 #endif
 
-#define GROUND_STATION_JOIN_MAINTAIN_MS 50000u
+#define GROUND_STATION_JOIN_MAINTAIN_MS 10000u
+#define GROUND_STATION_JOIN_RESPONSE_STATUS 0u
 
 /*============================================================================
  * 全局变量和配置
@@ -523,6 +524,8 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
     trmConfig.maxFrameCount = 0;  /* 扫频模式: 持续运行 */
     trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
     trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
+    trmConfig.groundStationJoinResponseStatus = GROUND_STATION_JOIN_RESPONSE_STATUS;
+    trmConfig.groundStationJoinResponseStatusSet = 1;
     printf("[扫频] 步骤5: TRM配置已准备\n");
     
     /* 6. 准备HAL初始化配置 */
@@ -534,6 +537,8 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
             .maxFrameCount = trmConfig.maxFrameCount,
             .nodeRole = trmConfig.nodeRole,
             .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
+            .groundStationJoinResponseStatus = trmConfig.groundStationJoinResponseStatus,
+            .groundStationJoinResponseStatusSet = trmConfig.groundStationJoinResponseStatusSet,
             .onRxData = trmConfig.callbacks.onRxData,
             .onTxComplete = trmConfig.callbacks.onTxComplete
         }
@@ -722,7 +727,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         .offset_adj  = 0,
         .tx_pre      = 0,
         .conti_mode  = 1,
-        .bcn_scan    = 1,
+        .bcn_scan    = 0,
         .ant_en      = 0xFF,
         .rf_sel      = 0xFF,
         .tx_bcn_en   = 0x1,//0xff
@@ -748,6 +753,8 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     trmConfig.maxFrameCount = config->tdd_num;
     trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
     trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
+    trmConfig.groundStationJoinResponseStatus = GROUND_STATION_JOIN_RESPONSE_STATUS;
+    trmConfig.groundStationJoinResponseStatusSet = 1;
     /* 4. 准备HAL初始化配置 */
     TK8710HalInitCfg halConfig = {
         .chipInitCfg = &chipConfig,
@@ -757,6 +764,8 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
             .maxFrameCount = trmConfig.maxFrameCount,
             .nodeRole = trmConfig.nodeRole,
             .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
+            .groundStationJoinResponseStatus = trmConfig.groundStationJoinResponseStatus,
+            .groundStationJoinResponseStatusSet = trmConfig.groundStationJoinResponseStatusSet,
             .onRxData = trmConfig.callbacks.onRxData,
             .onTxComplete = trmConfig.callbacks.onTxComplete
         }
@@ -1343,6 +1352,8 @@ int main(int argc, char* argv[])
         trmConfig.maxFrameCount = 2;
         trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
         trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
+        trmConfig.groundStationJoinResponseStatus = GROUND_STATION_JOIN_RESPONSE_STATUS;
+        trmConfig.groundStationJoinResponseStatusSet = 1;
         /* 4. 准备HAL初始化配置 */
         TK8710HalInitCfg halConfig = {
             .chipInitCfg = &chipConfig,
@@ -1352,6 +1363,8 @@ int main(int argc, char* argv[])
                 .maxFrameCount = trmConfig.maxFrameCount,
                 .nodeRole = trmConfig.nodeRole,
                 .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
+                .groundStationJoinResponseStatus = trmConfig.groundStationJoinResponseStatus,
+                .groundStationJoinResponseStatusSet = trmConfig.groundStationJoinResponseStatusSet,
                 .onRxData = trmConfig.callbacks.onRxData,
                 .onTxComplete = trmConfig.callbacks.onTxComplete
             }

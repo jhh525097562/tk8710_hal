@@ -33,6 +33,8 @@ void TK8710HalCbBuildTrmConfig(TRM_InitConfig* trmConfig, const TK8710HalTrmCfg*
     trmConfig->groundStationTerminalBeamMax = cfg->groundStationTerminalBeamMax;
     trmConfig->groundStationJoinMaintainMs = cfg->groundStationJoinMaintainMs;
     trmConfig->groundStationBcnThreshold = cfg->groundStationBcnThreshold;
+    trmConfig->groundStationJoinResponseStatus = cfg->groundStationJoinResponseStatus;
+    trmConfig->groundStationJoinResponseStatusSet = cfg->groundStationJoinResponseStatusSet;
     trmConfig->callbacks.onRxData = cfg->onRxData;
     trmConfig->callbacks.onTxComplete = cfg->onTxComplete;
 }

@@ -41,6 +41,7 @@ extern "C" {
 #define TRM_GS_TERMINAL_BEAM_DEFAULT 2048    /* 地面站默认终端波束容量 */
 #define TRM_GS_JOIN_MAINTAIN_DEFAULT 60000   /* 地面站入网维持周期(ms) */
 #define TRM_GS_BCN_THRESHOLD_DEFAULT 2       /* 地面站连续BCN正确阈值 */
+#define TRM_GS_JOIN_RESPONSE_REQUIRED_DEFAULT 1 /* 地面站Join Request默认需要Join Accept */
 
 /* =============================================================================
  * 类型定义
@@ -262,6 +263,8 @@ typedef struct {
     uint32_t     groundStationTerminalBeamMax; /* 地面站终端波束容量 */
     uint32_t     groundStationJoinMaintainMs;  /* 地面站入网维持周期 */
     uint32_t     groundStationBcnThreshold;    /* 地面站连续BCN正确阈值 */
+    uint8_t      groundStationJoinResponseStatus; /* Join Request ResponseStatus */
+    uint8_t      groundStationJoinResponseStatusSet; /* 是否显式配置ResponseStatus */
     
     /* 回调函数 */
     struct {
