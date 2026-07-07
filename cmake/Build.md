@@ -18,7 +18,7 @@ mingw32-make -f cmake/Makefile.jtool dll
 
 **# 编译示例程序**
 
-mingw32-make -f cmake/Makefile.jtool example
+mingw32-make -f cmake/Makefile.jtool clean driver_tests
 
 # Build 3506
 

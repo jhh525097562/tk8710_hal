@@ -4,12 +4,14 @@ CC = gcc
 AR = ar
 
 CFLAGS = -Wall -Wextra -Wno-unused-parameter -O2
-CFLAGS += -DPLATFORM_JTOOL -DWIN32_LEAN_AND_MEAN
+CFLAGS += -DPLATFORM_JTOOL -DWIN32_LEAN_AND_MEAN -D__USE_MINGW_ANSI_STDIO=1
 
 INC = -I./inc -I./inc/driver -I./inc/trm -I./inc/phy -I./port -I./port/jtool
 
 JTOOL_DLL = port/jtool/x64/jtool.dll
-LDFLAGS = $(JTOOL_DLL)
+JTOOL_DEF = $(BUILD_DIR)/jtool.def
+JTOOL_LIB = $(BUILD_DIR)/libjtool_generated.a
+LDFLAGS = $(JTOOL_LIB) -lwinmm
 
 BUILD_DIR = build_jtool
 
@@ -52,14 +54,18 @@ ALL_OBJ = $(patsubst %.c,$(BUILD_DIR)/%.o,$(ALL_SRC))
 
 LIB_TARGET = $(BUILD_DIR)/libtk8710_hal.a
 API_SMOKE_TEST = $(BUILD_DIR)/test_hal_phy_api.o
+DRIVER_TEST_SRC = $(wildcard test/DriverTest/*.c)
+DRIVER_TEST_EXE = $(patsubst test/DriverTest/%.c,$(BUILD_DIR)/%.exe,$(DRIVER_TEST_SRC))
 
-.PHONY: all clean lib tests copy_dll
+.PHONY: all clean lib tests driver_tests copy_dll
 
 all: lib tests
 
 lib: $(LIB_TARGET)
 
 tests: $(API_SMOKE_TEST)
+
+driver_tests: $(DRIVER_TEST_EXE) copy_dll
 
 $(BUILD_DIR):
 	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
@@ -74,11 +80,20 @@ $(BUILD_DIR):
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
+$(JTOOL_DEF): $(JTOOL_DLL) | $(BUILD_DIR)
+	@gendef - $(JTOOL_DLL) > $(JTOOL_DEF)
+
+$(JTOOL_LIB): $(JTOOL_DEF)
+	dlltool -d $(JTOOL_DEF) -D jtool.dll -l $(JTOOL_LIB)
+
 $(LIB_TARGET): $(ALL_OBJ)
 	$(AR) rcs $@ $^
 
 $(API_SMOKE_TEST): test/example/test_hal_phy_api.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/%.exe: test/DriverTest/%.c $(LIB_TARGET) $(JTOOL_LIB) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -I./test/DriverTest $< $(LIB_TARGET) $(LDFLAGS) -o $@
 
 copy_dll: $(LIB_TARGET)
 	@copy port\jtool\x64\jtool.dll $(BUILD_DIR)\ >nul 2>&1 || echo.

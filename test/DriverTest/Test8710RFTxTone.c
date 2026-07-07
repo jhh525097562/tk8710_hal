@@ -23,21 +23,7 @@
 #include "driver/tk8710_internal.h"     /* Driver内部函数 */
 #include "driver/tk8710_regs.h"
 
-#include <sys/ioctl.h>
-#include <linux/spi/spidev.h>
-#include <time.h>
-#include <sched.h>
-#include <sys/time.h>
-#include <errno.h>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <conio.h>
-#include <locale.h>
-#else
-#include <unistd.h>
-#include <signal.h>
-#endif
+#include "driver_test_platform.h"
 
 /*============================================================================
  * 全局变量和配置
@@ -58,7 +44,15 @@ static void signal_handler(int sig)
 }
 #endif
 
- int set_cpu_affinity(int cpu_core) {
+#ifdef _WIN32
+static int set_cpu_affinity(int cpu_core)
+{
+    (void)cpu_core;
+    return 0;
+}
+#else
+int set_cpu_affinity(int cpu_core)
+{
     cpu_set_t cpu_set;
     CPU_ZERO(&cpu_set);
     CPU_SET(cpu_core, &cpu_set);
@@ -71,6 +65,7 @@ static void signal_handler(int sig)
     printf("Process bound to CPU core %d\n", cpu_core);
     return 0;
 }
+#endif
 
 /* 下行发送状态跟踪 */
 static volatile bool g_hasValidUsers = false;     /* 是否有有效用户 */
@@ -795,17 +790,10 @@ void write_register(void)
     int ret;
     
     printf("\n=== 写入寄存器 ===\n");
-    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+    printf("输入寄存器地址和写入值 (十六进制，空格分隔，如 0xc030 0x8): ");
     
-    if (scanf("%x", &addr) != 1) {
-        printf("无效的地址格式\n");
-        return;
-    }
-    
-    printf("输入写入值 (十六进制，如 0x8): ");
-    
-    if (scanf("%x", &value) != 1) {
-        printf("无效的值格式\n");
+    if (scanf("%x %x", &addr, &value) != 2) {
+        printf("无效的地址或值格式\n");
         return;
     }
     
@@ -927,7 +915,7 @@ int main(int argc, char* argv[])
     int classNum = 3;  /* 默认class序号 */
     int caseNum = 11;  /* 默认case序号 */
     uint32_t testFreq = 509100000;
-    
+    uint32_t Txgain = 0x2a;
     /* 检查命令行参数 */
     if (argc > 1) {
         if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
@@ -959,6 +947,9 @@ int main(int argc, char* argv[])
         
         testFreq = atoi(argv[2]);
         printf("Using test mode: %d, freq: %u\n", testMode, testFreq);
+
+        Txgain = atoi(argv[3]);
+        printf("Using test mode: %d, Txgain: %u\n", testMode, Txgain);
     }
     
 #ifdef _WIN32
@@ -997,7 +988,7 @@ int main(int argc, char* argv[])
         .rftype = TK8710_RF_TYPE_1255_1M,//TK8710_RF_TYPE_1255_32M
         .Freq = 509100000,
         .rxgain = 0x7e,
-        .txgain = 0x2e,
+        .txgain = 0x2a,
         // .txadc = {//C号板
         //     {0x0bc0, 0x04a0}, {0x0a50, 0x0780}, {0x0750, 0x0820}, {0x0bc3, 0x0940},
         //     {0x0e83, 0x05e0}, {0xfbff, 0x0850}, {0x0880, 0x0500}, {0x02a0, 0x06ff}
@@ -1007,8 +998,8 @@ int main(int argc, char* argv[])
         //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
         // }
         // .txadc = {//3号板 Master (默认值，将被文件配置覆盖)
-        //     {0x0400, 0x0350}, {0x0400, 0x0450}, {0x0250, 0x0230}, {0x0400, 0x0290},
-        //     {0x0390, 0x0500}, {0x0390, 0x0400}, {0x0300, 0x0350}, {0x0490, 0x04a0}
+        //     {0x09d0, 0x0830}, {0x0990, 0x0b00}, {0x05c0, 0x05d0}, {0x09f0, 0x0700},
+        //     {0x0900, 0x0c00}, {0x08a0, 0x0950}, {0x0780, 0x07f0}, {0x0b30, 0x0ba0}
         // }
         // .txadc = {//D号板
         //     {0x0450, 0x0450}, {0x0a00, 0x1080}, {0x0750, 0x1500}, {0x0400, 0x0b00},
@@ -1024,6 +1015,7 @@ int main(int argc, char* argv[])
         // }
     };
     rfConfig.Freq = testFreq;
+    rfConfig.txgain = Txgain;
     /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
     ChipConfig chipConfig = {
         .bcn_agc     = 32,

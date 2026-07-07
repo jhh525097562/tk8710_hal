@@ -95,6 +95,10 @@ void TRM_LogEnableTimestamp(uint8_t enable);
 void TRM_LogEnableModuleName(uint8_t enable);
 void TRM_LogEnableFileInfo(uint8_t enable);
 void TRM_LogEnableFileLogging(uint8_t enable, const char* dir);
+void TRM_LogFlushFile(void);
+uint8_t TRM_LogIsFileLoggingEnabled(void);
+int TRM_LogGetCurrentFileIndex(void);
+long TRM_LogGetCurrentFileSize(void);
 
 /* TRM日志输出函数 */
 void TRM_LogOutput(TRMLogLevel level, const char* tag, 

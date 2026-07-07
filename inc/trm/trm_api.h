@@ -284,6 +284,15 @@ typedef struct {
     uint32_t guardUs;           /* slot3剩余时间保护门限，单位us，0使用默认值 */
 } TRM_AcmCalibRequest;
 
+typedef struct {
+    uint8_t pending;
+    uint8_t running;
+    uint32_t completedCount;
+    int lastResult;
+    uint32_t lastElapsedUs;
+    uint32_t lastWaitUs;
+} TRM_AcmCalibStatus;
+
 /* =============================================================================
  * 系统初始化与控制API
  * ============================================================================= */
@@ -354,6 +363,8 @@ uint32_t TRM_GetCurrentFrame(void);
  * @return TRM_OK成功，其他失败
  */
 int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request);
+
+int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status);
 
 /* =============================================================================
  * TRM日志系统API

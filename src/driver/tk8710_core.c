@@ -17,6 +17,10 @@
 
 #define TK8710_TXADC_CONFIG_PATH "TxDC/txadc.txt"
 #define TK8710_INIT10_RF_READY_VALUE (1U << 2)
+#ifndef PLATFORM_JTOOL
+#define TK8710_RESET_GPIO_CHIP "gpiochip0"
+#define TK8710_RESET_GPIO_LINE 13U
+#endif
 
 /* 默认GPIO中断包装函数 */
 static void default_gpio_irq_handler(void* user)
@@ -25,6 +29,25 @@ static void default_gpio_irq_handler(void* user)
     
     /* 调用Driver层中断处理函数 */
     TK8710_IRQHandler();
+}
+
+static int TK8710HardwareResetPulse(void)
+{
+#ifdef PLATFORM_JTOOL
+    return TK8710JtoolPowerReset();
+#else
+    int ret;
+
+    ret = TK8710GpioSet(TK8710_RESET_GPIO_CHIP, TK8710_RESET_GPIO_LINE, 0);
+    if (ret != TK8710_OK) {
+        return ret;
+    }
+
+    usleep(10000);  /* 10ms等待复位完成 */
+
+    ret = TK8710GpioSet(TK8710_RESET_GPIO_CHIP, TK8710_RESET_GPIO_LINE, 1);
+    return ret;
+#endif
 }
 
 /* 速率模式参数查找表 */
@@ -296,10 +319,6 @@ int tk8710_rf_read(uint8_t rfSel, uint16_t addr, uint32_t* data)
  */
 int TK8710Init(const ChipConfig* initConfig)
 {
-    
-    TK8710GpioSet("gpiochip0", 13, 0);
-    usleep(10000);  /* 10ms等待复位完成 */
-    TK8710GpioSet("gpiochip0", 13, 1);
     int ret;
     s_init_0 init0;
     s_init_5 init5;
@@ -307,7 +326,15 @@ int TK8710Init(const ChipConfig* initConfig)
     // s_init_11 init11;
     s_irq_ctrl1 irqCtrl1;
     const ChipConfig* cfg = initConfig ? initConfig : &g_defaultChipConfig;
-    
+
+    ret = TK8710HardwareResetPulse();
+    if (ret != TK8710_OK) {
+#ifdef PLATFORM_JTOOL
+        printf("[JTOOL] hardware reset GPIO pulse failed: %d, continue without hard reset\n", ret);
+#else
+        return ret;
+#endif
+    }
     
     /* 初始化默认日志系统（如果尚未初始化） */
     TK8710LogConfig_t defaultLogConfig = {
@@ -1264,9 +1291,16 @@ int TK8710Reset(uint8_t rstType)
 {
     int ret;
     uint8_t resetConfig = 0;
-    TK8710GpioSet("gpiochip0", 13, 0);//3506开发板：9，3506网关板：13
-    usleep(10000);  /* 10ms等待复位完成 */
-    TK8710GpioSet("gpiochip0", 13, 1);
+
+    ret = TK8710HardwareResetPulse();
+    if (ret != TK8710_OK) {
+#ifdef PLATFORM_JTOOL
+        printf("[JTOOL] hardware reset GPIO pulse failed: %d, fallback to SPI reset\n", ret);
+#else
+        return ret;
+#endif
+    }
+
     /* 根据复位类型设置复位配置 */
     switch (rstType) {
         case TK8710_RST_STATE_MACHINE:

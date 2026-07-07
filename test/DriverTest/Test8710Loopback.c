@@ -23,21 +23,7 @@
 #include "driver/tk8710_internal.h"     /* Driver内部函数 */
 #include "driver/tk8710_regs.h"
 
-#include <sys/ioctl.h>
-#include <linux/spi/spidev.h>
-#include <time.h>
-#include <sched.h>
-#include <sys/time.h>
-#include <errno.h>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <conio.h>
-#include <locale.h>
-#else
-#include <unistd.h>
-#include <signal.h>
-#endif
+#include "driver_test_platform.h"
 
 /*============================================================================
  * 全局变量和配置
@@ -58,7 +44,15 @@ static void signal_handler(int sig)
 }
 #endif
 
- int set_cpu_affinity(int cpu_core) {
+#ifdef _WIN32
+static int set_cpu_affinity(int cpu_core)
+{
+    (void)cpu_core;
+    return 0;
+}
+#else
+int set_cpu_affinity(int cpu_core)
+{
     cpu_set_t cpu_set;
     CPU_ZERO(&cpu_set);
     CPU_SET(cpu_core, &cpu_set);
@@ -71,6 +65,7 @@ static void signal_handler(int sig)
     printf("Process bound to CPU core %d\n", cpu_core);
     return 0;
 }
+#endif
 
 /* 下行发送状态跟踪 */
 static volatile bool g_hasValidUsers = false;     /* 是否有有效用户 */

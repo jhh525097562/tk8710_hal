@@ -5,13 +5,20 @@
  */
 
 #include "../tk8710_hal.h"
+#include <stdio.h>
+
+uint64_t TK8710GetTimeUs(void);
 
 #ifdef _WIN32
 #include <windows.h>
 #include "x64/jtool.h"
 
+#if defined(_MSC_VER)
 #pragma comment(lib, "x64/jtool.lib")
 #endif
+#endif
+
+int TK8710JtoolOpen(const char* sn);
 
 /*============================================================================
  * 8700/8710 SPI 协议定义
@@ -38,13 +45,31 @@
 /* 最大传输缓冲区大小 */
 #define TK8710_SPI_TX_BUF_SIZE      10240
 #define TK8710_SPI_RX_BUF_SIZE      10240
+#define TK8710_JTOOL_SPI_VCC_5V     0
+#define TK8710_JTOOL_SPI_VCC_EQ_VIO 1
+#define TK8710_JTOOL_SPI_VCC_OFF    2
+#define TK8710_JTOOL_SPI_VIO_3V3    0
+#define TK8710_JTOOL_SPI_VIO_1V8    1
+#define TK8710_JTOOL_IO_VCC_5V      0
+#define TK8710_JTOOL_IO_VCC_3V3     1
+#define TK8710_JTOOL_IO_VCC_OFF     2
+#define TK8710_JTOOL_IO_VIO_3V3     0
+#define TK8710_JTOOL_IO_VIO_1V8     1
+#define TK8710_JTOOL_RESET_IO       2
+#define TK8710_JTOOL_ENABLE_POWER_RESET 1
+#define TK8710_JTOOL_POWER_RESET_OFF_DELAY_MS 100
+#define TK8710_JTOOL_POWER_RESET_ON_DELAY_MS 100
 
 /*============================================================================
  * 私有变量
  *============================================================================*/
 
 /* JTOOL设备句柄 */
-static void* g_jtoolHandle = NULL;
+static void* g_jtoolSpiHandle = NULL;
+static void* g_jtoolIoHandle = NULL;
+static char g_jtoolSn[64] = {0};
+static uint8_t g_jtoolIoUsesSpiHandle = 0;
+static uint8_t g_jtoolIoUnavailable = 0;
 
 /* SPI配置参数 - 8710协议要求: Mode0 (CPOL=0,CPHA=0), MSB first */
 static SPICK_TYPE g_spiCkType = LOW_1EDG;
@@ -57,6 +82,118 @@ static uint8_t g_spiRxBuf[TK8710_SPI_RX_BUF_SIZE];
 /* 中断回调 */
 static TK8710GpioIrqCallback g_halIrqCallback = NULL;
 static void* g_halUserContext = NULL;
+
+static int TK8710JtoolEnsureSpiOpen(void)
+{
+#ifdef _WIN32
+    if (g_jtoolSpiHandle == NULL && TK8710JtoolOpen(NULL) != 0) {
+        return -1;
+    }
+
+    return 0;
+#else
+    return -1;
+#endif
+}
+
+static int TK8710JtoolEnsureOpen(void)
+{
+#ifdef _WIN32
+    if (TK8710JtoolEnsureSpiOpen() != 0) {
+        return -1;
+    }
+
+    (void)JSPISetVio(g_jtoolSpiHandle, TK8710_JTOOL_SPI_VIO_3V3);
+    (void)JSPISetVcc(g_jtoolSpiHandle, TK8710_JTOOL_SPI_VCC_EQ_VIO);
+    return 0;
+#else
+    return -1;
+#endif
+}
+
+static int TK8710JtoolEnsureIoOpen(void)
+{
+#ifdef _WIN32
+    if (g_jtoolIoUnavailable) {
+        return -1;
+    }
+
+    if (g_jtoolIoHandle == NULL) {
+        if (g_jtoolSn[0] != '\0') {
+            g_jtoolIoHandle = DevOpen(dev_io, g_jtoolSn, 0);
+        }
+        if (g_jtoolIoHandle == NULL) {
+            g_jtoolIoHandle = DevOpen(dev_io, NULL, 0);
+        }
+        g_jtoolIoUsesSpiHandle = 0;
+
+        if (g_jtoolIoHandle == NULL) {
+            if (TK8710JtoolEnsureSpiOpen() != 0) {
+                return -1;
+            }
+            g_jtoolIoHandle = g_jtoolSpiHandle;
+            g_jtoolIoUsesSpiHandle = 1;
+        }
+    }
+
+    if (g_jtoolIoHandle == NULL) {
+        return -1;
+    }
+
+    if (g_jtoolIoUsesSpiHandle) {
+        (void)JSPISetVio(g_jtoolIoHandle, TK8710_JTOOL_SPI_VIO_3V3);
+        (void)JSPISetVcc(g_jtoolIoHandle, TK8710_JTOOL_SPI_VCC_EQ_VIO);
+    } else {
+        (void)JIOSetVio(g_jtoolIoHandle, TK8710_JTOOL_IO_VIO_3V3);
+        (void)JIOSetVcc(g_jtoolIoHandle, TK8710_JTOOL_IO_VCC_3V3);
+    }
+    return 0;
+#else
+    return -1;
+#endif
+}
+
+static int TK8710JtoolSetIoLevel(uint32_t ionum, uint8_t level)
+{
+#ifdef _WIN32
+    ErrorType err;
+
+    if (TK8710JtoolEnsureIoOpen() != 0) {
+        printf("[JTOOL] open dev_io failed for IO%u\n", (unsigned int)ionum);
+        return -1;
+    }
+
+    err = IOSetOutWithVal(g_jtoolIoHandle, ionum, 1, level ? 1 : 0);
+    if (err != ErrNone) {
+        printf("[JTOOL] set IO%u=%u failed via %s handle, err=0x%X\n",
+               (unsigned int)ionum,
+               (unsigned int)(level ? 1 : 0),
+               g_jtoolIoUsesSpiHandle ? "dev_spi" : "dev_io",
+               (unsigned int)err);
+        g_jtoolIoUnavailable = 1;
+        if (g_jtoolIoUsesSpiHandle) {
+            g_jtoolIoHandle = NULL;
+            g_jtoolIoUsesSpiHandle = 0;
+        }
+        return -1;
+    }
+
+    return 0;
+#else
+    (void)ionum;
+    (void)level;
+    return -1;
+#endif
+}
+
+static void TK8710JtoolReleaseResetIo(void)
+{
+#ifdef _WIN32
+    if (!g_jtoolIoUnavailable && g_jtoolIoHandle != NULL) {
+        (void)IOSetOutWithVal(g_jtoolIoHandle, TK8710_JTOOL_RESET_IO, 1, 1);
+    }
+#endif
+}
 
 /* JTOOL中断回调包装函数 */
 static void JtoolIntCallback(void)
@@ -91,7 +228,9 @@ int TK8710JtoolOpen(const char* sn)
     /* 打开设备 */
     if (sn != NULL) {
         /* 使用用户指定的SN */
-        g_jtoolHandle = DevOpen(dev_spi, (char*)sn, 0);
+        strncpy(g_jtoolSn, sn, sizeof(g_jtoolSn) - 1);
+        g_jtoolSn[sizeof(g_jtoolSn) - 1] = '\0';
+        g_jtoolSpiHandle = DevOpen(dev_spi, g_jtoolSn, 0);
     } else {
         /* 从设备列表中解析SN: "JTool-SPI (SN:XXXXXXXX) (ID:0)" */
         snStart = strstr(devList, "SN:");
@@ -101,20 +240,23 @@ int TK8710JtoolOpen(const char* sn)
             if (snEnd != NULL && (snEnd - snStart) < 64) {
                 strncpy(snBuf, snStart, snEnd - snStart);
                 snBuf[snEnd - snStart] = '\0';
-                g_jtoolHandle = DevOpen(dev_spi, snBuf, 0);
+                strncpy(g_jtoolSn, snBuf, sizeof(g_jtoolSn) - 1);
+                g_jtoolSn[sizeof(g_jtoolSn) - 1] = '\0';
+                g_jtoolSpiHandle = DevOpen(dev_spi, g_jtoolSn, 0);
             }
         }
         
         /* 如果解析失败，尝试使用NULL打开第一个设备 */
-        if (g_jtoolHandle == NULL) {
-            g_jtoolHandle = DevOpen(dev_spi, NULL, 0);
+        if (g_jtoolSpiHandle == NULL) {
+            g_jtoolSpiHandle = DevOpen(dev_spi, NULL, 0);
+            g_jtoolSn[0] = '\0';
         }
     }
     
-    if (g_jtoolHandle == NULL) {
+    if (g_jtoolSpiHandle == NULL) {
         return -1;
     }
-    
+
     return 0;
 #else
     (void)sn;
@@ -129,9 +271,16 @@ int TK8710JtoolOpen(const char* sn)
 int TK8710JtoolClose(void)
 {
 #ifdef _WIN32
-    if (g_jtoolHandle != NULL) {
-        DevClose(g_jtoolHandle);
-        g_jtoolHandle = NULL;
+    if (g_jtoolIoHandle != NULL && !g_jtoolIoUsesSpiHandle) {
+        DevClose(g_jtoolIoHandle);
+    }
+    g_jtoolIoHandle = NULL;
+    g_jtoolIoUsesSpiHandle = 0;
+    g_jtoolIoUnavailable = 0;
+
+    if (g_jtoolSpiHandle != NULL) {
+        DevClose(g_jtoolSpiHandle);
+        g_jtoolSpiHandle = NULL;
     }
     return 0;
 #else
@@ -154,13 +303,10 @@ int TK8710SpiInit(const SpiConfig* cfg)
     uint8_t speedVal;
     uint32_t actualSpeed;
     
-    /* 如果设备未打开，尝试打开 */
-    if (g_jtoolHandle == NULL) {
-        if (TK8710JtoolOpen(NULL) != 0) {
-            return -1;
-        }
+    if (TK8710JtoolEnsureOpen() != 0) {
+        return -1;
     }
-    
+
     /* 8710协议固定使用 Mode 0 (CPOL=0, CPHA=0), MSB first */
     g_spiCkType = LOW_1EDG;
     g_spiFirstBit = ENDIAN_MSB;
@@ -184,7 +330,7 @@ int TK8710SpiInit(const SpiConfig* cfg)
         speedVal = 0;  /* 1MHz */
     }
     
-    err = JSPISetSpeed(g_jtoolHandle, speedVal);
+    err = JSPISetSpeed(g_jtoolSpiHandle, speedVal);
     if (err != ErrNone) {
         return -1;
     }
@@ -208,11 +354,12 @@ int TK8710SpiWrite(const uint8_t* tx, size_t len)
 #ifdef _WIN32
     ErrorType err;
     
-    if (g_jtoolHandle == NULL) {
+    if (g_jtoolSpiHandle == NULL) {
         return -1;
     }
     
-    err = SPIWriteOnly(g_jtoolHandle, g_spiCkType, g_spiFirstBit, (uint32_t)len, (uint8_t*)tx);
+    err = SPIWriteOnly(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, (uint32_t)len, (uint8_t*)tx);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -237,11 +384,12 @@ int TK8710SpiRead(uint8_t* rx, size_t len)
 #ifdef _WIN32
     ErrorType err;
     
-    if (g_jtoolHandle == NULL) {
+    if (g_jtoolSpiHandle == NULL) {
         return -1;
     }
     
-    err = SPIReadOnly(g_jtoolHandle, g_spiCkType, g_spiFirstBit, (uint32_t)len, rx);
+    err = SPIReadOnly(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, (uint32_t)len, rx);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -266,11 +414,12 @@ int TK8710SpiTransfer(const uint8_t* tx, uint8_t* rx, size_t len)
 #ifdef _WIN32
     ErrorType err;
     
-    if (g_jtoolHandle == NULL) {
+    if (g_jtoolSpiHandle == NULL) {
         return -1;
     }
     
-    err = SPIWriteRead(g_jtoolHandle, g_spiCkType, g_spiFirstBit, (uint32_t)len, (uint8_t*)tx, rx);
+    err = SPIWriteRead(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, (uint32_t)len, (uint8_t*)tx, rx);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -304,7 +453,7 @@ int TK8710GpioInit(int pin, TK8710GpioEdge edge, TK8710GpioIrqCallback cb, void*
     ErrorType err;
     INT_TYPE intType;
     
-    if (g_jtoolHandle == NULL) {
+    if (g_jtoolSpiHandle == NULL) {
         return -1;
     }
     
@@ -321,7 +470,7 @@ int TK8710GpioInit(int pin, TK8710GpioEdge edge, TK8710GpioIrqCallback cb, void*
     }
     
     /* 注册中断回调 */
-    err = SPIRegisterIntCallback(g_jtoolHandle, intType, JtoolIntCallback);
+    err = SPIRegisterIntCallback(g_jtoolSpiHandle, intType, JtoolIntCallback);
     if (err != ErrNone) {
         return -1;
     }
@@ -343,12 +492,12 @@ int TK8710GpioInit(int pin, TK8710GpioEdge edge, TK8710GpioIrqCallback cb, void*
 int TK8710GpioIrqEnable(uint8_t gpioPin, uint8_t enable)
 {
 #ifdef _WIN32
-    if (g_jtoolHandle == NULL) {
+    if (g_jtoolSpiHandle == NULL) {
         return -1;
     }
     
     if (!enable) {
-        SPICloseIntCallback(g_jtoolHandle);
+        SPICloseIntCallback(g_jtoolSpiHandle);
     }
     
     (void)gpioPin;
@@ -367,10 +516,7 @@ int TK8710GpioIrqEnable(uint8_t gpioPin, uint8_t enable)
 void TK8710GpioWrite(int pin, uint8_t level)
 {
 #ifdef _WIN32
-    if (g_jtoolHandle != NULL) {
-        /* 设置为输出模式并写值 */
-        IOSetOutWithVal(g_jtoolHandle, (uint32_t)pin, 1, level ? 1 : 0);
-    }
+    (void)TK8710JtoolSetIoLevel((uint32_t)pin, level);
 #else
     (void)pin;
     (void)level;
@@ -385,17 +531,49 @@ uint8_t TK8710GpioRead(int pin)
 #ifdef _WIN32
     BOOL val = 0;
     
-    if (g_jtoolHandle != NULL) {
+    if (TK8710JtoolEnsureIoOpen() == 0) {
         /* 设置为输入模式 */
-        IOSetIn(g_jtoolHandle, (uint32_t)pin, 0, 0);
+        IOSetIn(g_jtoolIoHandle, (uint32_t)pin, 0, 0);
         /* 读取值 */
-        IOGetInVal(g_jtoolHandle, (uint32_t)pin, &val);
+        IOGetInVal(g_jtoolIoHandle, (uint32_t)pin, &val);
     }
     
     return val ? 1 : 0;
 #else
     (void)pin;
     return 0;
+#endif
+}
+
+int TK8710GpioSet(const char* chipPath, unsigned int lineOffset, uint8_t level)
+{
+#ifdef _WIN32
+    (void)chipPath;
+    return TK8710JtoolSetIoLevel(lineOffset, level);
+#else
+    (void)chipPath;
+    (void)lineOffset;
+    (void)level;
+    return -1;
+#endif
+}
+
+int TK8710GpioGet(const char* chipPath, unsigned int lineOffset)
+{
+#ifdef _WIN32
+    (void)chipPath;
+    return (int)TK8710GpioRead((int)lineOffset);
+#else
+    (void)chipPath;
+    (void)lineOffset;
+    return -1;
+#endif
+}
+
+void TK8710Rk3506Cleanup(void)
+{
+#ifdef _WIN32
+    (void)TK8710JtoolClose();
 #endif
 }
 
@@ -433,6 +611,18 @@ void TK8710DelayUs(uint32_t us)
 /**
  * @brief 获取系统时间戳
  */
+int TK8710SleepUntilUs(uint64_t targetUs)
+{
+    uint64_t nowUs = TK8710GetTimeUs();
+
+    if (targetUs <= nowUs) {
+        return 0;
+    }
+
+    TK8710DelayUs((uint32_t)(targetUs - nowUs));
+    return 0;
+}
+
 uint32_t TK8710GetTickMs(void)
 {
 #ifdef _WIN32
@@ -467,11 +657,23 @@ void TK8710ExitCritical(void)
 int TK8710JtoolSetVcc(uint8_t vcc)
 {
 #ifdef _WIN32
-    if (g_jtoolHandle == NULL) {
+    uint8_t jtoolVcc;
+
+    if (TK8710JtoolEnsureSpiOpen() != 0) {
         return -1;
     }
-    
-    if (JSPISetVcc(g_jtoolHandle, vcc) != ErrNone) {
+
+    if (vcc == 0) {
+        jtoolVcc = TK8710_JTOOL_SPI_VCC_OFF;
+    } else if (vcc == 33) {
+        jtoolVcc = TK8710_JTOOL_SPI_VCC_EQ_VIO;
+    } else if (vcc == 50 || vcc == 55) {
+        jtoolVcc = TK8710_JTOOL_SPI_VCC_5V;
+    } else {
+        return -1;
+    }
+
+    if (JSPISetVcc(g_jtoolSpiHandle, jtoolVcc) != ErrNone) {
         return -1;
     }
     
@@ -490,17 +692,61 @@ int TK8710JtoolSetVcc(uint8_t vcc)
 int TK8710JtoolSetVio(uint8_t vio)
 {
 #ifdef _WIN32
-    if (g_jtoolHandle == NULL) {
+    uint8_t jtoolVio;
+
+    if (TK8710JtoolEnsureSpiOpen() != 0) {
         return -1;
     }
-    
-    if (JSPISetVio(g_jtoolHandle, vio) != ErrNone) {
+
+    if (vio == 33) {
+        jtoolVio = TK8710_JTOOL_SPI_VIO_3V3;
+    } else if (vio == 18) {
+        jtoolVio = TK8710_JTOOL_SPI_VIO_1V8;
+    } else {
+        return -1;
+    }
+
+    if (JSPISetVio(g_jtoolSpiHandle, jtoolVio) != ErrNone) {
         return -1;
     }
     
     return 0;
 #else
     (void)vio;
+    return -1;
+#endif
+}
+
+int TK8710JtoolPowerReset(void)
+{
+#ifdef _WIN32
+#if TK8710_JTOOL_ENABLE_POWER_RESET
+    if (TK8710JtoolEnsureSpiOpen() != 0) {
+        return -1;
+    }
+
+    printf("[JTOOL] power reset: VCC off\n");
+    if (JSPISetVcc(g_jtoolSpiHandle, TK8710_JTOOL_SPI_VCC_OFF) != ErrNone) {
+        return -1;
+    }
+
+    Sleep(TK8710_JTOOL_POWER_RESET_OFF_DELAY_MS);
+
+    printf("[JTOOL] power reset: VCC=VIO, VIO 3.3V\n");
+    if (JSPISetVio(g_jtoolSpiHandle, TK8710_JTOOL_SPI_VIO_3V3) != ErrNone) {
+        return -1;
+    }
+    if (JSPISetVcc(g_jtoolSpiHandle, TK8710_JTOOL_SPI_VCC_EQ_VIO) != ErrNone) {
+        return -1;
+    }
+
+    Sleep(TK8710_JTOOL_POWER_RESET_ON_DELAY_MS);
+    return 0;
+#else
+    printf("[JTOOL] power reset is disabled: JTool-SPI VCC pin is fixed 5V on this setup\n");
+    return -1;
+#endif
+#else
     return -1;
 #endif
 }
@@ -512,11 +758,11 @@ int TK8710JtoolSetVio(uint8_t vio)
 int TK8710JtoolReboot(void)
 {
 #ifdef _WIN32
-    if (g_jtoolHandle == NULL) {
+    if (TK8710JtoolEnsureIoOpen() != 0) {
         return -1;
     }
     
-    if (JSPIReboot(g_jtoolHandle) != ErrNone) {
+    if (JIOReboot(g_jtoolIoHandle) != ErrNone) {
         return -1;
     }
     
@@ -541,7 +787,7 @@ int TK8710SpiReset(uint8_t resetConfig)
     ErrorType err;
     uint8_t txBuf[2];
     
-    if (g_jtoolHandle == NULL) {
+    if (g_jtoolSpiHandle == NULL) {
         return -1;
     }
     
@@ -549,7 +795,8 @@ int TK8710SpiReset(uint8_t resetConfig)
     txBuf[0] = TK8710_SPI_CMD_RST;
     txBuf[1] = resetConfig;
     
-    err = SPIWriteOnly(g_jtoolHandle, g_spiCkType, g_spiFirstBit, 2, txBuf);
+    err = SPIWriteOnly(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, 2, txBuf);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -575,7 +822,7 @@ int TK8710SpiWriteReg(uint16_t addr, const uint32_t* data, uint8_t regCount)
     uint32_t txLen;
     uint8_t i;
     
-    if (g_jtoolHandle == NULL || data == NULL || regCount == 0) {
+    if (g_jtoolSpiHandle == NULL || data == NULL || regCount == 0) {
         return -1;
     }
     
@@ -600,7 +847,8 @@ int TK8710SpiWriteReg(uint16_t addr, const uint32_t* data, uint8_t regCount)
         g_spiTxBuf[offset + 3] = (uint8_t)(regData & 0xFF);
     }
     
-    err = SPIWriteOnly(g_jtoolHandle, g_spiCkType, g_spiFirstBit, txLen, g_spiTxBuf);
+    err = SPIWriteOnly(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, txLen, g_spiTxBuf);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -625,15 +873,13 @@ int TK8710SpiReadReg(uint16_t addr, uint32_t* data, uint8_t regCount)
 {
 #ifdef _WIN32
     ErrorType err;
-    uint32_t txLen, rxLen;
+    uint32_t rxLen;
     uint8_t i;
     
-    if (g_jtoolHandle == NULL || data == NULL || regCount == 0) {
+    if (g_jtoolSpiHandle == NULL || data == NULL || regCount == 0) {
         return -1;
     }
     
-    /* 发送长度: 1(opcode) + 2(addr) */
-    txLen = 3;
     /* 接收长度: 3(echo) + 1(NOP) + regCount*4(data) */
     rxLen = 3 + 1 + regCount * TK8710_REG_SIZE;
     
@@ -648,7 +894,8 @@ int TK8710SpiReadReg(uint16_t addr, uint32_t* data, uint8_t regCount)
     g_spiTxBuf[2] = (uint8_t)(addr & 0xFF);
     
     /* 全双工传输 */
-    err = SPIWriteRead(g_jtoolHandle, g_spiCkType, g_spiFirstBit, rxLen, g_spiTxBuf, g_spiRxBuf);
+    err = SPIWriteRead(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, rxLen, g_spiTxBuf, g_spiRxBuf);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -684,7 +931,7 @@ int TK8710SpiWriteBuffer(uint8_t bufferIndex, const uint8_t* data, uint16_t len)
     ErrorType err;
     uint32_t txLen;
     
-    if (g_jtoolHandle == NULL || data == NULL || len == 0) {
+    if (g_jtoolSpiHandle == NULL || data == NULL || len == 0) {
         return -1;
     }
     
@@ -699,7 +946,8 @@ int TK8710SpiWriteBuffer(uint8_t bufferIndex, const uint8_t* data, uint16_t len)
     g_spiTxBuf[1] = bufferIndex;
     memcpy(&g_spiTxBuf[2], data, len);
     
-    err = SPIWriteOnly(g_jtoolHandle, g_spiCkType, g_spiFirstBit, txLen, g_spiTxBuf);
+    err = SPIWriteOnly(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, txLen, g_spiTxBuf);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -726,7 +974,7 @@ int TK8710SpiReadBuffer(uint8_t bufferIndex, uint8_t* data, uint16_t len)
     ErrorType err;
     uint32_t rxLen;
     
-    if (g_jtoolHandle == NULL || data == NULL || len == 0) {
+    if (g_jtoolSpiHandle == NULL || data == NULL || len == 0) {
         return -1;
     }
     
@@ -742,7 +990,8 @@ int TK8710SpiReadBuffer(uint8_t bufferIndex, uint8_t* data, uint16_t len)
     g_spiTxBuf[1] = bufferIndex;
     
     /* 全双工传输 */
-    err = SPIWriteRead(g_jtoolHandle, g_spiCkType, g_spiFirstBit, rxLen, g_spiTxBuf, g_spiRxBuf);
+    err = SPIWriteRead(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, rxLen, g_spiTxBuf, g_spiRxBuf);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -772,7 +1021,7 @@ int TK8710SpiSetInfo(uint8_t infoType, const uint8_t* data, uint16_t len)
     ErrorType err;
     uint32_t txLen;
     
-    if (g_jtoolHandle == NULL || data == NULL || len == 0) {
+    if (g_jtoolSpiHandle == NULL || data == NULL || len == 0) {
         return -1;
     }
     
@@ -805,7 +1054,8 @@ int TK8710SpiSetInfo(uint8_t infoType, const uint8_t* data, uint16_t len)
     //        g_spiTxBuf[53], g_spiTxBuf[54], g_spiTxBuf[55], g_spiTxBuf[56], g_spiTxBuf[57],
     //        g_spiTxBuf[58], g_spiTxBuf[59], g_spiTxBuf[60], g_spiTxBuf[61], g_spiTxBuf[62], g_spiTxBuf[63]);
     
-    err = SPIWriteOnly(g_jtoolHandle, g_spiCkType, g_spiFirstBit, txLen, g_spiTxBuf);
+    err = SPIWriteOnly(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, txLen, g_spiTxBuf);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }
@@ -832,7 +1082,7 @@ int TK8710SpiGetInfo(uint8_t infoType, uint8_t* data, uint16_t len)
     ErrorType err;
     uint32_t rxLen;
     
-    if (g_jtoolHandle == NULL || data == NULL || len == 0) {
+    if (g_jtoolSpiHandle == NULL || data == NULL || len == 0) {
         return -1;
     }
     
@@ -848,7 +1098,8 @@ int TK8710SpiGetInfo(uint8_t infoType, uint8_t* data, uint16_t len)
     g_spiTxBuf[1] = infoType;
     
     /* 全双工传输 */
-    err = SPIWriteRead(g_jtoolHandle, g_spiCkType, g_spiFirstBit, rxLen, g_spiTxBuf, g_spiRxBuf);
+    err = SPIWriteRead(g_jtoolSpiHandle, g_spiCkType, g_spiFirstBit, rxLen, g_spiTxBuf, g_spiRxBuf);
+    TK8710JtoolReleaseResetIo();
     if (err != ErrNone) {
         return -1;
     }

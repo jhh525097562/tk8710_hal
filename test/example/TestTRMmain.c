@@ -2,7 +2,7 @@
  * @file test8710main.c
  * @brief TK8710 主测试程序
  * @note 完整的初始化、配置、工作和中断处理流程
- * 
+ *
  * RK3506 编译方法:
  *   arm-buildroot-linux-gnueabihf-gcc -I../inc -I../port test8710main.c \
  *       ../port/tk8710_rk3506.c ../src/tk8710_irq.c ../src/tk8710_core.c \
@@ -68,12 +68,12 @@ static void signal_handler(int sig)
     cpu_set_t cpu_set;
     CPU_ZERO(&cpu_set);
     CPU_SET(cpu_core, &cpu_set);
-    
+
     if (sched_setaffinity(0, sizeof(cpu_set), &cpu_set) < 0) {
         perror("Failed to set CPU affinity");
         return -1;
     }
-    
+
     printf("Process bound to CPU core %d\n", cpu_core);
     return 0;
 }
@@ -82,15 +82,15 @@ void read_register(void)
 {
     uint32_t addr, value;
     int ret;
-    
+
     printf("\n=== 读取寄存器 ===\n");
     printf("输入寄存器地址 (十六进制，如 0xc030): ");
-    
+
     if (scanf("%x", &addr) != 1) {
         printf("无效的地址格式\n");
         return;
     }
-    
+
     ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, addr, &value);
     if (ret == TK8710_OK) {
         printf("寄存器 0x%08X = 0x%08X (%u)\n", addr, value, value);
@@ -107,22 +107,22 @@ void write_register(void)
 {
     uint32_t addr, value;
     int ret;
-    
+
     printf("\n=== 写入寄存器 ===\n");
     printf("输入寄存器地址 (十六进制，如 0xc030): ");
-    
+
     if (scanf("%x", &addr) != 1) {
         printf("无效的地址格式\n");
         return;
     }
-    
+
     printf("输入写入值 (十六进制，如 0x8): ");
-    
+
     if (scanf("%x", &value) != 1) {
         printf("无效的值格式\n");
         return;
     }
-    
+
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, addr, value);
     if (ret == TK8710_OK) {
         printf("写入成功: 0x%08X = 0x%08X (%u)\n", addr, value, value);
@@ -155,34 +155,52 @@ static void OnTrmTxComplete(const TRM_TxCompleteResult* txResult);
 static void OnTrmRxData(const TRM_RxDataList* rxDataList)
 {
     printf("=== TRM接收数据事件 (帧号=%u) ===\n", rxDataList->frameNo);
-    printf("时隙: 用户数=%d\n", 
+    printf("时隙: 用户数=%d\n",
            rxDataList->userCount);
-    
+
     /* 打印第一个用户的速率模式信息（如果有用户数据） */
     if (rxDataList->userCount > 0 && rxDataList->users) {
         TRM_RxUserData* firstUser = &rxDataList->users[0];
-        printf("第一个用户信息: ID=0x%08X, 速率模式=%d, 数据长度=%u\n", 
+        printf("第一个用户信息: ID=0x%08X, 速率模式=%d, 数据长度=%u\n",
                firstUser->userId, firstUser->rateMode, firstUser->dataLen);
     }
-    
+
     g_trmRxCount += rxDataList->userCount;
-    
-    // for (uint8_t i = 0; i < rxDataList->userCount; i++) {
-    //     TRM_RxUserData* user = &rxDataList->users[i];
-    //     printf("  用户[%d]: ID=0x%08X, 长度=%d, RSSI=%d, SNR=%d, Freq=%d Hz\n", 
-    //            i, user->userId, user->dataLen, user->rssi, user->snr, user->freq/128);
-        
-    //     /* 显示数据内容 */
-    //     if (user->data != NULL && user->dataLen > 0) {
-    //         printf("    数据: ");
-    //         for (int k = 0; k < user->dataLen && k < 8; k++) {
-    //             printf("%02X ", user->data[k]);
-    //         }
-    //         if (user->dataLen > 8) printf("...");
-    //         printf("\n");
+
+    for (uint8_t i = 0; i < rxDataList->userCount; i++) {
+        TRM_RxUserData* user = &rxDataList->users[i];
+        printf("  用户[%d]: ID=0x%08X, 长度=%d, RSSI=%d, SNR=%d, Freq=%d Hz\n",
+               i, user->userId, user->dataLen, user->rssi, user->snr, user->freq/128);
+
+        /* 显示数据内容 */
+        if (user->data != NULL && user->dataLen > 0) {
+            printf("    数据: ");
+            for (int k = 0; k < user->dataLen && k < 8; k++) {
+                printf("%02X ", user->data[k]);
+            }
+            if (user->dataLen > 8) printf("...");
+            printf("\n");
+        }
+    }
+
+    // static int CalibrateCount = 0; // 默认值
+    // CalibrateCount++;
+    // int Tmp = 400;
+    // // if(CalibrateCount % 10 == 0 && CalibrateCount <= 20000) {
+    // if(CalibrateCount % 10 == 0) {
+    //     TRM_AcmCalibRequest acmRequest = {
+    //         .calibCount = 1,
+    //         .snrThreshold = 28,
+    //         .restartAdvanceUs = Tmp,//mode5-6:200,mode7:212,mode8:
+    //         .guardUs = 1000
+    //     };
+    //     int ret0 = TRM_RequestAcmCalibration(&acmRequest);
+    //     if (ret0 == TRM_OK) {
+    //         printf("TRM ACM calibration request submitted; it will run at last-frame S2 end\n");
+    //     } else {
+    //         printf("TRM ACM calibration request failed: ret=%d\n", ret0);
     //     }
     // }
-    
     /* 调用发送验证器 */
     int ret = TRM_TxValidatorOnRxData(rxDataList);
     if (ret != TRM_OK) {
@@ -191,10 +209,10 @@ static void OnTrmRxData(const TRM_RxDataList* rxDataList)
     /* 显示验证统计信息 */
     TRM_TxValidatorStats stats;
     if (TRM_TxValidatorGetStats(&stats) == TRM_OK) {
-        printf("  发送统计: 总触发=%u, 成功=%u, 失败=%u, 接收总次数=%u\n", 
+        printf("  发送统计: 总触发=%u, 成功=%u, 失败=%u, 接收总次数=%u\n",
                stats.totalTriggerCount, stats.successSendCount, stats.failedSendCount, g_trmRxCount);
     }
-    
+
     printf("==================\n");
 }
 
@@ -206,7 +224,7 @@ static void OnTrmRxData(const TRM_RxDataList* rxDataList)
 static void OnTrmTxComplete(const TRM_TxCompleteResult* txResult)
 {
     if (!txResult) return;
-    
+
     printf("=== TRM发送完成事件 ===\n");
     printf("发送用户总数: %u, 剩余队列: %u\n", txResult->totalUsers, txResult->remainingQueue);
     g_trmSendCount += txResult->userCount;
@@ -227,7 +245,7 @@ void show_trm_statistics(void)
     printf("\n=== TRM统计信息 ===\n");
     printf("发送计数: %u\n", g_trmSendCount);
     printf("接收计数: %u\n", g_trmRxCount);
-    
+
     /* 获取TRM内部统计 */
     TRM_Stats stats;
     if (TRM_GetStats(&stats) == TRM_OK) {
@@ -238,7 +256,7 @@ void show_trm_statistics(void)
         printf("  波束数量: %u\n", stats.beamCount);
         printf("当前帧号: %u\n", TRM_GetCurrentFrame());
     }
-    
+
     printf("==================\n\n");
 }
 
@@ -273,7 +291,7 @@ void show_system_status(void)
     uint8_t rateMode = TK8710GetRateMode();
     uint8_t workType = TK8710GetWorkType();
     uint8_t brdUserNum = TK8710GetBrdUserNum();
-    
+
     printf("\n=== System Status ===\n");
     printf("Work mode: %s\n", workType == TK8710_MODE_MASTER ? "Master" : "Slave");
     printf("Rate mode: %d\n", rateMode);
@@ -296,15 +314,15 @@ void show_irq_statistics(void)
 {
     uint32_t counters[10];
     uint32_t irqStatus;
-    
+
     printf("\n=== Interrupt Statistics ===\n");
-    
+
     /* 获取所有中断计数器 */
     TK8710GetAllIrqCounters(counters);
-    
+
     /* 获取当前中断状态 */
     irqStatus = TK8710GetIrqStatus();
-    
+
     printf("Interrupt counters:\n");
     printf("  RX_BCN (0):    %u\n", counters[0]);
     printf("  BRD_UD (1):    %u\n", counters[1]);
@@ -316,7 +334,7 @@ void show_irq_statistics(void)
     printf("  S2 (7):        %u\n", counters[7]);
     printf("  S3 (8):        %u\n", counters[8]);
     printf("  ACM (9):       %u\n", counters[9]);
-    
+
     printf("Current interrupt status: 0x%08X\n", irqStatus);
     printf("=== Statistics End ===\n\n");
 }
@@ -412,6 +430,9 @@ int main(int argc, char* argv[])
     int s2ByteLen = 26;  /* 默认s2 byteLen */
     int s3ByteLen = 26;  /* 默认s3 byteLen */
     int Tmp = 90;
+    uint32_t Rxgain = 0x7e;
+    uint32_t Txgain = 0x2a;
+    uint32_t freq = 509100000U;
     /* 检查命令行参数 */
     if (argc > 1) {
         if (strcmp(argv[1], "--multi-rate") == 0 || strcmp(argv[1], "-m") == 0) {
@@ -437,7 +458,7 @@ int main(int argc, char* argv[])
                 return 1;
             }
         }
-        
+
         /* 解析s2ByteLen参数 */
         if (argc > 3) {
             s2ByteLen = atoi(argv[3]);
@@ -446,7 +467,7 @@ int main(int argc, char* argv[])
                 return 1;
             }
         }
-        
+
         /* 解析s3ByteLen参数 */
         if (argc > 4) {
             s3ByteLen = atoi(argv[4]);
@@ -459,30 +480,34 @@ int main(int argc, char* argv[])
         if (argc > 5) {
             Tmp = atoi(argv[5]);
         }
-        printf("Using test mode: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d\n", 
+
+        Rxgain = atoi(argv[6]);
+        freq = atoi(argv[7]);
+        Txgain = atoi(argv[8]);
+        printf("Using test mode: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d\n",
                testMode, s1ByteLen, s2ByteLen, s3ByteLen);
     }
-    
+
 #ifdef _WIN32
     /* 设置控制台编码为UTF-8 */
     SetConsoleOutputCP(65001);  // UTF-8
     SetConsoleCP(65001);       // UTF-8
     setlocale(LC_ALL, ".UTF8");
 #endif
-    
+
     printf("\n");
     printf("+======================================+\n");
     printf("|   TK8710 Main Test Program           |\n");
     printf("|   Version: 1.0 (RK3506)             |\n");
     printf("|   Complete Init, Config, Workflow   |\n");
     printf("+======================================+\n");
-    
+
 #ifndef _WIN32
     /* 注册Linux信号处理 */
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 #endif
-    
+
     /* ========== 使用 HAL API 进行初始化 ========== */
     /* 1. 准备RF配置 */
     static ChiprfConfig rfConfig = {
@@ -499,7 +524,9 @@ int main(int argc, char* argv[])
         //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
         // }
     };
-    
+    rfConfig.rxgain = Rxgain;
+    rfConfig.Freq = freq;
+    rfConfig.txgain = Txgain;
     /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
     ChipConfig chipConfig = {
         .bcn_agc     = 32,
@@ -523,7 +550,7 @@ int main(int argc, char* argv[])
         .spiConfig   = NULL,
         .rfConfig    = (struct ChiprfConfig_s*)&rfConfig  /* RF配置在TK8710Init中自动调用 */
     };
-    
+
     /* 3. 准备TRM配置 (与原 init_trm_system 配置一致) */
     TRM_InitConfig trmConfig;
     memset(&trmConfig, 0, sizeof(trmConfig));
@@ -544,7 +571,7 @@ int main(int argc, char* argv[])
             .onTxComplete = trmConfig.callbacks.onTxComplete
         }
     };
-    
+
     /* 5. 调用 TK8710HalInit 完成芯片、RF、日志、TRM初始化 */
     printf("Initializing HAL (chip + RF + log + TRM)...\n");
     TK8710HalError halRet = TK8710HalInit(&halConfig);
@@ -554,11 +581,11 @@ int main(int argc, char* argv[])
     }
 
     printf("HAL initialization completed (including RF)\n");
-    
+
     /* 6. 配置时隙参数 - 使用 TK8710HalCfg */
     slotCfg_t slotCfg;
     memset(&slotCfg, 0, sizeof(slotCfg_t));
-    
+
     /* 配置基本参数 (与原配置一致) */
     slotCfg.msMode = TK8710_MODE_MASTER;
     slotCfg.plCrcEn = 0;
@@ -572,12 +599,12 @@ int main(int argc, char* argv[])
     slotCfg.md_agc = 1024;
     slotCfg.brdFreq[0] = 20000.0;
     slotCfg.frameTimeLen = 0;
-    
+
     /* 配置BCN轮流发送 */
     for (int i = 0; i < TK8710_MAX_ANTENNAS; i++) {
         slotCfg.bcnRotation[i] = i;
     }
-    
+
     if (use_multi_rate) {
         /* 多速率配置 */
         uint8_t rateModes[] = {
@@ -588,12 +615,12 @@ int main(int argc, char* argv[])
         };
         uint8_t rateCount = sizeof(rateModes) / sizeof(rateModes[0]);
         slotCfg.rateCount = rateCount;
-        
+
         printf("Using multi-rate configuration with %d rates\n", rateCount);
-        
+
         for (int i = 0; i < (int)rateCount; i++) {
             slotCfg.rateModes[i] = rateModes[i];
-            
+
             /* 根据速率模式设置da_m参数 */
             switch (rateModes[i]) {
                 case TK8710_RATE_MODE_5:
@@ -622,7 +649,7 @@ int main(int argc, char* argv[])
                     slotCfg.s3Cfg[i].da_m = 12000;
                     break;
             }
-            
+
             /* 配置时隙长度和频点 */
             slotCfg.s0Cfg[i].byteLen = 0;
             slotCfg.s0Cfg[i].centerFreq = 503100000;
@@ -702,10 +729,10 @@ int main(int argc, char* argv[])
             .superFrameNum = 10,
             .calcType = TRM_SLOT_CALC_TYPE_GROUND_WAN
         };
-        
+
     TRM_SlotCalcOutput slotOutput;
     if (trm_calc_slot_config(&slotInput, &slotOutput) == 0) {
-        printf("✅ 速率模式%d计算得到gap参数: BRD=%u, UL=%u, DL=%u\n", 
+        printf("✅ 速率模式%d计算得到gap参数: BRD=%u, UL=%u, DL=%u\n",
                 slotCfg.rateModes[0], slotOutput.brdGap, slotOutput.ulGap, slotOutput.dlGap);
     }
     /* 调用 TK8710HalCfg 配置时隙 */
@@ -715,7 +742,7 @@ int main(int argc, char* argv[])
         return -1;
     }
     printf("Slot parameter configuration completed\n");
-    
+
     /* 7. 初始化发送验证器 */
     TRM_TxValidatorConfig validatorConfig = {
         .txPower = 35,
@@ -730,7 +757,7 @@ int main(int argc, char* argv[])
     if (ret != TRM_OK) {
         printf("TX validator initialization failed: %d (non-fatal)\n", ret);
     }
-    
+
     // /* 8. 配置测试选项 */
     // printf("Configure test options:\n");
     // printf("Enable force process all users for testing? (y/n): ");
@@ -743,7 +770,7 @@ int main(int argc, char* argv[])
     //     TK8710SetForceProcessAllUsers(0);
     //     printf("Force process all users: DISABLED\n");
     // }
-    
+
     // printf("Enable force max users TX for testing? (y/n): ");
     // scanf(" %c", &testChoice);
     // if (testChoice == 'y' || testChoice == 'Y') {
@@ -774,11 +801,11 @@ int main(int argc, char* argv[])
 
     printf("\nSystem initialization completed, starting runtime...\n");
     printf("Enter 'h' for help information\n\n");
-    
+
     /* 8. 主循环 - 等待中断并进行中断处理 */
     while (g_running) {
         printf("TK8710> ");
-        
+
 #ifdef _WIN32
         input = _getch();
         if (input != '\r') {
@@ -790,23 +817,34 @@ int main(int argc, char* argv[])
 #else
         scanf(" %c", &input);
 #endif
-        
+
         switch (input) {
             case 'h':
             case 'H':
                 show_help();
                 break;
-                
+
             case 's':
             case 'S':
                 show_system_status();
+                break;
+
+            case 'x':
+            case 'X':
+                printf("启动TK8710芯片...\n");
+                ret = TK8710Start(TK8710_MODE_MASTER, TK8710_WORK_MODE_CONTINUOUS);
+                if (ret == TK8710_OK) {
+                    printf("TK8710芯片启动成功 (Master模式, 连续工作)\n");
+                } else {
+                    printf("TK8710芯片启动失败: ret=%d\n", ret);
+                }
                 break;
 
             case 'r':
             case 'R':
                 read_register();
                 break;
-                
+
             case 'w':
             case 'W':
                 write_register();
@@ -816,7 +854,7 @@ int main(int argc, char* argv[])
             case 'I':
                 show_irq_statistics();
                 break;
-                
+
             case 'c':
             case 'C':
 #ifdef _WIN32
@@ -825,10 +863,30 @@ int main(int argc, char* argv[])
                 system("clear");
 #endif
                 break;
-                
+
             case 't':
             case 'T':
                 show_trm_statistics();
+                break;
+
+            case '1':
+                printf("配置为单天线接收模式...\n");
+                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0xc02c, 0x00010101);
+                if (ret == TK8710_OK) {
+                    printf("单天线接收模式配置成功 (0xc02c = 0x00010101)\n");
+                } else {
+                    printf("单天线接收模式配置失败: ret=%d\n", ret);
+                }
+                break;
+
+            case '2':
+                printf("配置为多天线接收模式...\n");
+                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0xc02c, 0x0001ffff);
+                if (ret == TK8710_OK) {
+                    printf("多天线接收模式配置成功 (0xc02c = 0x0001ffff)\n");
+                } else {
+                    printf("多天线接收模式配置失败: ret=%d\n", ret);
+                }
                 break;
 
             case 'a':
@@ -836,12 +894,61 @@ int main(int argc, char* argv[])
                 start_frequency_sweep_from_console();
                 break;
 
+            case 'g':
+            case 'G':
+            {
+                ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
+                if (ret == TK8710_OK) {
+                    printf("ACM增益自动获取完成\n");
+                } else {
+                    printf("ACM增益自动获取失败: ret=%d\n", ret);
+                }
+                break;
+            }
+
+            // case 'k':
+            // case 'K':
+            // {
+            //     uint32_t gain1255;
+            //     printf("请输入1255gain (hex, e.g. 0x2a): ");
+            //     fflush(stdout);
+            //     if (scanf("%x", &gain1255) != 1 || gain1255 > 0xFF) {
+            //         printf("无效的1255gain，范围: 0x00~0xFF\n");
+            //         break;
+            //     }
+            //     ret = tk8710_rf_write(0xff, 0x8C7e >> 8, gain1255);
+            //     if (ret == TK8710_OK) {
+            //         printf("校准时1255增益设置成功\n");
+            //     } else {
+            //         printf("校准时1255增益设置失败: ret=%d\n", ret);
+            //     }
+            //     printf("执行ACM增益自动获取, 1255gain=0x%02X...\n", (uint8_t)gain1255);
+            //     AcmCalibParams calibParams;
+            //     calibParams.calibCount = 100;
+            //     calibParams.snrThreshold = 5;//20
+            //     int calibRet;
+            //     ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE,
+            //                         &calibParams, &calibRet);
+            //     if (ret == TK8710_OK) {
+            //         printf("ACM校准完成\n");
+            //     } else {
+            //         printf("ACM校准失败: ret=%d\n", ret);
+            //     }
+
+            //     ret = tk8710_rf_write(0xff, 0x8C7e >> 8, Rxgain);
+            //     if (ret == TK8710_OK) {
+            //         printf("校准后1255增益恢复成功\n");
+            //     } else {
+            //         printf("校准后1255增益恢复失败: ret=%d\n", ret);
+            //     }
+            //     break;
+            // }
             case 'k':
             case 'K':
             {
                 TRM_AcmCalibRequest acmRequest = {
                     .calibCount = 1,
-                    .snrThreshold = 32,
+                    .snrThreshold = 28,
                     .restartAdvanceUs = Tmp,//mode5-6:200,mode7:212,mode8:
                     .guardUs = 1000
                 };
@@ -854,19 +961,19 @@ int main(int argc, char* argv[])
                 }
                 break;
             }
-                
+
             case 'q':
             case 'Q':
                 printf("Exiting program...\n");
                 g_running = 0;
                 break;
-                
+
             default:
                 printf("Unknown command: %c (enter 'h' for help)\n", input);
                 break;
         }
     }
-    
+
     TK8710LogConfig_t defaultLogConfig = {
         .level = TK8710_LOG_ALL,
         .module_mask = TK8710_LOG_MODULE_ALL,
@@ -883,7 +990,7 @@ int main(int argc, char* argv[])
     TRM_TxValidatorDeinit();
 
     TK8710HalReset();
-    
+
     printf("Program ended\n");
     return 0;
 }
@@ -891,21 +998,21 @@ int main(int argc, char* argv[])
 /*============================================================================
  * 编译说明
  *============================================================================
- * 
+ *
  * RK3506 编译命令 (在开发板上):
  *   gcc -I../inc -I../port test8710main.c ../port/tk8710_rk3506.c \
  *       ../src/tk8710_irq.c ../src/tk8710_core.c ../src/tk8710_config.c \
  *       ../src/tk8710_log.c -o test8710main -lgpiod -lpthread
- * 
+ *
  * RK3506 交叉编译命令 (在PC上):
  *   arm-buildroot-linux-gnueabihf-gcc -I../inc -I../port test8710main.c \
  *       ../port/tk8710_rk3506.c ../src/tk8710_irq.c ../src/tk8710_core.c \
  *       ../src/tk8710_config.c ../src/tk8710_log.c \
  *       -o test8710main -lgpiod -lpthread
- * 
+ *
  * 运行:
  *   ./test8710main      (RK3506 Linux)
- * 
+ *
  * 功能说明:
  * 1. 完整的TK8710初始化流程
  * 2. RK3506 SPI接口初始化 (/dev/spidev0.0)
@@ -916,7 +1023,7 @@ int main(int argc, char* argv[])
  * 7. 启动主模式连续工作
  * 8. 实时中断处理和状态监控
  * 9. 交互式命令行界面
- * 
+ *
  * 注意事项:
  * 1. 需要TK8710硬件连接到RK3506的SPI接口
  * 2. 确保/dev/spidev0.0存在且有访问权限

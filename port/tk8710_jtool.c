@@ -431,6 +431,26 @@ void TK8710DelayUs(uint32_t us)
 }
 
 /**
+ * @brief Sleep until a target timestamp in microseconds.
+ */
+int TK8710SleepUntilUs(uint64_t targetUs)
+{
+    uint64_t nowUs = TK8710GetTimeUs();
+
+    while (targetUs > nowUs) {
+        uint64_t deltaUs = targetUs - nowUs;
+        if (deltaUs > 1000000ULL) {
+            deltaUs = 1000000ULL;
+        }
+
+        TK8710DelayUs((uint32_t)deltaUs);
+        nowUs = TK8710GetTimeUs();
+    }
+
+    return 0;
+}
+
+/**
  * @brief 获取系统时间戳
  */
 uint32_t TK8710GetTickMs(void)
@@ -888,4 +908,3 @@ uint64_t TK8710GetTimeUs(void)
     return (uint64_t)(tv.tv_sec * 1000000 + tv.tv_usec);
 #endif
 }
-
