@@ -725,7 +725,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         .bcn_scan    = 0,
         .ant_en      = 0xFF,
         .rf_sel      = 0xFF,
-        .tx_bcn_en   = 0x1,//0xff（8天线轮流发送bcn）
+        .tx_bcn_en   = 0xff,//0xff（8天线轮流发送bcn）
         .ts_sync     = 0,
         .rf_model    = 1,
         .bcnbits     = network_id,

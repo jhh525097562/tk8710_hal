@@ -210,7 +210,7 @@ void TRM_ProcessBeamRamReleases(void)
         
         if (item->releaseFrame <= g_trmCurrentFrame) {
             /* 到达释放时间，执行释放 */
-            TRM_LOG_INFO("TRM: Releasing beam RAM for user[%u] at frame=%u (scheduled=%u)",
+            TRM_LOG_DEBUG("TRM: Releasing beam RAM for user[%u] at frame=%u (scheduled=%u)",
                          item->userId, g_trmCurrentFrame, item->releaseFrame);
             
             /* 调用波束信息清理函数 */
@@ -828,9 +828,22 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
     uint8_t satelliteForwardCount = 0;
     uint8_t satelliteForwardIndex = 0;
     
-    /* 功率设置阶段：所有用户使用固定功率 */
-    uint8_t fixedPower = 55;  /* 固定功率值，可根据需要调整 */
-    
+    /* 功率设置阶段：根据发送用户数量设置功率 */
+    uint8_t fixedPower = 31;
+    if (userCount > 64) {
+        fixedPower = 55;
+    } else if (userCount > 32) {
+        fixedPower = 52;
+    } else if (userCount > 16) {
+        fixedPower = 46;
+    } else if (userCount > 8) {
+        fixedPower = 43;
+    } else if (userCount > 4) {
+        fixedPower = 37;
+    } else if (userCount > 1) {
+        fixedPower = 34;
+    }
+
     for (uint8_t i = 0; i < userCount; i++) {
         PendingTxUser* user = &pendingUsers[i];
         user->finalPower = fixedPower;  /* 统一设置固定功率 */

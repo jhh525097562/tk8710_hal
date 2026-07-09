@@ -9,13 +9,24 @@
 #include "../inc/driver/tk8710_rf_regs.h"
 #include "driver/tk8710_log.h"
 #include "../port/tk8710_hal.h"
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
 #include <unistd.h>
 #include <stdbool.h>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
 
 #define TK8710_TXADC_CONFIG_PATH "TxDC/txadc.txt"
+#define TK8710_CALI_FACTOR_DIR "CaliFactor"
 #define TK8710_INIT10_RF_READY_VALUE (1U << 2)
 #ifndef PLATFORM_JTOOL
 #define TK8710_RESET_GPIO_CHIP "gpiochip0"
@@ -90,6 +101,128 @@ static const ChipConfig g_defaultChipConfig = {
 static uint8_t g_currentBcnBits = 10;
 static volatile uint32_t g_lastInit10Config = TK8710_INIT10_RF_READY_VALUE;
 static volatile uint8_t g_lastInit10ConfigValid = 0;
+
+static int TK8710RemovePathTree(const char* path)
+{
+    if (path == NULL) {
+        return TK8710_ERR;
+    }
+
+#ifdef _WIN32
+    DWORD attrs = GetFileAttributesA(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        DWORD err = GetLastError();
+        return (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) ? TK8710_OK : TK8710_ERR;
+    }
+
+    if (attrs & FILE_ATTRIBUTE_READONLY) {
+        SetFileAttributesA(path, attrs & ~FILE_ATTRIBUTE_READONLY);
+    }
+
+    if ((attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+        return DeleteFileA(path) ? TK8710_OK : TK8710_ERR;
+    }
+
+    {
+        WIN32_FIND_DATAA findData;
+        HANDLE findHandle;
+        char searchPath[MAX_PATH];
+        char childPath[MAX_PATH];
+        int written;
+        int result = TK8710_OK;
+
+        written = snprintf(searchPath, sizeof(searchPath), "%s\\*", path);
+        if (written < 0 || written >= (int)sizeof(searchPath)) {
+            return TK8710_ERR;
+        }
+
+        findHandle = FindFirstFileA(searchPath, &findData);
+        if (findHandle != INVALID_HANDLE_VALUE) {
+            do {
+                if (strcmp(findData.cFileName, ".") == 0 || strcmp(findData.cFileName, "..") == 0) {
+                    continue;
+                }
+
+                written = snprintf(childPath, sizeof(childPath), "%s\\%s", path, findData.cFileName);
+                if (written < 0 || written >= (int)sizeof(childPath)) {
+                    result = TK8710_ERR;
+                    break;
+                }
+
+                if (TK8710RemovePathTree(childPath) != TK8710_OK) {
+                    result = TK8710_ERR;
+                    break;
+                }
+            } while (FindNextFileA(findHandle, &findData));
+
+            if (result == TK8710_OK && GetLastError() != ERROR_NO_MORE_FILES) {
+                result = TK8710_ERR;
+            }
+
+            FindClose(findHandle);
+        } else {
+            DWORD err = GetLastError();
+            if (err != ERROR_FILE_NOT_FOUND && err != ERROR_PATH_NOT_FOUND) {
+                return TK8710_ERR;
+            }
+        }
+
+        if (result != TK8710_OK) {
+            return result;
+        }
+    }
+
+    return RemoveDirectoryA(path) ? TK8710_OK : TK8710_ERR;
+#else
+    struct stat st;
+    DIR* dir;
+    struct dirent* entry;
+    int result = TK8710_OK;
+
+    if (lstat(path, &st) != 0) {
+        return (errno == ENOENT) ? TK8710_OK : TK8710_ERR;
+    }
+
+    if (!S_ISDIR(st.st_mode)) {
+        return (remove(path) == 0) ? TK8710_OK : TK8710_ERR;
+    }
+
+    dir = opendir(path);
+    if (dir == NULL) {
+        return (errno == ENOENT) ? TK8710_OK : TK8710_ERR;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        char childPath[1024];
+        int written;
+
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        written = snprintf(childPath, sizeof(childPath), "%s/%s", path, entry->d_name);
+        if (written < 0 || written >= (int)sizeof(childPath)) {
+            result = TK8710_ERR;
+            break;
+        }
+
+        if (TK8710RemovePathTree(childPath) != TK8710_OK) {
+            result = TK8710_ERR;
+            break;
+        }
+    }
+
+    if (closedir(dir) != 0 && result == TK8710_OK) {
+        result = TK8710_ERR;
+    }
+
+    if (result != TK8710_OK) {
+        return result;
+    }
+
+    return (rmdir(path) == 0) ? TK8710_OK : TK8710_ERR;
+#endif
+}
 
 static void TK8710RecordInit10Config(uint32_t value)
 {
@@ -493,56 +626,69 @@ int TK8710Init(const ChipConfig* initConfig)
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_17), 0);
     if (ret != TK8710_OK) return ret;
     
-    // AcmCalibParams calibParams;
-    // calibParams.calibCount = 5;
-    // calibParams.snrThreshold = 32;
-    
-    // int calibRet;
-    // int maxRetryCount = 3;
-    // int retryCount = 0;
-    // bool calibSuccess = false;
-    
-    // /* 校准重试逻辑：如果有效校准次数小于目标校准次数，则重新校准 */
-    // while (retryCount < maxRetryCount && !calibSuccess) {
+    /* 初始化默认日志系统（如果尚未初始化） */
+    defaultLogConfig.level = TK8710_LOG_INFO;
+    TK8710LogInit(&defaultLogConfig);
+    AcmCalibParams calibParams;
+    calibParams.calibCount = 100;
+    calibParams.snrThreshold = 28;
 
-    //     ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
-    //     if (ret == TK8710_OK) {
-    //         TK8710_LOG_CORE_INFO("ACM增益自动获取完成\n");
-    //     } else {
-    //         TK8710_LOG_CORE_INFO("ACM增益自动获取失败: ret=%d\n", ret);
-    //     }
+    int calibRet;
+    int maxRetryCount = 3;
+    int retryCount = 0;
+    bool calibSuccess = false;
 
-    //     TK8710_LOG_CORE_INFO("开始第%d次ACM校准 (目标校准次数: %d, SNR门限: %d)...\n", 
-    //                         retryCount + 1, calibParams.calibCount, calibParams.snrThreshold);
+    /* 校准重试逻辑：如果有效校准次数小于目标校准次数，则重新校准 */
+    while (retryCount < maxRetryCount && !calibSuccess) {
+        if (TK8710RemovePathTree(TK8710_CALI_FACTOR_DIR) != TK8710_OK) {
+            TK8710_LOG_CORE_WARN("Remove %s before ACM calibration failed", TK8710_CALI_FACTOR_DIR);
+        } else {
+            TK8710_LOG_CORE_INFO("Removed %s before ACM calibration", TK8710_CALI_FACTOR_DIR);
+        }
+
+        ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
+        if (ret == TK8710_OK) {
+            TK8710_LOG_CORE_INFO("ACM增益自动获取完成\n");
+        } else {
+            TK8710_LOG_CORE_INFO("ACM增益自动获取失败: ret=%d\n", ret);
+        }
+
+        TK8710_LOG_CORE_INFO("开始第%d次ACM校准 (目标校准次数: %d, SNR门限: %d)...\n",
+                            retryCount + 1, calibParams.calibCount, calibParams.snrThreshold);
+
+        ret = tk8710_rf_write(0xff, 0x8C7e >> 8, 0x9e);
+
+        ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE,
+                            &calibParams, &calibRet);
         
-    //     ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE, 
-    //                         &calibParams, &calibRet);
-        
-    //     if (ret == TK8710_OK) {
-    //         TK8710_LOG_CORE_INFO("第%d次校准完成，有效校准次数: %d\n", retryCount + 1, calibRet);
-            
-    //         /* 检查校准是否成功：有效校准次数是否达到目标校准次数 */
-    //         if (calibRet >= calibParams.calibCount) {
-    //             TK8710_LOG_CORE_INFO("ACM校准成功\n");
-    //             calibSuccess = true;
-    //         } else {
-    //             TK8710_LOG_CORE_INFO("ACM校准未达到目标次数，需要重新校准\n");
-    //             retryCount++;
-    //         }
-    //     } else {
-    //         TK8710_LOG_CORE_INFO("第%d次ACM校准失败: ret=%d\n", retryCount + 1, ret);
-    //         retryCount++;
-    //     }
-    // }
+        ret = tk8710_rf_write(0xff, 0x8C7e >> 8, 0x7e);
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_9), init9.data);
+        if (ret != TK8710_OK) return ret;
+        if (ret == TK8710_OK) {
+            TK8710_LOG_CORE_INFO("第%d次校准完成，有效校准次数: %d\n", retryCount + 1, calibRet);
+            calibSuccess = true;
+            /* 检查校准是否成功：有效校准次数是否达到目标校准次数 */
+            if (calibRet >= calibParams.calibCount) {
+                TK8710_LOG_CORE_INFO("ACM校准成功\n");
+                calibSuccess = true;
+            } else {
+                TK8710_LOG_CORE_INFO("ACM校准未达到目标次数，需要重新校准\n");
+                retryCount++;
+            }
+        } else {
+            TK8710_LOG_CORE_INFO("第%d次ACM校准失败: ret=%d\n", retryCount + 1, ret);
+            retryCount++;
+        }
+    }
     
-    // /* 检查最终校准结果 */
-    // if (!calibSuccess) {
-    //     TK8710_LOG_CORE_INFO("ACM校准最终失败：已重试%d次，仍未达到目标校准次数\n", maxRetryCount);
-    //     return TK8710_ERR;
-    // }
-    //     /* 初始化默认日志系统（如果尚未初始化） */
-    // defaultLogConfig.level = TK8710_LOG_WARN;
-    // TK8710LogInit(&defaultLogConfig);
+    /* 检查最终校准结果 */
+    if (!calibSuccess) {
+        TK8710_LOG_CORE_INFO("ACM校准最终失败：已重试%d次，仍未达到目标校准次数\n", maxRetryCount);
+        return TK8710_ERR;
+    }
+        /* 初始化默认日志系统（如果尚未初始化） */
+    defaultLogConfig.level = TK8710_LOG_WARN;
+    TK8710LogInit(&defaultLogConfig);
     
     TK8710_LOG_CORE_INFO("TK8710 initialized successfully");
     return TK8710_OK;

@@ -1234,10 +1234,10 @@ static void tk8710_handle_slot0(void)
     
     /* 设置中断类型 */
     g_irqResult.irq_type = TK8710_IRQ_S0;
-    // /* 处理BCN轮流发送 - 仅在Master模式下运行 */
-    // if (TK8710GetWorkType() == TK8710_MODE_MASTER) {
-    //     tk8710_s0_bcn_rotation_process();
-    // }
+    /* 处理BCN轮流发送 - 仅在Master模式下运行 */
+    if (TK8710GetWorkType() == TK8710_MODE_MASTER) {
+        tk8710_s0_bcn_rotation_process();
+    }
     
     const slotCfg_t* slotCfg = TK8710GetSlotConfig();
     if(slotCfg != NULL && slotCfg->s1Cfg[0].byteLen == 0 &&
@@ -1287,14 +1287,14 @@ static void tk8710_s0_bcn_rotation_process(void)
     uint8_t currentAntenna;
     
     /* 检查是否启用BCN轮流发送 (txBcnEn == 0xFF) */
-    // if (slotCfg->txBcnAntEn != 0xFF) {
-    //     TK8710_LOG_IRQ_DEBUG("BCN rotation disabled (txBcnAntEn=0x%02X)", slotCfg->txBcnAntEn);
+    if (slotCfg->txBcnAntEn != 0xFF) {
+        TK8710_LOG_IRQ_DEBUG("BCN rotation disabled (txBcnAntEn=0x%02X)", slotCfg->txBcnAntEn);
         
-    //     /* 不是轮流发送时，设置g_currentBcnAntenna为BCN选择的天线 */
-    //     g_currentBcnAntenna = 0;  /* 使用天线0 */
-    //     TK8710_LOG_IRQ_DEBUG("Set current BCN antenna to RF selection: %d", g_currentBcnAntenna);
-    //     return;
-    // }
+        /* 不是轮流发送时，设置g_currentBcnAntenna为BCN选择的天线 */
+        g_currentBcnAntenna = 0;  /* 使用天线0 */
+        TK8710_LOG_IRQ_DEBUG("Set current BCN antenna to RF selection: %d", g_currentBcnAntenna);
+        return;
+    }
 
     if (slotCfg == NULL) {
         TK8710_LOG_IRQ_WARN("BCN rotation skipped: slot config is NULL");
