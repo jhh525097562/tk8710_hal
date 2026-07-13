@@ -1254,6 +1254,34 @@ int main(int argc, char* argv[])
             case 'M':
                 show_trm_statistics();
                 break;
+
+            case 'u':
+            case 'U':
+            {
+                unsigned int wakeupMode;
+                unsigned int wakeupLen;
+                wakeUpParam_t wakeupParam;
+
+                printf("请输入唤醒模式和持续时间 (格式: mode len_ms，例如: 2 5000): ");
+                fflush(stdout);
+                if (scanf("%u %u", &wakeupMode, &wakeupLen) != 2 ||
+                    wakeupMode < 1 || wakeupMode > 3 || wakeupLen > 0xFFFFFFu) {
+                    printf("无效参数，模式范围: 1~3，持续时间范围: 0~16777215 ms\n");
+                    break;
+                }
+
+                wakeupParam.wakeUpMode = (wakeUpMode_e)wakeupMode;
+                wakeupParam.wakeUpId = 0;
+                wakeupParam.wakeUpLen = wakeupLen;
+                ret = TK8710Ctrl(TK8710_CTRL_TYPE_SEND_WAKEUP, &wakeupParam);
+                if (ret == TK8710_OK) {
+                    printf("唤醒信号发送配置成功: mode=%u, len=%u ms\n",
+                           wakeupMode, wakeupLen);
+                } else {
+                    printf("唤醒信号发送配置失败: ret=%d\n", ret);
+                }
+                break;
+            }
                 
             case 'q':
             case 'Q':

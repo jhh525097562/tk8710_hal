@@ -245,6 +245,21 @@ void TK8710GetS0PeriodStats(uint64_t* lastTimeUs, uint32_t* lastPeriodUs, uint32
  */
 void TK8710ResetIrqCounters(void);
 
+/**
+ * @brief 通知运行期看门狗Slave已收到第一次BCN
+ */
+void TK8710NotifySlaveBcnReceived(void);
+
+/**
+ * @brief 启动Slave BCN运行期看门狗
+ */
+void TK8710StartSlaveBcnWatchdog(void);
+
+/**
+ * @brief 周期处理运行期看门狗，由平台IRQ服务线程调用
+ */
+void TK8710ProcessRuntimeWatchdog(void);
+
 /* ============================================================================
  * 日志管理API (内部使用)
  * ============================================================================

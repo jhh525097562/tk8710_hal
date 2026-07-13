@@ -24,6 +24,7 @@
 #define TRM_SAT_DEFAULT_FREQ_OFFSET 20000
 #define TRM_SAT_DEFAULT_PILOT_PWR  1000000ULL
 #define TRM_SAT_DEFAULT_AH_BASE    8192u
+#define TRM_SAT_FCTRL_ACK_MASK     0x80u
 #define TRM_SAT_JOIN_RESPONSE_STATUS_OFFSET 15u
 #define TRM_SAT_JOIN_RESPONSE_STATUS_MASK   0x20u
 
@@ -31,6 +32,8 @@ typedef struct {
     uint8_t frameType;
     uint8_t devType;
     uint8_t nwkMode;
+    uint8_t addrMode;
+    uint8_t fctrl;
     uint8_t targetRateMode;
     uint8_t responseStatus;
     uint32_t srcAddr;
@@ -66,6 +69,7 @@ typedef struct {
 
 typedef struct {
     uint32_t terminalAddr;
+    TRM_BeamInfo beam;
     uint32_t lastUpdateMs;
     uint8_t valid;
 } TRM_SatTerminalBeamEntry;
@@ -212,12 +216,20 @@ static int32_t trm_sat_join_freq_limit(uint8_t rateMode)
     }
 }
 
+static int32_t trm_sat_random_freq_offset_by_limit(int32_t limit)
+{
+    uint32_t span;
+
+    if (limit <= 0) {
+        return 0;
+    }
+    span = (uint32_t)(limit * 2 + 1);
+    return (int32_t)(trm_sat_rand_u32() % span) - limit;
+}
+
 static int32_t trm_sat_random_join_freq_offset(uint8_t rateMode)
 {
-    int32_t limit = trm_sat_join_freq_limit(rateMode);
-    uint32_t span = (uint32_t)(limit * 2 + 1);
-
-    return (int32_t)(trm_sat_rand_u32() % span) - limit;
+    return trm_sat_random_freq_offset_by_limit(trm_sat_join_freq_limit(rateMode));
 }
 
 static int32_t trm_sat_random_signed_offset(int32_t limit)
@@ -336,6 +348,8 @@ static void trm_sat_update_satellite_beam_from_bcn(const TK8710IrqResult* irqRes
 static int trm_sat_parse_mac(const uint8_t* data, uint16_t len, TRM_SatMacInfo* info)
 {
     TrmMacMhdr mhdr;
+    uint8_t addrLen;
+    uint8_t fctrlOffset;
 
     if (data == NULL || info == NULL || len < 3) {
         return TRM_ERR_PARAM;
@@ -352,8 +366,18 @@ static int trm_sat_parse_mac(const uint8_t* data, uint16_t len, TRM_SatMacInfo* 
     info->frameType = mhdr.frameType;
     info->devType = mhdr.devType;
     info->nwkMode = mhdr.nwkMode;
+    info->addrMode = mhdr.addrMode;
+    info->fctrl = 0;
     info->targetRateMode = 0;
     info->responseStatus = TRM_GS_JOIN_RESPONSE_REQUIRED_DEFAULT;
+    if (info->frameType == TRM_MAC_FRAMETYPE_CONFIRM_DATA ||
+        info->frameType == TRM_MAC_FRAMETYPE_UNCONFIRM_DATA) {
+        addrLen = mhdr.addrMode == 0 ? 2 : 4;
+        fctrlOffset = (uint8_t)(3 + addrLen);
+        if (len > fctrlOffset) {
+            info->fctrl = data[fctrlOffset];
+        }
+    }
     if (info->frameType == TRM_MAC_FRAMETYPE_JOIN_REQUEST &&
         len > TRM_SAT_JOIN_RESPONSE_STATUS_OFFSET) {
         info->responseStatus =
@@ -370,11 +394,34 @@ static int trm_sat_is_data_frame(const TRM_SatMacInfo* info)
            info->frameType == TRM_MAC_FRAMETYPE_UNCONFIRM_DATA;
 }
 
-static int trm_sat_is_terminal_uplink_frame(const TRM_SatMacInfo* info)
+static int trm_sat_is_terminal_join_request(const TRM_SatMacInfo* info)
 {
     return info->devType == TRM_MAC_DEVTYPE_TERMINAL &&
-           (info->frameType == TRM_MAC_FRAMETYPE_JOIN_REQUEST ||
-            trm_sat_is_data_frame(info));
+           info->frameType == TRM_MAC_FRAMETYPE_JOIN_REQUEST;
+}
+
+static int trm_sat_is_terminal_join_accept(const TRM_SatMacInfo* info)
+{
+    return info->devType == TRM_MAC_DEVTYPE_TERMINAL &&
+           info->frameType == TRM_MAC_FRAMETYPE_JOIN_ACCEPT;
+}
+
+static int trm_sat_is_terminal_data_frame(const TRM_SatMacInfo* info)
+{
+    return info->devType == TRM_MAC_DEVTYPE_TERMINAL &&
+           trm_sat_is_data_frame(info);
+}
+
+static int trm_sat_is_terminal_uplink_frame(const TRM_SatMacInfo* info)
+{
+    return trm_sat_is_terminal_join_request(info) ||
+           trm_sat_is_terminal_data_frame(info);
+}
+
+static int trm_sat_terminal_data_has_downlink_hint(const TRM_SatMacInfo* info)
+{
+    return trm_sat_is_terminal_data_frame(info) &&
+           ((info->fctrl & TRM_SAT_FCTRL_ACK_MASK) != 0);
 }
 
 static int trm_sat_is_ground_station_downlink_frame(const TRM_SatMacInfo* info)
@@ -387,6 +434,28 @@ static int trm_sat_is_ground_station(const TRM_SatMacInfo* info)
 {
     return info->devType == TRM_MAC_DEVTYPE_MULTI_CHANNEL_GW ||
            info->devType == TRM_MAC_DEVTYPE_MULTI_ANTENNA_GW;
+}
+
+static int32_t trm_sat_ah_component(uint32_t value)
+{
+    uint32_t v = value & 0xFFFFFu;
+    return (v & 0x80000u) ? ((int32_t)v - 0x100000) : (int32_t)v;
+}
+
+static uint64_t trm_sat_beam_ah_distance(const TRM_BeamInfo* a, const TRM_BeamInfo* b)
+{
+    uint64_t distance = 0;
+
+    if (a == NULL || b == NULL || !a->valid || !b->valid) {
+        return ~0ULL;
+    }
+
+    for (uint8_t i = 0; i < 16; i++) {
+        int64_t diff = (int64_t)trm_sat_ah_component(a->ahData[i]) -
+                       (int64_t)trm_sat_ah_component(b->ahData[i]);
+        distance += (uint64_t)(diff * diff);
+    }
+    return distance;
 }
 
 static void trm_sat_route_put(uint32_t terminalAddr, uint32_t groundStationAddr)
@@ -481,6 +550,49 @@ static int trm_sat_terminal_beam_oldest_index(void)
     return (int)oldest;
 }
 
+static int trm_sat_terminal_beam_get(uint32_t terminalAddr, TRM_BeamInfo* beam)
+{
+    int index = trm_sat_terminal_beam_find(terminalAddr);
+
+    if (beam == NULL || index < 0) {
+        return TRM_ERR_NO_BEAM;
+    }
+    *beam = g_satCtx.terminalBeams[index].beam;
+    return TRM_OK;
+}
+
+static int trm_sat_terminal_beam_put(uint32_t terminalAddr, const TRM_BeamInfo* beam)
+{
+    int index;
+
+    if (beam == NULL || !beam->valid || g_satCtx.gsTerminalBeamMax == 0) {
+        return TRM_ERR_PARAM;
+    }
+
+    index = trm_sat_terminal_beam_find(terminalAddr);
+    if (index < 0) {
+        index = trm_sat_terminal_beam_free_index();
+        if (index < 0) {
+            index = trm_sat_terminal_beam_oldest_index();
+            TRM_LOG_INFO("TRM SAT: terminal beam FIFO evict terminal=0x%08X",
+                         g_satCtx.terminalBeams[index].terminalAddr);
+            (void)TRM_ClearBeamInfo(g_satCtx.terminalBeams[index].terminalAddr);
+            if (g_satCtx.gsTerminalBeamCount > 0) {
+                g_satCtx.gsTerminalBeamCount--;
+            }
+        }
+        g_satCtx.terminalBeams[index].terminalAddr = terminalAddr;
+        g_satCtx.terminalBeams[index].valid = 1;
+        g_satCtx.gsTerminalBeamCount++;
+    }
+
+    g_satCtx.terminalBeams[index].beam = *beam;
+    g_satCtx.terminalBeams[index].beam.userId = terminalAddr;
+    g_satCtx.terminalBeams[index].lastUpdateMs = trm_sat_now_ms();
+    TRM_LOG_DEBUG("TRM SAT: terminal beam cache update terminal=0x%08X", terminalAddr);
+    return TRM_OK;
+}
+
 static int trm_sat_is_ground_station_terminal_data(const uint8_t* data, uint16_t len)
 {
     TRM_SatMacInfo info;
@@ -546,6 +658,33 @@ static void trm_sat_gs_beam_put(uint32_t gsAddr, const TRM_RxUserData* user)
                  gsAddr, user->snr, user->rssi);
 }
 
+static int trm_sat_gs_beam_get(uint32_t gsAddr, TRM_BeamInfo* beam)
+{
+    uint32_t now = trm_sat_now_ms();
+
+    if (beam == NULL) {
+        return TRM_ERR_PARAM;
+    }
+
+    for (uint32_t i = 0; i < g_satCtx.gsBeamMax; i++) {
+        TRM_SatBeamEntry* entry = &g_satCtx.gsBeams[i];
+        if (!entry->valid || entry->addr != gsAddr) {
+            continue;
+        }
+        if (g_satCtx.gsBeamTimeoutMs > 0 &&
+            (now - entry->lastUpdateMs) > g_satCtx.gsBeamTimeoutMs) {
+            entry->valid = 0;
+            if (g_satCtx.gsBeamCount > 0) {
+                g_satCtx.gsBeamCount--;
+            }
+            return TRM_ERR_NO_BEAM;
+        }
+        *beam = entry->beam;
+        return TRM_OK;
+    }
+    return TRM_ERR_NO_BEAM;
+}
+
 static int trm_sat_get_best_gs(uint32_t* gsAddr, TRM_BeamInfo* beam)
 {
     int found = -1;
@@ -589,6 +728,46 @@ static int trm_sat_get_best_gs(uint32_t* gsAddr, TRM_BeamInfo* beam)
                   g_satCtx.gsBeams[found].snr,
                   g_satCtx.gsBeams[found].rssi);
     return TRM_OK;
+}
+
+static int trm_sat_is_rx_from_route_gs(uint32_t terminalAddr, const TRM_RxUserData* user,
+                                       uint32_t* gsAddr)
+{
+    uint32_t routeGsAddr;
+    TRM_BeamInfo gsBeam;
+    TRM_BeamInfo terminalBeam;
+    uint64_t gsDistance;
+    uint64_t terminalDistance;
+
+    if (user == NULL || trm_sat_route_get(terminalAddr, &routeGsAddr) != TRM_OK) {
+        return 0;
+    }
+    if (trm_sat_gs_beam_get(routeGsAddr, &gsBeam) != TRM_OK) {
+        return 0;
+    }
+    if (trm_sat_terminal_beam_get(terminalAddr, &terminalBeam) != TRM_OK &&
+        TRM_GetBeamInfo(terminalAddr, &terminalBeam) != TRM_OK) {
+        return 0;
+    }
+
+    gsDistance = trm_sat_beam_ah_distance(&user->beam, &gsBeam);
+    terminalDistance = trm_sat_beam_ah_distance(&user->beam, &terminalBeam);
+    if (gsDistance < terminalDistance) {
+        if (gsAddr != NULL) {
+            *gsAddr = routeGsAddr;
+        }
+        TRM_LOG_INFO("TRM SAT: rx terminal packet classified as gs downlink terminal=0x%08X gs=0x%08X gsDist=%llu termDist=%llu",
+                     terminalAddr, routeGsAddr,
+                     (unsigned long long)gsDistance,
+                     (unsigned long long)terminalDistance);
+        return 1;
+    }
+
+    TRM_LOG_DEBUG("TRM SAT: rx terminal packet kept as uplink terminal=0x%08X gsDist=%llu termDist=%llu",
+                  terminalAddr,
+                  (unsigned long long)gsDistance,
+                  (unsigned long long)terminalDistance);
+    return 0;
 }
 
 static int trm_sat_cache_push(uint32_t terminalAddr, const uint8_t* data, uint16_t len,
@@ -836,8 +1015,29 @@ static void trm_sat_payload_process_ground_station(const TRM_RxUserData* user,
     }
 }
 
+static void trm_sat_payload_process_gs_terminal_downlink(const TRM_RxUserData* user,
+                                                         const TRM_SatMacInfo* info,
+                                                         uint32_t routeGsAddr)
+{
+    int ret;
+
+    trm_sat_gs_beam_put(routeGsAddr, user);
+    trm_sat_flush_cache(TRM_SAT_MAX_FORWARD_USERS);
+
+    ret = trm_sat_forward_to_beam(info->srcAddr, user->data, user->dataLen,
+                                  TRM_SAT_DEFAULT_TX_POWER, info->targetRateMode);
+    if (ret == TRM_OK) {
+        TRM_LOG_INFO("TRM SAT: terminal downlink queued terminal=0x%08X gs=0x%08X frame=%u",
+                     info->srcAddr, routeGsAddr, info->frameType);
+    } else {
+        g_satCtx.beamMissCount++;
+        TRM_LOG_WARN("TRM SAT: terminal downlink queue failed terminal=0x%08X gs=0x%08X ret=%d",
+                     info->srcAddr, routeGsAddr, ret);
+    }
+}
+
 static void trm_sat_ground_station_process_rx(const TRM_RxUserData* user,
-                                              const TRM_SatMacInfo* info)
+                                               const TRM_SatMacInfo* info)
 {
     if (trm_sat_is_ground_station(info) &&
         info->frameType == TRM_MAC_FRAMETYPE_JOIN_ACCEPT) {
@@ -927,6 +1127,9 @@ int TRM_SatelliteAllowRxBeamStore(const uint8_t* data, uint16_t len)
         return 1;
     }
 
+    if (info.devType == TRM_MAC_DEVTYPE_TERMINAL) {
+        return 0;
+    }
     return trm_sat_is_ground_station(&info) ? 0 : 1;
 }
 
@@ -965,6 +1168,21 @@ uint8_t TRM_SatelliteIsGroundStationTx(void)
     return g_satCtx.role == TRM_NODE_ROLE_GROUND_STATION ? 1 : 0;
 }
 
+uint8_t TRM_SatelliteIsPayloadTx(void)
+{
+    return g_satCtx.role == TRM_NODE_ROLE_SAT_PAYLOAD ? 1 : 0;
+}
+
+uint8_t TRM_SatelliteIsPayloadGroundStationTx(uint32_t userId)
+{
+    TRM_BeamInfo beam;
+
+    if (g_satCtx.role != TRM_NODE_ROLE_SAT_PAYLOAD || userId == 0) {
+        return 0;
+    }
+    return trm_sat_gs_beam_get(userId, &beam) == TRM_OK ? 1 : 0;
+}
+
 int TRM_SatelliteGetTxBeam(uint32_t userId, TRM_BeamInfo* beamInfo)
 {
     if (beamInfo == NULL) {
@@ -976,6 +1194,9 @@ int TRM_SatelliteGetTxBeam(uint32_t userId, TRM_BeamInfo* beamInfo)
             *beamInfo = g_satCtx.satelliteBeam;
             return TRM_OK;
         }
+        if (trm_sat_terminal_beam_get(userId, beamInfo) == TRM_OK) {
+            return TRM_OK;
+        }
         return TRM_ERR_NO_BEAM;
     }
 
@@ -983,20 +1204,11 @@ int TRM_SatelliteGetTxBeam(uint32_t userId, TRM_BeamInfo* beamInfo)
         return TRM_ERR_NO_BEAM;
     }
 
-    for (uint32_t i = 0; i < g_satCtx.gsBeamMax; i++) {
-        if (g_satCtx.gsBeams[i].valid && g_satCtx.gsBeams[i].addr == userId) {
-            uint32_t now = trm_sat_now_ms();
-            if (g_satCtx.gsBeamTimeoutMs > 0 &&
-                (now - g_satCtx.gsBeams[i].lastUpdateMs) > g_satCtx.gsBeamTimeoutMs) {
-                g_satCtx.gsBeams[i].valid = 0;
-                if (g_satCtx.gsBeamCount > 0) {
-                    g_satCtx.gsBeamCount--;
-                }
-                return TRM_ERR_NO_BEAM;
-            }
-            *beamInfo = g_satCtx.gsBeams[i].beam;
-            return TRM_OK;
-        }
+    if (trm_sat_gs_beam_get(userId, beamInfo) == TRM_OK) {
+        return TRM_OK;
+    }
+    if (trm_sat_terminal_beam_get(userId, beamInfo) == TRM_OK) {
+        return TRM_OK;
     }
     return TRM_ERR_NO_BEAM;
 }
@@ -1057,65 +1269,51 @@ void TRM_SatelliteAdjustGroundStationTxBeam(uint8_t rateMode, TRM_BeamInfo* beam
 {
     int32_t freqOffset;
     uint32_t freqRaw;
+    uint32_t oldFreqRaw;
+    uint32_t oldFreq26;
+    int32_t oldFreqValue;
+    uint8_t* oldFreqBytes;
 
     if (beamInfo == NULL || g_satCtx.role != TRM_NODE_ROLE_GROUND_STATION) {
         return;
     }
 
+    oldFreqBytes = (uint8_t*)&beamInfo->freq;
+    oldFreqRaw = ((uint32_t)oldFreqBytes[0] << 24) |
+                 ((uint32_t)oldFreqBytes[1] << 16) |
+                 ((uint32_t)oldFreqBytes[2] << 8) |
+                 (uint32_t)oldFreqBytes[3];
+    oldFreq26 = oldFreqRaw & 0x03FFFFFFu;
+    oldFreqValue = oldFreq26 > (1u << 25) ?
+        (int32_t)(oldFreq26 - (1u << 26)) : (int32_t)oldFreq26;
+
     freqOffset = trm_sat_random_join_freq_offset(rateMode);
     freqRaw = trm_sat_freq_offset_to_raw(freqOffset);
     beamInfo->freq = trm_sat_to_spi_u32(freqRaw);
 
-    TRM_LOG_INFO("TRM SAT: ground-station tx freq hop mode=%u offset=%d freqRaw=0x%08X",
-                 rateMode, freqOffset, freqRaw);
+    TRM_LOG_INFO("TRM SAT: ground-station tx freq hop mode=%u beamFreq=%d offset=%d freqRaw=0x%08X",
+                 rateMode, oldFreqValue / 128, freqOffset, freqRaw);
 }
 
 void TRM_SatelliteBeforeRxBeamStore(uint32_t userId, const uint8_t* data, uint16_t len)
 {
-    int index;
-
     if (g_satCtx.gsTerminalBeamMax == 0 ||
         !trm_sat_is_ground_station_terminal_data(data, len)) {
         return;
-    }
-    if (trm_sat_terminal_beam_find(userId) >= 0) {
-        return;
-    }
-    index = trm_sat_terminal_beam_free_index();
-    if (index >= 0) {
-        return;
-    }
-
-    index = trm_sat_terminal_beam_oldest_index();
-    TRM_LOG_INFO("TRM SAT: ground-station terminal beam FIFO evict terminal=0x%08X",
-                 g_satCtx.terminalBeams[index].terminalAddr);
-    (void)TRM_ClearBeamInfo(g_satCtx.terminalBeams[index].terminalAddr);
-    g_satCtx.terminalBeams[index].valid = 0;
-    if (g_satCtx.gsTerminalBeamCount > 0) {
-        g_satCtx.gsTerminalBeamCount--;
     }
 }
 
 void TRM_SatelliteAfterRxBeamStore(uint32_t userId, const uint8_t* data, uint16_t len)
 {
-    int index;
+    TRM_BeamInfo beam;
 
     if (g_satCtx.gsTerminalBeamMax == 0 ||
         !trm_sat_is_ground_station_terminal_data(data, len)) {
         return;
     }
-
-    index = trm_sat_terminal_beam_find(userId);
-    if (index < 0) {
-        index = trm_sat_terminal_beam_free_index();
-        if (index < 0) {
-            return;
-        }
-        g_satCtx.terminalBeams[index].terminalAddr = userId;
-        g_satCtx.terminalBeams[index].valid = 1;
-        g_satCtx.gsTerminalBeamCount++;
+    if (TRM_GetBeamInfo(userId, &beam) == TRM_OK) {
+        (void)trm_sat_terminal_beam_put(userId, &beam);
     }
-    g_satCtx.terminalBeams[index].lastUpdateMs = trm_sat_now_ms();
 }
 
 void TRM_SatelliteProcessRxUser(const TRM_RxUserData* user)
@@ -1132,12 +1330,34 @@ void TRM_SatelliteProcessRxUser(const TRM_RxUserData* user)
         return;
     }
 
-    TRM_LOG_INFO("TRM SAT: rx role=%d frame=%u dev=%u src=0x%08X",
-                 g_satCtx.role, info.frameType, info.devType, info.srcAddr);
+    TRM_LOG_INFO("TRM SAT: rx role=%d frame=%u dev=%u src=0x%08X fctrl=0x%02X",
+                 g_satCtx.role, info.frameType, info.devType, info.srcAddr,
+                 info.fctrl);
 
     if (g_satCtx.role == TRM_NODE_ROLE_SAT_PAYLOAD) {
-        if (trm_sat_is_terminal_uplink_frame(&info)) {
+        if (trm_sat_is_terminal_join_request(&info)) {
+            (void)trm_sat_terminal_beam_put(info.srcAddr, &user->beam);
+            (void)TRM_SetBeamInfo(info.srcAddr, &user->beam);
             trm_sat_payload_process_terminal(user, &info);
+        } else if (trm_sat_is_terminal_join_accept(&info)) {
+            uint32_t routeGsAddr;
+            if (trm_sat_route_get(info.srcAddr, &routeGsAddr) == TRM_OK) {
+                trm_sat_payload_process_gs_terminal_downlink(user, &info, routeGsAddr);
+            } else {
+                g_satCtx.beamMissCount++;
+                TRM_LOG_WARN("TRM SAT: terminal join accept route miss terminal=0x%08X",
+                             info.srcAddr);
+            }
+        } else if (trm_sat_is_terminal_data_frame(&info)) {
+            uint32_t routeGsAddr;
+            if (trm_sat_terminal_data_has_downlink_hint(&info) &&
+                trm_sat_is_rx_from_route_gs(info.srcAddr, user, &routeGsAddr)) {
+                trm_sat_payload_process_gs_terminal_downlink(user, &info, routeGsAddr);
+            } else {
+                (void)trm_sat_terminal_beam_put(info.srcAddr, &user->beam);
+                (void)TRM_SetBeamInfo(info.srcAddr, &user->beam);
+                trm_sat_payload_process_terminal(user, &info);
+            }
         } else if (trm_sat_is_ground_station(&info)) {
             trm_sat_payload_process_ground_station(user, &info);
         }

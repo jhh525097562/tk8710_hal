@@ -665,6 +665,7 @@ static uint8_t TRM_CollectPendingUsers(PendingTxUser* pendingUsers, uint8_t maxU
             /* 使用与TRM_ProcessQueueItem相同的判断逻辑 */
             uint8_t shouldSend = 0;
             uint8_t shouldRemove = 0;
+            uint8_t sendCollected = 0;
             
             TRM_LOG_DEBUG("TRM: Processing item - userId=0x%08X, frameNo=%u, targetRateMode=%u, systemFrameNo=%u", 
                          item->userId, item->frameNo, item->targetRateMode, item->systemFrameNo);
@@ -721,6 +722,10 @@ static uint8_t TRM_CollectPendingUsers(PendingTxUser* pendingUsers, uint8_t maxU
                 }
             }
             
+            if (shouldSend && item->userId == 0) {
+                shouldRemove = 1;
+            }
+
             /* 如果应该发送且用户ID有效，则收集用户信息 */
             if (shouldSend && item->userId != 0) {
                 /* 收集用户信息 */
@@ -750,31 +755,39 @@ static uint8_t TRM_CollectPendingUsers(PendingTxUser* pendingUsers, uint8_t maxU
                     pendingUser->beam.timestamp = TK8710GetTickMs();
                     TRM_LOG_DEBUG("TRM: Using default beam info for broadcast user[%u]", item->userId);
                     collectedCount++;
+                    sendCollected = 1;
                     shouldRemove = 1;  /* 标记为需要移除 */
                 } else {
                     /* 指定波束：需要获取波束信息 */
                     TRM_BeamInfo beam;
                     int beamRet = TRM_GetBeamInfo(item->userId, &beam);
+                    if (TRM_SatelliteIsPayloadTx()) {
+                        beamRet = TRM_SatelliteGetTxBeam(item->userId, &beam);
+                    }
                     if (beamRet != TRM_OK) {
                         beamRet = TRM_SatelliteGetTxBeam(item->userId, &beam);
-                        pendingUser->satelliteForward = (beamRet == TRM_OK);
+                    }
+                    if (beamRet == TRM_OK) {
+                        pendingUser->satelliteForward =
+                            TRM_SatelliteIsPayloadGroundStationTx(item->userId);
                     }
                     
                     if (beamRet == TRM_OK) {
                         pendingUser->beam = beam;
                         pendingUser->groundStationTx = TRM_SatelliteIsGroundStationTx();
                         collectedCount++;
+                        sendCollected = 1;
                         shouldRemove = 1;  /* 标记为需要移除 */
                     } else {
                         TRM_LOG_WARN("TRM: Failed to get beam info for user[%u]: %d", item->userId, beamRet);
-                        /* 波束信息获取失败，不发送该用户 */
-                        shouldRemove = 0;  /* 保留在队列中，下次重试 */
+                        /* 波束信息获取失败，不发送并直接从队列删除 */
+                        shouldRemove = 1;
                     }
                 }
             }
             
             /* 移动到下一项或移除已处理的项 */
-            if (shouldSend) {
+            if (sendCollected) {
                 /* 发送的项目，标记为无效并移除 */
                 item->valid = 0;
                 queue->head = (queue->head + 1) % TX_QUEUE_SIZE;
@@ -894,7 +907,7 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
                 if (user->beamType != TK8710_DATA_TYPE_BRD && !user->satelliteForward) {
                     int touchRet = TRM_TouchBeamInfoNoLock(user->userId);
                     if (touchRet != TRM_OK) {
-                        TRM_LOG_WARN("TRM: Failed to refresh beam timestamp for user[%u]: %d",
+                        TRM_LOG_DEBUG("TRM: Failed to refresh beam timestamp for user[%u]: %d",
                                      user->userId, touchRet);
                     }
                 }

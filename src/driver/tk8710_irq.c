@@ -52,6 +52,14 @@ static volatile uint64_t g_s0LastTimeUs = 0;
 static volatile uint32_t g_s0LastPeriodUs = 0;
 static volatile uint32_t g_s0PeriodCount = 0;
 
+#define SLAVE_BCN_MISS_FRAME_THRESHOLD 10u
+
+/* Slave BCN同步维护状态 */
+static uint8_t g_slaveBcnTrackingActive = 0;
+static uint8_t g_slaveBcnReceivedInFrame = 0;
+static uint8_t g_slaveBcnMissFrameCount = 0;
+static uint8_t g_slaveContiScanState = 0xFF;
+
 /* Buffer管理变量 */
 static TK8710RxBuffer g_rxBuffers[128] = {0};      /* 接收数据Buffer */
 static TK8710TxBuffer g_txBuffers[128] = {0};      /* 发送数据Buffer */
@@ -124,6 +132,48 @@ static void tk8710_s1_manual_tx_process(void);
 static void tk8710_s0_bcn_rotation_process(void);
 static void tk8710_s1_broadcast_tx_process(void);
 static int tk8710_configure_multi_rate(uint8_t rateIndex);
+static int tk8710_set_slave_conti_scan(uint8_t enable);
+static void tk8710_reset_slave_bcn_tracking(void);
+
+static int tk8710_set_slave_conti_scan(uint8_t enable)
+{
+    s_init_5 init5;
+    int ret;
+
+    enable = enable ? 1 : 0;
+    if (g_slaveContiScanState == enable) {
+        return TK8710_OK;
+    }
+
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        MAC_BASE + offsetof(struct mac, init_5), &init5.data);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_IRQ_ERROR("Failed to read init_5 for Slave BCN tracking: %d", ret);
+        return ret;
+    }
+
+    if (init5.b.conti_scan != enable) {
+        init5.b.conti_scan = enable;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, init_5), init5.data);
+        if (ret != TK8710_OK) {
+            TK8710_LOG_IRQ_ERROR("Failed to set Slave conti_scan=%u: %d", enable, ret);
+            return ret;
+        }
+    }
+
+    g_slaveContiScanState = enable;
+    TK8710_LOG_IRQ_INFO("Slave BCN tracking set conti_scan=%u", enable);
+    return TK8710_OK;
+}
+
+static void tk8710_reset_slave_bcn_tracking(void)
+{
+    g_slaveBcnTrackingActive = 0;
+    g_slaveBcnReceivedInFrame = 0;
+    g_slaveBcnMissFrameCount = 0;
+    g_slaveContiScanState = 0xFF;
+}
 
 /* 中断处理函数表 */
 typedef void (*IrqHandler)(void);
@@ -180,6 +230,7 @@ void TK8710RegisterCallbacks(const TK8710DriverCallbacks* callbacks)
     memset(&g_irqResult, 0, sizeof(TK8710IrqResult));
     g_currentRateIndex = 0;
     g_bcnRotationCount = 0;
+    tk8710_reset_slave_bcn_tracking();
 }
 
 /**
@@ -545,6 +596,7 @@ void TK8710ResetIrqCounters(void)
     g_s0LastTimeUs = 0;
     g_s0LastPeriodUs = 0;
     g_s0PeriodCount = 0;
+    tk8710_reset_slave_bcn_tracking();
     /* 同时重置时间统计 */
     TK8710ResetIrqTimeStats(255);
     TK8710_LOG_IRQ_INFO("IRQ counters reset");
@@ -825,8 +877,19 @@ static void tk8710_handle_rx_bcn(void)
 {
     TK8710_LOG_IRQ_DEBUG("RX BCN interrupt handled (count: %u)", g_irqCounters[TK8710_IRQ_RX_BCN]);
     
-    /* TODO: 实现BCN接收处理 */
+    /* 更新BCN接收结果和Slave同步维护状态 */
     g_irqResult.irq_type = TK8710_IRQ_RX_BCN;
+
+    if (TK8710GetWorkType() == TK8710_MODE_SLAVE) {
+        TK8710NotifySlaveBcnReceived();
+        g_slaveBcnTrackingActive = 1;
+        g_slaveBcnReceivedInFrame = 1;
+        g_slaveBcnMissFrameCount = 0;
+        if (tk8710_set_slave_conti_scan(0) != TK8710_OK) {
+            /* 保持未知状态，使下一次RX_BCN继续尝试写寄存器 */
+            g_slaveContiScanState = 0xFF;
+        }
+    }
     
     /* 读取BCN频偏和BCN bits */
     {
@@ -1795,6 +1858,27 @@ static void tk8710_handle_slot2(void)
     
     /* 设置中断类型 */
     g_irqResult.irq_type = TK8710_IRQ_S2;
+
+    /* S2中断在所有Slave时隙配置中均开启，以此作为每帧BCN丢失统计边界 */
+    if (TK8710GetWorkType() == TK8710_MODE_SLAVE && g_slaveBcnTrackingActive) {
+        if (g_slaveBcnReceivedInFrame) {
+            g_slaveBcnReceivedInFrame = 0;
+            g_slaveBcnMissFrameCount = 0;
+        } else if (g_slaveBcnMissFrameCount < SLAVE_BCN_MISS_FRAME_THRESHOLD) {
+            g_slaveBcnMissFrameCount++;
+            if (g_slaveBcnMissFrameCount == SLAVE_BCN_MISS_FRAME_THRESHOLD) {
+                TK8710_LOG_IRQ_WARN("Slave lost RX_BCN for %u consecutive frames, enable conti_scan",
+                                    SLAVE_BCN_MISS_FRAME_THRESHOLD);
+                if (tk8710_set_slave_conti_scan(1) != TK8710_OK) {
+                    /* 写失败时允许下一帧继续重试 */
+                    g_slaveBcnMissFrameCount--;
+                    g_slaveContiScanState = 0xFF;
+                } else {
+                    TK8710StartSlaveBcnWatchdog();
+                }
+            }
+        }
+    }
     
     const slotCfg_t* slotCfg = TK8710GetSlotConfig();
     if(slotCfg != NULL && slotCfg->s1Cfg[0].byteLen == 0 &&

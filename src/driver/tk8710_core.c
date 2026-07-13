@@ -694,13 +694,15 @@ int TK8710Init(const ChipConfig* initConfig)
     return TK8710_OK;
 }
 
+#define SLAVE_BCN_WATCHDOG_INTERVAL_MS 30000u
+
+static volatile uint8_t g_slaveBcnWatchdogActive = 0;
+static uint32_t g_slaveBcnWatchdogLastRecoveryMs = 0;
+
 /**
- * @brief 芯片进入收发状态
- * @param workType 工作类型: 0=Slave, 1=Master
- * @param workMode 工作模式: 1=连续, 2=单次
- * @return 0-成功, 1-失败, 2-超时
+ * @brief 执行一次芯片收发启动
  */
-int TK8710Start(uint8_t workType, uint8_t workMode)
+static int tk8710_start_once(uint8_t workType, uint8_t workMode)
 {
     int ret;
     s_init_5 init5;
@@ -931,6 +933,96 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
 
     TK8710_LOG_CORE_INFO("Work started: type=%d, mode=%d", workType, workMode);
     return ret;
+}
+
+/**
+ * @brief 芯片进入收发状态
+ * @param workType 工作类型: 0=Slave, 1=Master
+ * @param workMode 工作模式: 1=连续, 2=单次
+ * @return 0-成功, 1-失败
+ */
+int TK8710Start(uint8_t workType, uint8_t workMode)
+{
+    uint8_t enableSlaveBcnWatchdog =
+        (workType == TK8710_MODE_SLAVE &&
+         workMode == TK8710_WORK_MODE_CONTINUOUS);
+    int ret;
+
+    g_slaveBcnWatchdogActive = enableSlaveBcnWatchdog;
+    if (enableSlaveBcnWatchdog) {
+        g_slaveBcnWatchdogLastRecoveryMs = TK8710GetTickMs();
+    }
+
+    ret = tk8710_start_once(workType, workMode);
+    if (ret == TK8710_OK && enableSlaveBcnWatchdog) {
+        if (g_slaveBcnWatchdogActive) {
+            TK8710_LOG_CORE_INFO("Slave first-BCN watchdog started, recovery interval=%u ms",
+                                 SLAVE_BCN_WATCHDOG_INTERVAL_MS);
+        } else {
+            TK8710_LOG_CORE_INFO("Slave received first RX_BCN during startup");
+        }
+    } else if (ret != TK8710_OK) {
+        g_slaveBcnWatchdogActive = 0;
+    }
+
+    return ret;
+}
+
+void TK8710NotifySlaveBcnReceived(void)
+{
+    if (g_slaveBcnWatchdogActive) {
+        g_slaveBcnWatchdogActive = 0;
+        TK8710_LOG_CORE_INFO("Slave received RX_BCN, BCN watchdog stopped");
+    }
+}
+
+void TK8710StartSlaveBcnWatchdog(void)
+{
+    if (TK8710GetWorkType() != TK8710_MODE_SLAVE) {
+        return;
+    }
+
+    g_slaveBcnWatchdogLastRecoveryMs = TK8710GetTickMs();
+    g_slaveBcnWatchdogActive = 1;
+    TK8710_LOG_CORE_INFO("Slave BCN watchdog restarted, recovery interval=%u ms",
+                         SLAVE_BCN_WATCHDOG_INTERVAL_MS);
+}
+
+void TK8710ProcessRuntimeWatchdog(void)
+{
+    uint32_t nowMs;
+    int ret;
+
+    if (!g_slaveBcnWatchdogActive || TK8710GetWorkType() != TK8710_MODE_SLAVE) {
+        return;
+    }
+
+    nowMs = TK8710GetTickMs();
+    if ((uint32_t)(nowMs - g_slaveBcnWatchdogLastRecoveryMs) <
+        SLAVE_BCN_WATCHDOG_INTERVAL_MS) {
+        return;
+    }
+    g_slaveBcnWatchdogLastRecoveryMs = nowMs;
+
+    TK8710_LOG_CORE_WARN("Slave has not received first RX_BCN for %u ms, reset state machine and restart",
+                         SLAVE_BCN_WATCHDOG_INTERVAL_MS);
+
+    ret = TK8710SpiReset(TK8710_RST_STATE_MACHINE);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("Slave BCN watchdog state-machine reset failed: %d", ret);
+        return;
+    }
+    TK8710DelayMs(10);
+
+    ret = tk8710_start_once(TK8710_MODE_SLAVE, TK8710_WORK_MODE_CONTINUOUS);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("Slave BCN watchdog restart failed: %d", ret);
+        return;
+    }
+
+    if (g_slaveBcnWatchdogActive) {
+        TK8710_LOG_CORE_INFO("Slave BCN watchdog restart completed, continue waiting for RX_BCN");
+    }
 }
 
 /**
@@ -1437,6 +1529,8 @@ int TK8710Reset(uint8_t rstType)
 {
     int ret;
     uint8_t resetConfig = 0;
+
+    g_slaveBcnWatchdogActive = 0;
 
     ret = TK8710HardwareResetPulse();
     if (ret != TK8710_OK) {

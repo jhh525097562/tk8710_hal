@@ -60,14 +60,17 @@
 #define PATH_MAX 4096
 #endif
 
-#define GROUND_STATION_JOIN_MAINTAIN_MS 5000u
-#define GROUND_STATION_JOIN_RESPONSE_STATUS 0u
-
 /*============================================================================
  * 全局变量和配置
  *============================================================================*/
 
 /* 运行标志 */
+/* Version info */
+#define TK8710_GW_VERSION          "1.0.0"
+#define TK8710_GW_VERSION_PLATFORM "RK3506"
+#define TK8710_GW_VERSION_STRING   TK8710_GW_VERSION " (" TK8710_GW_VERSION_PLATFORM ")"
+
+/* Running flag */
 static volatile int g_running = 1;
 
 #ifndef _WIN32
@@ -125,6 +128,446 @@ static volatile uint8_t g_captureDataPending = 0;         /* 采集数据待执�
 static volatile uint8_t g_captureDataPendingNum = 0;         /* 采集数据等待次数 */
 
 
+static void build_join_request_frame(uint8_t* data, uint16_t len, uint32_t user_id)
+{
+    const uint8_t capacity = 0x06; /* ResNum=1, ResType=WAN */
+    uint16_t dev_nonce = (uint16_t)(user_id - 0xFF00U);
+
+    if (data == NULL || len == 0) {
+        return;
+    }
+
+    memset(data, 0, len);
+    if (len < 14) {
+        return;
+    }
+
+    data[0] = (TRM_MAC_FRAMETYPE_JOIN_REQUEST << TRM_MHDR_FRAMETYPE_SHIFT) |
+              (TRM_MAC_DEVTYPE_TERMINAL << TRM_MHDR_DEVTYPE_SHIFT);
+    data[1] = 0;
+    data[2] = (TRM_MAC_SECURITY_NONE << TRM_MHDR_SECURITYMODE_SHIFT) |
+              (TRM_MAC_NWKMODE_WAN << TRM_MHDR_NWKMODE_SHIFT);
+    data[3] = capacity;
+    data[4] = (uint8_t)(user_id & 0xFF);
+    data[5] = (uint8_t)((user_id >> 8) & 0xFF);
+    data[6] = (uint8_t)((user_id >> 16) & 0xFF);
+    data[7] = (uint8_t)((user_id >> 24) & 0xFF);
+    data[8] = 0;
+    data[9] = 0;
+    data[10] = 0;
+    data[11] = 0;
+    data[12] = (uint8_t)(dev_nonce & 0xFF);
+    data[13] = (uint8_t)((dev_nonce >> 8) & 0xFF);
+
+    if (len > 14) {
+        for(int i = 14; i < len; i++) {
+            data[i] = rand()%255; /* PowerClass=0, RFU=0 */
+        }
+    }
+}
+
+/**
+ * @brief 从文件读取数据并通过SPI传输
+ * @param classNum class序号 (如: 1, 3, 等)
+ * @param caseNum case序号 (如: 11, 17, 等)
+ * @return 0-成功, 非0-失败
+ */
+int load_and_send_simulation_data(int classNum, int caseNum,uint16_t Len)
+{
+    char filePath[256];
+    FILE *fp;
+    char lineBuffer[16384];  /* 增加缓冲区大小以容纳2048个20bit值 (2048×8=16384字符) */
+    uint8_t spiDataBuffer[5120];  /* 增加缓冲区大小以容纳128用户×16AH×20bit=5120字节 */
+    int dataCount;
+    
+    printf("\n=== 开始加载目录：/class%d/case%d下仿真数据并传输 ===\n", classNum, caseNum);
+    
+    /* 1. 读取 ANoise 数据 */
+    snprintf(filePath, sizeof(filePath), 
+        "./class%d/case%d/ANoise.txt", classNum, caseNum);
+    fp = fopen(filePath, "r");
+    if (fp == NULL) {
+        printf("无法打开文件: %s\n", filePath);
+        return -1;
+    }
+    
+    if (fgets(lineBuffer, sizeof(lineBuffer), fp) != NULL) {
+        /* 解析 ANoise 数据 (8个值) */
+        uint16_t anoiseData[8];
+        dataCount = sscanf(lineBuffer, "%hu %hu %hu %hu %hu %hu %hu %hu",
+                          &anoiseData[0], &anoiseData[1], &anoiseData[2], &anoiseData[3],
+                          &anoiseData[4], &anoiseData[5], &anoiseData[6], &anoiseData[7]);
+        
+        if (dataCount == 8) {
+            /* 转换为字节数组并发送 */
+            for (int i = 0; i < 8; i++) {
+                spiDataBuffer[i*2] = (uint8_t)(anoiseData[i] >> 8);
+                spiDataBuffer[i*2+1] = (uint8_t)(anoiseData[i] & 0xFF);
+            }
+            
+            /* 打印前16个输入数据 (十六进制格式) */
+            printf("ANoise SPI输入数据 (前16字节): ");
+            for (int i = 0; i < 16; i++) {
+                printf("0x%02X ", spiDataBuffer[i]);
+            }
+            printf("\n");
+            
+            int ret = TK8710SpiSetInfo(TK8710_SET_INFO_ANOISE, spiDataBuffer, 16);
+            if (ret == 0) {
+                printf("ANoise 数据传输成功: 8个值\n");
+            } else {
+                printf("ANoise 数据传输失败: %d\n", ret);
+                fclose(fp);
+                return -1;
+            }
+        }
+    }
+    fclose(fp);
+    
+    /* 2. 读取 GWRXAH 数据 (按用户格式处理: 128个用户，每个用户16个20bit AH) */
+    snprintf(filePath, sizeof(filePath), 
+        "./class%d/case%d/GWRXAH.txt", classNum, caseNum);
+    fp = fopen(filePath, "r");
+    if (fp == NULL) {
+        printf("无法打开文件: %s\n", filePath);
+        return -1;
+    }
+    
+    uint32_t gwrxahData[2048];  // 128用户 * 16AH = 2048个20bit值
+    dataCount = 0;
+    
+    while (fgets(lineBuffer, sizeof(lineBuffer), fp) != NULL && dataCount < 2048) {
+        char *ptr = lineBuffer;
+        while (*ptr != '\0' && dataCount < 2048) {
+            uint32_t value;
+            if (sscanf(ptr, "%u", &value) == 1) {
+                gwrxahData[dataCount++] = value;
+                /* 跳过当前数字 */
+                while (*ptr != '\0' && *ptr != ' ' && *ptr != '\t' && *ptr != '\n') ptr++;
+                /* 跳过空白字符 */
+                while (*ptr != '\0' && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n')) ptr++;
+            } else {
+                break;
+            }
+        }
+    }
+    fclose(fp);
+    
+    printf("GWRXAH 读取了 %d 个20bit数据值\n", dataCount);
+    
+    if (dataCount > 0) {
+        /* 将20bit数据按用户格式打包到字节缓冲区
+         * 每个用户16个20bit AH = 320bit = 40字节
+         * 128个用户总共需要 128 * 40 = 5120字节
+         */
+        int userCount = dataCount / 16;  // 计算实际用户数
+        if (userCount > 128) userCount = 128;
+        
+        printf("处理 %d 个用户的GWRXAH数据\n", userCount);
+        
+        /* 按用户顺序打包20bit数据到字节数组
+         * 使用位操作实现紧凑的20bit数据打包
+         */
+        int byteIndex = 0;
+        uint32_t bitBuffer = 0;
+        int bitsInBuffer = 0;
+        
+        for (int user = 0; user < userCount; user++) {
+            for (int ah = 0; ah < 16; ah++) {
+                uint32_t ahValue = gwrxahData[user * 16 + ah] & 0xFFFFF;  // 确保只取20bit
+                
+                /* 将20bit数据添加到位缓冲区 */
+                bitBuffer = (bitBuffer << 20) | ahValue;
+                bitsInBuffer += 20;
+                
+                /* 当缓冲区有8位或更多时，提取字节 */
+                while (bitsInBuffer >= 8 && (size_t)byteIndex < sizeof(spiDataBuffer) - 1U) {
+                    spiDataBuffer[byteIndex++] = (uint8_t)((bitBuffer >> (bitsInBuffer - 8)) & 0xFF);
+                    bitsInBuffer -= 8;
+                }
+            }
+        }
+        
+        /* 处理剩余的位 */
+        if (bitsInBuffer > 0 && (size_t)byteIndex < sizeof(spiDataBuffer)) {
+            spiDataBuffer[byteIndex++] = (uint8_t)((bitBuffer << (8 - bitsInBuffer)) & 0xFF);
+        }
+        
+        /* 打印前16个输入数据 (十六进制格式) */
+        int printLen = (byteIndex < 16) ? byteIndex : 16;
+        printf("GWRXAH SPI输入数据 (前%d字节): ", printLen);
+        for (int i = 0; i < printLen; i++) {
+            printf("0x%02X ", spiDataBuffer[i]);
+        }
+        printf("\n");
+        
+        printf("GWRXAH 数据打包完成: %d用户, 每用户16个AH, 总字节数: %d\n", userCount, byteIndex);
+        
+        int ret = TK8710SpiSetInfo(TK8710_SET_INFO_AH, spiDataBuffer, byteIndex);
+        if (ret == 0) {
+            printf("GWRXAH 数据传输成功: %d个用户, 每用户16个AH\n", userCount);
+        } else {
+            printf("GWRXAH 数据传输失败: %d\n", ret);
+            return -1;
+        }
+    }
+    
+    /* 3. 读取 GWRxPilotPower 数据 (按用户格式处理: 128个用户，每个用户40bit PilotPower) */
+    snprintf(filePath, sizeof(filePath), 
+        "./class%d/case%d/GWRxPilotPower.txt", classNum, caseNum);
+    fp = fopen(filePath, "r");
+    if (fp == NULL) {
+        printf("无法打开文件: %s\n", filePath);
+        return -1;
+    }
+    
+    uint64_t pilotPowerData[128];  // 128个用户，每个用户40bit PilotPower
+    dataCount = 0;
+    
+    while (fgets(lineBuffer, sizeof(lineBuffer), fp) != NULL && dataCount < 128) {
+        char *ptr = lineBuffer;
+        while (*ptr != '\0' && dataCount < 128) {
+            uint64_t value;
+            if (sscanf(ptr, "%llu", &value) == 1) {
+                pilotPowerData[dataCount++] = value;
+                /* 跳过当前数字 */
+                while (*ptr != '\0' && *ptr != ' ' && *ptr != '\t' && *ptr != '\n') ptr++;
+                /* 跳过空白字符 */
+                while (*ptr != '\0' && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n')) ptr++;
+            } else {
+                break;
+            }
+        }
+    }
+    fclose(fp);
+    
+    printf("GWRxPilotPower 读取了 %d 个40bit数据值\n", dataCount);
+    
+    if (dataCount > 0) {
+        /* 将40bit数据按用户格式打包到字节缓冲区
+         * 每个用户40bit PilotPower = 5字节
+         * 128个用户总共需要 128 * 5 = 640字节
+         */
+        int userCount = dataCount;  // 每个用户一个40bit值
+        if (userCount > 128) userCount = 128;
+        
+        printf("处理 %d 个用户的GWRxPilotPower数据\n", userCount);
+        
+        /* 按用户顺序打包40bit数据到字节数组
+         * 40bit数据可以直接拆分为5个字节
+         */
+        int byteIndex = 0;
+        
+        for (int user = 0; user < userCount; user++) {
+            uint64_t pilotValue = pilotPowerData[user] & 0xFFFFFFFFFFULL;  // 确保只取40bit
+            
+            /* 将40bit数据拆分为5个字节 (大端序) */
+            if ((size_t)(byteIndex + 4) < sizeof(spiDataBuffer)) {
+                spiDataBuffer[byteIndex] = (uint8_t)((pilotValue >> 32) & 0xFF);    // 字节0 (最高8位)
+                spiDataBuffer[byteIndex + 1] = (uint8_t)((pilotValue >> 24) & 0xFF); // 字节1
+                spiDataBuffer[byteIndex + 2] = (uint8_t)((pilotValue >> 16) & 0xFF); // 字节2
+                spiDataBuffer[byteIndex + 3] = (uint8_t)((pilotValue >> 8) & 0xFF);  // 字节3
+                spiDataBuffer[byteIndex + 4] = (uint8_t)(pilotValue & 0xFF);         // 字节4 (最低8位)
+                
+                byteIndex += 5;
+            }
+        }
+        
+        /* 打印前16个输入数据 (十六进制格式) */
+        int printLen = (byteIndex < 16) ? byteIndex : 16;
+        printf("GWRxPilotPower SPI输入数据 (前%d字节): ", printLen);
+        for (int i = 0; i < printLen; i++) {
+            printf("0x%02X ", spiDataBuffer[i]);
+        }
+        printf("\n");
+        
+        printf("GWRxPilotPower 数据打包完成: %d用户, 每用户40bit, 总字节数: %d\n", userCount, byteIndex);
+        
+        int ret = TK8710SpiSetInfo(TK8710_SET_INFO_PILOT_POW, spiDataBuffer, byteIndex);
+        if (ret == 0) {
+            printf("GWRxPilotPower 数据传输成功: %d个用户, 每用户40bit PilotPower\n", userCount);
+        } else {
+            printf("GWRxPilotPower 数据传输失败: %d\n", ret);
+            return -1;
+        }
+    }
+    
+    /* 4. 读取 TxFreq 数据 (按用户格式处理: 128个用户，每个用户32bit TxFreq) */
+    snprintf(filePath, sizeof(filePath), 
+        "./class%d/case%d/TxFreq.txt", classNum, caseNum);
+    fp = fopen(filePath, "r");
+    if (fp == NULL) {
+        printf("无法打开文件: %s\n", filePath);
+        return -1;
+    }
+    
+    uint32_t txFreqData[128];  // 128个用户，每个用户32bit TxFreq
+    dataCount = 0;
+    
+    while (fgets(lineBuffer, sizeof(lineBuffer), fp) != NULL && dataCount < 128) {
+        char *ptr = lineBuffer;
+        while (*ptr != '\0' && dataCount < 128) {
+            uint32_t value;
+            if (sscanf(ptr, "%u", &value) == 1) {
+                txFreqData[dataCount++] = value;
+                /* 跳过当前数字 */
+                while (*ptr != '\0' && *ptr != ' ' && *ptr != '\t' && *ptr != '\n') ptr++;
+                /* 跳过空白字符 */
+                while (*ptr != '\0' && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n')) ptr++;
+            } else {
+                break;
+            }
+        }
+    }
+    fclose(fp);
+    
+    printf("TxFreq 读取了 %d 个32bit数据值\n", dataCount);
+    
+    if (dataCount > 0) {
+        /* 将32bit数据按用户格式打包到字节缓冲区
+         * 每个用户32bit TxFreq = 4字节
+         * 128个用户总共需要 128 * 4 = 512字节
+         */
+        int userCount = dataCount;  // 每个用户一个32bit值
+        if (userCount > 128) userCount = 128;
+        
+        printf("处理 %d 个用户的TxFreq数据\n", userCount);
+        
+        /* 按用户顺序打包32bit数据到字节数组
+         * 32bit数据可以直接拆分为4个字节
+         */
+        int byteIndex = 0;
+        
+        for (int user = 0; user < userCount; user++) {
+            uint32_t freqValue = txFreqData[user];
+            
+            /* 将32bit数据拆分为4个字节 (大端序) */
+            if ((size_t)(byteIndex + 3) < sizeof(spiDataBuffer)) {
+                spiDataBuffer[byteIndex] = (uint8_t)((freqValue >> 24) & 0xFF);     // 字节0 (最高8位)
+                spiDataBuffer[byteIndex + 1] = (uint8_t)((freqValue >> 16) & 0xFF); // 字节1
+                spiDataBuffer[byteIndex + 2] = (uint8_t)((freqValue >> 8) & 0xFF);  // 字节2
+                spiDataBuffer[byteIndex + 3] = (uint8_t)(freqValue & 0xFF);         // 字节3 (最低8位)
+                
+                byteIndex += 4;
+            }
+        }
+        
+        /* 打印前16个输入数据 (十六进制格式) */
+        int printLen = (byteIndex < 16) ? byteIndex : 16;
+        printf("TxFreq SPI输入数据 (前%d字节): ", printLen);
+        for (int i = 0; i < printLen; i++) {
+            printf("0x%02X ", spiDataBuffer[i]);
+        }
+        printf("\n");
+        
+        printf("TxFreq 数据打包完成: %d用户, 每用户32bit, 总字节数: %d\n", userCount, byteIndex);
+        
+        int ret = TK8710SpiSetInfo(TK8710_SET_INFO_TX_FREQ, spiDataBuffer, byteIndex);
+        if (ret == 0) {
+            printf("TxFreq 数据传输成功: %d个用户, 每用户32bit TxFreq\n", userCount);
+        } else {
+            printf("TxFreq 数据传输失败: %d\n", ret);
+            return -1;
+        }
+    }
+    
+    /* 5. 读取 TxPower 数据 (按用户格式处理: 128个用户，每个用户8bit TxPower) */
+    snprintf(filePath, sizeof(filePath), 
+        "./class%d/case%d/TxPower.txt", classNum, caseNum);
+    fp = fopen(filePath, "r");
+    if (fp == NULL) {
+        printf("无法打开文件: %s\n", filePath);
+        return -1;
+    }
+    
+    uint8_t txPowerData[128];  // 128个用户，每个用户8bit TxPower
+    dataCount = 0;
+    
+    while (fgets(lineBuffer, sizeof(lineBuffer), fp) != NULL && dataCount < 128) {
+        char *ptr = lineBuffer;
+        while (*ptr != '\0' && dataCount < 128) {
+            uint16_t value;
+            if (sscanf(ptr, "%hu", &value) == 1) {
+                txPowerData[dataCount++] = (uint8_t)(value & 0xFF);  // 确保只取8bit
+                /* 跳过当前数字 */
+                while (*ptr != '\0' && *ptr != ' ' && *ptr != '\t' && *ptr != '\n') ptr++;
+                /* 跳过空白字符 */
+                while (*ptr != '\0' && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n')) ptr++;
+            } else {
+                break;
+            }
+        }
+    }
+    fclose(fp);
+    
+    printf("TxPower 读取了 %d 个8bit数据值\n", dataCount);
+    
+    if (dataCount > 0) {
+        /* 将8bit数据按用户格式打包到字节缓冲区
+         * 每个用户8bit TxPower = 1字节
+         * 128个用户总共需要 128 * 1 = 128字节
+         */
+        int userCount = dataCount;  // 每个用户一个8bit值
+        if (userCount > 128) userCount = 128;
+        
+        printf("处理 %d 个用户的TxPower数据\n", userCount);
+        
+        /* 按用户顺序直接复制8bit数据到字节数组 */
+        size_t byteIndex = 0;
+        int ret = 0;
+        uint8_t Data[520];
+        for (int user = 0; user < userCount; user++) {
+            build_join_request_frame(Data, Len, 0xFF00U + (uint32_t)user);
+            if ((size_t)byteIndex < sizeof(spiDataBuffer)) {
+                spiDataBuffer[byteIndex] = txPowerData[user];
+                byteIndex++;
+            }
+            s_tx_pow_ctrl tx_pow_ctrl;
+            tx_pow_ctrl.data = 0;
+            tx_pow_ctrl.b.UserIndex = user;
+            tx_pow_ctrl.b.power = txPowerData[user];
+            
+            ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 
+                MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
+
+            ret = TK8710WriteBuffer(user, Data, Len);
+            if(user < 16){
+                tx_pow_ctrl.data = 0;
+                tx_pow_ctrl.b.UserIndex = user + 128;
+                tx_pow_ctrl.b.power = txPowerData[user];
+                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 
+                    MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
+                                    /* 发送广播数据 */
+               build_join_request_frame(Data, Len, 0xFF00U + (uint32_t)user + 128U);
+               ret = TK8710WriteBuffer(user + 128, Data, Len);
+            }
+        }
+        
+        /* 打印前16个输入数据 (十六进制格式) */
+        int printLen = (byteIndex < 16) ? byteIndex : 16;
+        printf("TxPower SPI输入数据 (前%d字节): ", printLen);
+        for (int i = 0; i < printLen; i++) {
+            printf("0x%02X ", spiDataBuffer[i]);
+        }
+        printf("\n");
+        
+        printf("TxPower 数据打包完成: %d用户, 每用户8bit, 总字节数: %d\n", userCount, byteIndex);
+
+        if (ret == 0) {
+            printf("TxPower 数据传输成功: %d个用户, 每用户8bit TxPower\n", userCount);
+        } else {
+            printf("TxPower 数据传输失败: %d\n", ret);
+            return -1;
+        }
+    }
+    
+    printf("=== 所有仿真数据传输完成 ===\n");
+    
+    /* 设置仿真数据加载标志，通知中断处理系统 */
+    TK8710SetSimulationDataLoaded(1);
+    printf("仿真数据加载标志已设置\n\n");
+    return 0;
+}
 
 void read_register(void)
 {
@@ -522,10 +965,6 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
     trmConfig.callbacks.onRxData = OnTrmRxData;
     trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
     trmConfig.maxFrameCount = 0;  /* 扫频模式: 持续运行 */
-    trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
-    trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
-    trmConfig.groundStationJoinResponseStatus = GROUND_STATION_JOIN_RESPONSE_STATUS;
-    trmConfig.groundStationJoinResponseStatusSet = 1;
     printf("[扫频] 步骤5: TRM配置已准备\n");
     
     /* 6. 准备HAL初始化配置 */
@@ -535,10 +974,6 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
             .beamMaxUsers = trmConfig.beamMaxUsers,
             .beamTimeoutMs = trmConfig.beamTimeoutMs,
             .maxFrameCount = trmConfig.maxFrameCount,
-            .nodeRole = trmConfig.nodeRole,
-            .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
-            .groundStationJoinResponseStatus = trmConfig.groundStationJoinResponseStatus,
-            .groundStationJoinResponseStatusSet = trmConfig.groundStationJoinResponseStatusSet,
             .onRxData = trmConfig.callbacks.onRxData,
             .onTxComplete = trmConfig.callbacks.onTxComplete
         }
@@ -751,10 +1186,6 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     trmConfig.callbacks.onRxData = OnTrmRxData;
     trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
     trmConfig.maxFrameCount = config->tdd_num;
-    trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
-    trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
-    trmConfig.groundStationJoinResponseStatus = GROUND_STATION_JOIN_RESPONSE_STATUS;
-    trmConfig.groundStationJoinResponseStatusSet = 1;
     /* 4. 准备HAL初始化配置 */
     TK8710HalInitCfg halConfig = {
         .chipInitCfg = &chipConfig,
@@ -762,10 +1193,6 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
             .beamMaxUsers = trmConfig.beamMaxUsers,
             .beamTimeoutMs = trmConfig.beamTimeoutMs,
             .maxFrameCount = trmConfig.maxFrameCount,
-            .nodeRole = trmConfig.nodeRole,
-            .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
-            .groundStationJoinResponseStatus = trmConfig.groundStationJoinResponseStatus,
-            .groundStationJoinResponseStatusSet = trmConfig.groundStationJoinResponseStatusSet,
             .onRxData = trmConfig.callbacks.onRxData,
             .onTxComplete = trmConfig.callbacks.onTxComplete
         }
@@ -780,14 +1207,26 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
 
     printf("HAL initialization completed (including RF)\n");
 
+    // /* 3. 初始化默认日志系统（如果尚未初始化） */
+    // TK8710LogConfig_t defaultLogConfig = {
+    //     .level = TK8710_LOG_DEBUG,
+    //     .module_mask = TK8710_LOG_MODULE_ALL,
+    //     .callback = NULL,
+    //     .enable_timestamp = 1,
+    //     .enable_module_name = 1,
+    //     .enable_file_logging = 1,
+    //     .log_file_dir = NULL
+    // };
+    // TK8710LogInit(&defaultLogConfig);
+
     // 根据收到的配置重新配置时隙参数
     slotCfg_t slotCfg;
     memset(&slotCfg, 0, sizeof(slotCfg_t));
     
     // 配置基本参数
-    slotCfg.msMode = TK8710_MODE_SLAVE;
+    slotCfg.msMode = TK8710_MODE_MASTER;
     slotCfg.plCrcEn = 0;
-    slotCfg.brdUserNum = 0;
+    slotCfg.brdUserNum = 1;
     slotCfg.antEn = 0xFF;
     slotCfg.rfSel = 0xFF;
     slotCfg.txBeamCtrlMode = 1;
@@ -810,7 +1249,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     TRM_MultiRateSlotCalcInput multiSlotInput = {0};
     multiSlotInput.rateCount = config->rate_num;
     multiSlotInput.superFrameNum = config->tdd_num;
-    multiSlotInput.calcType = TRM_SLOT_CALC_TYPE_SATELLITE;
+    multiSlotInput.calcType = TRM_SLOT_CALC_TYPE_GROUND_WAN;
     
     // 设置minGap位置：多速率时在最后一个速率的DL时隙添加gap，单速率时在DL时隙添加gap
     if (config->rate_num > 1) {
@@ -829,7 +1268,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
         slotCfg.rateModes[i] = ConvertNsRateToTk8710Rate(config->rate_cfgs[i].rate);
         multiSlotInput.rateModes[i] = slotCfg.rateModes[i];
-        multiSlotInput.brdBlockNums[i] = 0;  // 广播包块数固定为2
+        multiSlotInput.brdBlockNums[i] = 2;  // 广播包块数固定为2
         multiSlotInput.ulBlockNums[i] = config->rate_cfgs[i].uplink_pkt;     // 上行包块数
         multiSlotInput.dlBlockNums[i] = config->rate_cfgs[i].downlink_pkt;   // 下行包块数
     }
@@ -842,13 +1281,11 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         
         // 为每个速率配置gap参数
         for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
-            slotCfg.s0Cfg[i].da_m = multiSlotOutput.rateConfigs[i].bcnGap;
             slotCfg.s1Cfg[i].da_m = multiSlotOutput.rateConfigs[i].brdGap;
             slotCfg.s2Cfg[i].da_m = multiSlotOutput.rateConfigs[i].ulGap;
             slotCfg.s3Cfg[i].da_m = multiSlotOutput.rateConfigs[i].dlGap;
-            printf("  速率[%d] 模式%d gap参数: BCN=%u, BRD=%u, UL=%u, DL=%u\n",
-                   i, slotCfg.rateModes[i],
-                   multiSlotOutput.rateConfigs[i].bcnGap,
+            printf("  速率[%d] 模式%d gap参数: BRD=%u, UL=%u, DL=%u\n", 
+                   i, slotCfg.rateModes[i], 
                    multiSlotOutput.rateConfigs[i].brdGap, 
                    multiSlotOutput.rateConfigs[i].ulGap, 
                    multiSlotOutput.rateConfigs[i].dlGap);
@@ -857,7 +1294,6 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         printf("❌ 多速率时隙计算失败，使用默认参数\n");
         // 使用默认参数
         for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
-            slotCfg.s0Cfg[i].da_m = 0;
             slotCfg.s1Cfg[i].da_m = 12000;
             slotCfg.s2Cfg[i].da_m = 12000;
             slotCfg.s3Cfg[i].da_m = 12000;
@@ -872,7 +1308,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         // 根据模式确定包块长度：模式18使用40，其他模式使用26
         int blockSize = (slotCfg.rateModes[i] == 18) ? 40 : 26;
         
-        slotCfg.s1Cfg[i].byteLen = 0;
+        slotCfg.s1Cfg[i].byteLen = blockSize * 2;
         slotCfg.s1Cfg[i].centerFreq = config->freq;
         slotCfg.s2Cfg[i].byteLen = config->rate_cfgs[i].uplink_pkt * blockSize;
         slotCfg.s2Cfg[i].centerFreq = config->freq;
@@ -889,6 +1325,54 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     
     printf("✅ 根据NS配置完成时隙参数配置\n");
 
+    /* 自动加载并发送仿真数据 */
+    int classNum = 3;  /* 默认class序号 */
+    int caseNum = 17;  /* 默认case序号 */
+     /* 根据模式设置不同的da_m值 */
+    switch (slotCfg.rateModes[0]) {
+        case 5:
+            classNum = 3;
+            caseNum = 1;
+            break;
+        case 6:
+            classNum = 3;
+            caseNum = 17;
+            break;
+        case 7:
+            classNum = 3;
+            caseNum = 33;
+            break;
+        case 8:
+            classNum = 3;
+            caseNum = 49;
+            break;
+        case 9:
+            classNum = 3;
+            caseNum = 65;
+            break;
+        case 10:
+            classNum = 3;
+            caseNum = 81;
+            break;
+        case 11:
+            classNum = 3;
+            caseNum = 97;
+            break;
+        case 18:
+            classNum = 3;
+            caseNum = 113;
+            break;
+        default:
+            printf("Error: Unsupported mode %d\n", slotCfg.rateModes[0]);
+            return -1;
+    }
+    printf("\n自动加载仿真数据...\n");
+    // uint16_t Length = slotCfg.s2Cfg[0].byteLen;
+    uint16_t Length = 512;
+    if (load_and_send_simulation_data(classNum, caseNum, Length) != 0) {
+        printf("警告: 仿真数据加载失败，程序将继续运行\n");
+    }
+
     // printf("配置为单天线接收模式...\n");
     // int ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0xc02c, 0x00010101);
     // if (ret == TK8710_OK) {
@@ -903,8 +1387,8 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     //     printf("HAL start failed: %d\n", halRet_start);
     //     return -1;
     // }
+    // printf("HAL started successfully (Master mode, Continuous work)\n");
     TK8710Start(TK8710_MODE_SLAVE, TK8710_WORK_MODE_CONTINUOUS);
-    printf("HAL started successfully (Slave mode, Continuous work)\n");
     g_ns_config_started = 1;
 
     if (!TK8710ScanIpcServerIsRunning()) {
@@ -1001,7 +1485,7 @@ static void OnTrmRxData(const TRM_RxDataList* rxDataList)
 static void OnTrmTxComplete(const TRM_TxCompleteResult* txResult)
 {
     if (!txResult) return;
-    
+
     printf("=== TRM发送完成事件,(超帧号: %u),(系统帧号：%u) ===\n",txResult->superFrameNo, TRM_GetCurrentFrame());
     printf("发送用户总数: %u, 剩余队列: %u\n", txResult->totalUsers, txResult->remainingQueue);
     g_trmSendCount += txResult->userCount;
@@ -1037,38 +1521,6 @@ void show_trm_statistics(void)
     printf("==================\n\n");
 }
 
-void show_satellite_observability(void)
-{
-    TRM_Stats stats;
-
-    printf("\n=== TRM卫星可观测统计 ===\n");
-    if (TRM_GetStats(&stats) != TRM_OK) {
-        printf("TRM统计读取失败\n");
-        printf("==================\n\n");
-        return;
-    }
-
-    printf("基础状态:\n");
-    printf("  TRM状态: %u\n", stats.state);
-    printf("  当前帧号: %u\n", TRM_GetCurrentFrame());
-    printf("  发送次数: %u\n", stats.txCount);
-    printf("  发送成功: %u\n", stats.txSuccessCount);
-    printf("  接收次数: %u\n", stats.rxCount);
-    printf("  通用波束数量: %u\n", stats.beamCount);
-    printf("  发送队列剩余: %u\n", stats.txQueueRemaining);
-
-    printf("卫星载荷统计:\n");
-    printf("  终端上行缓存数量: %u\n", stats.satelliteCacheCount);
-    printf("  地面站波束数量: %u\n", stats.satelliteGroundStationBeamCount);
-    printf("  终端到地面站路由数量: %u\n", stats.satelliteRouteCount);
-    printf("  波束未命中次数: %u\n", stats.satelliteBeamMissCount);
-
-    printf("地面站统计:\n");
-    printf("  地面站在线状态: %u\n", stats.groundStationOnline);
-    printf("  地面站终端波束数量: %u\n", stats.groundStationBeamCount);
-    printf("==================\n\n");
-}
-
 /*============================================================================
  * 主程序
  *============================================================================*/
@@ -1087,7 +1539,6 @@ void show_help(void)
     printf("  q/Q - Quit program\n");
     printf("\nTRM Commands (when TRM enabled):\n");
     printf("  t/T - Show TRM statistics\n");
-    printf("  v/V - Show TRM satellite observability stats\n");
     printf("  a/A - Start frequency sweep\n");
     printf("\nDriver Test Commands:\n");
     printf("  m/M - Manual downlink test (single user)\n");
@@ -1102,6 +1553,7 @@ void show_system_status(void)
     uint8_t brdUserNum = TK8710GetBrdUserNum();
     
     printf("\n=== System Status ===\n");
+    printf("Version: %s\n", TK8710_GW_VERSION_STRING);
     printf("Work mode: %s\n", workType == TK8710_MODE_MASTER ? "Master" : "Slave");
     printf("Rate mode: %d\n", rateMode);
     printf("Broadcast users: %d\n", brdUserNum);
@@ -1252,7 +1704,7 @@ int main(int argc, char* argv[])
     printf("\n");
     printf("+======================================+\n");
     printf("|   TK8710 Main Test Program           |\n");
-    printf("|   Version: 1.0 (RK3506)             |\n");
+    printf("|   Version: %-25s|\n", TK8710_GW_VERSION_STRING);
     printf("|   Complete Init, Config, Workflow   |\n");
     printf("+======================================+\n");
     
@@ -1329,7 +1781,7 @@ int main(int argc, char* argv[])
             .offset_adj  = 0,
             .tx_pre      = 0,
             .conti_mode  = 1,
-            .bcn_scan    = 1,
+            .bcn_scan    = 0,
             .ant_en      = 0xFF,
             .rf_sel      = 0xFF,
             .tx_bcn_en   = 1,
@@ -1353,10 +1805,6 @@ int main(int argc, char* argv[])
         trmConfig.callbacks.onRxData = OnTrmRxData;
         trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
         trmConfig.maxFrameCount = 2;
-        trmConfig.nodeRole = TRM_NODE_ROLE_GROUND_STATION;
-        trmConfig.groundStationJoinMaintainMs = GROUND_STATION_JOIN_MAINTAIN_MS;
-        trmConfig.groundStationJoinResponseStatus = GROUND_STATION_JOIN_RESPONSE_STATUS;
-        trmConfig.groundStationJoinResponseStatusSet = 1;
         /* 4. 准备HAL初始化配置 */
         TK8710HalInitCfg halConfig = {
             .chipInitCfg = &chipConfig,
@@ -1364,10 +1812,6 @@ int main(int argc, char* argv[])
                 .beamMaxUsers = trmConfig.beamMaxUsers,
                 .beamTimeoutMs = trmConfig.beamTimeoutMs,
                 .maxFrameCount = trmConfig.maxFrameCount,
-                .nodeRole = trmConfig.nodeRole,
-                .groundStationJoinMaintainMs = trmConfig.groundStationJoinMaintainMs,
-                .groundStationJoinResponseStatus = trmConfig.groundStationJoinResponseStatus,
-                .groundStationJoinResponseStatusSet = trmConfig.groundStationJoinResponseStatusSet,
                 .onRxData = trmConfig.callbacks.onRxData,
                 .onTxComplete = trmConfig.callbacks.onTxComplete
             }
@@ -1387,7 +1831,7 @@ int main(int argc, char* argv[])
         // 配置基本参数 (使用默认值)
         slotCfg.msMode = TK8710_MODE_MASTER;
         slotCfg.plCrcEn = 0;
-        slotCfg.brdUserNum = 0;
+        slotCfg.brdUserNum = 1;
         slotCfg.antEn = 0xFF;
         slotCfg.rfSel = 0xFF;
         slotCfg.txBeamCtrlMode = 1;
@@ -1481,8 +1925,8 @@ int main(int argc, char* argv[])
             continue;
         }
 #else
-        // int read_ret = ReadConsoleCommandWithIrqWatchdog(&input, g_ns_config_started);
-        int read_ret = ReadConsoleCommandWithIrqWatchdog(&input, 0);
+        int read_ret = ReadConsoleCommandWithIrqWatchdog(&input, g_ns_config_started);
+        // int read_ret = ReadConsoleCommandWithIrqWatchdog(&input, 0);
         if (read_ret < 0) {
             g_running = 0;
             break;
@@ -1520,11 +1964,6 @@ int main(int argc, char* argv[])
             case 't':
             case 'T':
                 show_trm_statistics();
-                break;
-
-            case 'v':
-            case 'V':
-                show_satellite_observability();
                 break;
 
             case 'r':

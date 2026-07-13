@@ -725,7 +725,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         .bcn_scan    = 0,
         .ant_en      = 0xFF,
         .rf_sel      = 0xFF,
-        .tx_bcn_en   = 0x1,//0xff
+        .tx_bcn_en   = 0xff,//0xff
         .ts_sync     = 0,
         .rf_model    = 1,
         .bcnbits     = network_id,
@@ -833,11 +833,13 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         
         // 为每个速率配置gap参数
         for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
+            slotCfg.s0Cfg[i].da_m = multiSlotOutput.rateConfigs[i].bcnGap;
             slotCfg.s1Cfg[i].da_m = multiSlotOutput.rateConfigs[i].brdGap;
             slotCfg.s2Cfg[i].da_m = multiSlotOutput.rateConfigs[i].ulGap;
             slotCfg.s3Cfg[i].da_m = multiSlotOutput.rateConfigs[i].dlGap;
-            printf("  速率[%d] 模式%d gap参数: BRD=%u, UL=%u, DL=%u\n", 
-                   i, slotCfg.rateModes[i], 
+            printf("  速率[%d] 模式%d gap参数: BCN=%u, BRD=%u, UL=%u, DL=%u\n",
+                   i, slotCfg.rateModes[i],
+                   multiSlotOutput.rateConfigs[i].bcnGap,
                    multiSlotOutput.rateConfigs[i].brdGap, 
                    multiSlotOutput.rateConfigs[i].ulGap, 
                    multiSlotOutput.rateConfigs[i].dlGap);
@@ -846,6 +848,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         printf("❌ 多速率时隙计算失败，使用默认参数\n");
         // 使用默认参数
         for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
+            slotCfg.s0Cfg[i].da_m = 0;
             slotCfg.s1Cfg[i].da_m = 12000;
             slotCfg.s2Cfg[i].da_m = 12000;
             slotCfg.s3Cfg[i].da_m = 12000;

@@ -894,41 +894,8 @@ int load_and_send_simulation_data(int classNum, int caseNum)
         uint8_t Data[500];
         uint16_t Len = 500;
 
-        for (int user = 0; user < userCount; user++) {
-            build_join_request_frame(Data, Len, 0xFF00U + (uint32_t)user);
-            if ((size_t)byteIndex < sizeof(spiDataBuffer)) {
-                spiDataBuffer[byteIndex] = txPowerData[user];
-                byteIndex++;
-            }
-            s_tx_pow_ctrl tx_pow_ctrl;
-            tx_pow_ctrl.data = 0;
-            tx_pow_ctrl.b.UserIndex = user;
-            tx_pow_ctrl.b.power = txPowerData[user];
-
-            ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
-                MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
-
-            ret = TK8710WriteBuffer(user, Data, Len);
-            if(user < 16){
-                tx_pow_ctrl.data = 0;
-                tx_pow_ctrl.b.UserIndex = user + 128;
-                tx_pow_ctrl.b.power = txPowerData[user];
-                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
-                    MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
-                                    /* 发送广播数据 */
-               build_join_request_frame(Data, Len, 0xFF00U + (uint32_t)user + 128U);
-               ret = TK8710WriteBuffer(user + 128, Data, Len);
-            }
-        }
         // for (int user = 0; user < userCount; user++) {
-        //     for(int i = 0; i < Len; i++){
-        //         if(i < 4){
-        //             Data[i] = user + i;
-        //         }else{
-        //             Data[i] = rand()%255;
-        //         }
-
-        //     }
+        //     build_join_request_frame(Data, Len, 0xFF00U + (uint32_t)user);
         //     if ((size_t)byteIndex < sizeof(spiDataBuffer)) {
         //         spiDataBuffer[byteIndex] = txPowerData[user];
         //         byteIndex++;
@@ -949,9 +916,42 @@ int load_and_send_simulation_data(int classNum, int caseNum)
         //         ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
         //             MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
         //                             /* 发送广播数据 */
+        //        build_join_request_frame(Data, Len, 0xFF00U + (uint32_t)user + 128U);
         //        ret = TK8710WriteBuffer(user + 128, Data, Len);
         //     }
         // }
+        for (int user = 0; user < userCount; user++) {
+            for(int i = 0; i < Len; i++){
+                if(i < 4){
+                    Data[i] = user + i;
+                }else{
+                    Data[i] = rand()%255;
+                }
+
+            }
+            if ((size_t)byteIndex < sizeof(spiDataBuffer)) {
+                spiDataBuffer[byteIndex] = txPowerData[user];
+                byteIndex++;
+            }
+            s_tx_pow_ctrl tx_pow_ctrl;
+            tx_pow_ctrl.data = 0;
+            tx_pow_ctrl.b.UserIndex = user;
+            tx_pow_ctrl.b.power = txPowerData[user];
+
+            ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
+
+            ret = TK8710WriteBuffer(user, Data, Len);
+            if(user < 16){
+                tx_pow_ctrl.data = 0;
+                tx_pow_ctrl.b.UserIndex = user + 128;
+                tx_pow_ctrl.b.power = txPowerData[user];
+                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                    MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
+                                    /* 发送广播数据 */
+               ret = TK8710WriteBuffer(user + 128, Data, Len);
+            }
+        }
         /* 打印前16个输入数据 (十六进制格式) */
         int printLen = (byteIndex < 16) ? byteIndex : 16;
         printf("TxPower SPI输入数据 (前%d字节): ", printLen);
@@ -1095,7 +1095,7 @@ int main(int argc, char* argv[])
     int s2ByteLen = 22;  /* 默认s2 byteLen */
     int s3ByteLen = 22;  /* 默认s3 byteLen */
     uint32_t freq = 509100000U;
-
+    uint32_t da_m0 = 0;
     /* 设置全局测试模式 */
     g_testMode = testMode;
 
@@ -1186,7 +1186,7 @@ int main(int argc, char* argv[])
                 return 1;
             }
         }
-
+        da_m0 = atoi(argv[8]);
         printf("Using test mode: %d, class: %d, case: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d, Freq: %u Hz\n",
                testMode, classNum, caseNum, s1ByteLen, s2ByteLen, s3ByteLen, freq);
     } else {
@@ -1376,46 +1376,46 @@ int main(int argc, char* argv[])
         //     slotCfg.s3Cfg[0].da_m = 800;
         //     break;
         case 5:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 21492;
             slotCfg.s2Cfg[0].da_m = 21492;
             slotCfg.s3Cfg[0].da_m = 65000;
             break;
         case 6:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 19728;
             slotCfg.s2Cfg[0].da_m = 19728;
             // slotCfg.s3Cfg[0].da_m = 31500;
-            slotCfg.s3Cfg[0].da_m = 31500+17168;
+            slotCfg.s3Cfg[0].da_m = 31500;
             break;
         case 7:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 12000;
             slotCfg.s2Cfg[0].da_m = 12000;
             slotCfg.s3Cfg[0].da_m = 14500;
             break;
         case 8:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 5600;
             slotCfg.s2Cfg[0].da_m = 5600;
             slotCfg.s3Cfg[0].da_m = 8000;
             // slotCfg.s3Cfg[0].da_m = 5600+7922;
             break;
         case 9:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 2800;
             slotCfg.s2Cfg[0].da_m = 2800;
             slotCfg.s3Cfg[0].da_m = 4500;
             break;
         case 10:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 1400;
             slotCfg.s2Cfg[0].da_m = 1400;
             slotCfg.s3Cfg[0].da_m = 1200;
             break;
         case 11:
         case 18:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 800;
             slotCfg.s2Cfg[0].da_m = 800;
             slotCfg.s3Cfg[0].da_m = 800;
@@ -1505,6 +1505,23 @@ int main(int argc, char* argv[])
 #else
                 system("clear");
 #endif
+                break;
+
+            case 'x':
+            case 'X':
+                printf("启动TK8710芯片...\n");
+                ret = TK8710Start(TK8710_MODE_SLAVE, TK8710_WORK_MODE_CONTINUOUS);
+                if (ret == TK8710_OK) {
+                    printf("TK8710芯片启动成功 (Slave模式, 连续工作)\n");
+                } else {
+                    printf("TK8710芯片启动失败: ret=%d\n", ret);
+                }
+                break;
+
+            case 'y':
+            case 'Y':
+                TK8710SpiReset(TK8710_RST_STATE_MACHINE);
+                printf("TK8710芯片已复位 (状态机复位)\n");
                 break;
 
             case 'l':

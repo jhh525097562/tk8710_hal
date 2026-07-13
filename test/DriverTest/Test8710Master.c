@@ -1059,6 +1059,7 @@ int main(int argc, char* argv[])
     uint32_t freq = 509100000U;
     uint32_t Txgain = 0x2a;
     uint32_t Rxgain = 0x7e;
+    uint32_t da_m0 = 0;
     /* 设置全局测试模式 */
     g_testMode = testMode;
 
@@ -1152,7 +1153,7 @@ int main(int argc, char* argv[])
 
         Txgain = atoi(argv[8]);
         Rxgain = atoi(argv[9]);
-
+        da_m0 = atoi(argv[10]);
         printf("Using test mode: %d, class: %d, case: %d, s1ByteLen: %d, s2ByteLen: %d, s3ByteLen: %d, Freq: %u Hz\n",
                testMode, classNum, caseNum, s1ByteLen, s2ByteLen, s3ByteLen, freq);
     } else {
@@ -1240,7 +1241,7 @@ int main(int argc, char* argv[])
         .bcn_scan    = 0,
         .ant_en      = 0xFF,
         .rf_sel      = 0xFF,
-        .tx_bcn_en   = 1,
+        .tx_bcn_en   = 0xff,
         .ts_sync     = 0,
         .rf_model    = 1,
         .bcnbits     = 10,
@@ -1305,45 +1306,45 @@ int main(int argc, char* argv[])
     /* 根据模式设置不同的da_m值 */
     switch (testMode) {
         case 5:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 21492;
             slotCfg.s2Cfg[0].da_m = 21492;
             slotCfg.s3Cfg[0].da_m = 65000;
             break;
         case 6:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 19728;
             slotCfg.s2Cfg[0].da_m = 19728;
             // slotCfg.s3Cfg[0].da_m = 31500;
-            slotCfg.s3Cfg[0].da_m = 31500+17168;
+            slotCfg.s3Cfg[0].da_m = 31500;
             break;
         case 7:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 12000;
             slotCfg.s2Cfg[0].da_m = 12000;
             slotCfg.s3Cfg[0].da_m = 14500;
             break;
         case 8:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 5600;
             slotCfg.s2Cfg[0].da_m = 5600;
             slotCfg.s3Cfg[0].da_m = 8000;
             break;
         case 9:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 2800;
             slotCfg.s2Cfg[0].da_m = 2800;
             slotCfg.s3Cfg[0].da_m = 4500;
             break;
         case 10:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 1400;
             slotCfg.s2Cfg[0].da_m = 1400;
             slotCfg.s3Cfg[0].da_m = 1200;
             break;
         case 11:
         case 18:
-            slotCfg.s0Cfg[0].da_m = 0;
+            slotCfg.s0Cfg[0].da_m = da_m0;
             slotCfg.s1Cfg[0].da_m = 800;
             slotCfg.s2Cfg[0].da_m = 800;
             slotCfg.s3Cfg[0].da_m = 800;
@@ -1584,6 +1585,34 @@ int main(int argc, char* argv[])
                 printf("Exiting program...\n");
                 g_running = 0;
                 break;
+
+            case 'u':
+            case 'U':
+            {
+                unsigned int wakeupMode;
+                unsigned int wakeupLen;
+                wakeUpParam_t wakeupParam;
+
+                printf("请输入唤醒模式和持续时间 (格式: mode len_ms，例如: 2 5000): ");
+                fflush(stdout);
+                if (scanf("%u %u", &wakeupMode, &wakeupLen) != 2 ||
+                    wakeupMode < 1 || wakeupMode > 3 || wakeupLen > 0xFFFFFFu) {
+                    printf("无效参数，模式范围: 1~3，持续时间范围: 0~16777215 ms\n");
+                    break;
+                }
+
+                wakeupParam.wakeUpMode = (wakeUpMode_e)wakeupMode;
+                wakeupParam.wakeUpId = 0;
+                wakeupParam.wakeUpLen = wakeupLen;
+                ret = TK8710Ctrl(TK8710_CTRL_TYPE_SEND_WAKEUP, &wakeupParam);
+                if (ret == TK8710_OK) {
+                    printf("唤醒信号发送配置成功: mode=%u, len=%u ms\n",
+                           wakeupMode, wakeupLen);
+                } else {
+                    printf("唤醒信号发送配置失败: ret=%d\n", ret);
+                }
+                break;
+            }
 
             default:
                 printf("Unknown command: %c (enter 'h' for help)\n", input);

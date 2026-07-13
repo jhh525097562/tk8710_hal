@@ -20,6 +20,8 @@ void TRM_SatelliteReset(void);
 int TRM_SatelliteAllowRxBeamStore(const uint8_t* data, uint16_t len);
 uint8_t TRM_SatelliteKeepRxBeam(const uint8_t* data, uint16_t len);
 uint8_t TRM_SatelliteKeepTxBeam(uint32_t userId);
+uint8_t TRM_SatelliteIsPayloadTx(void);
+uint8_t TRM_SatelliteIsPayloadGroundStationTx(uint32_t userId);
 uint8_t TRM_SatelliteIsGroundStationTx(void);
 int TRM_SatelliteGetTxBeam(uint32_t userId, TRM_BeamInfo* beamInfo);
 void TRM_SatelliteAdjustForwardBeam(uint8_t userIndex, uint8_t userCount,

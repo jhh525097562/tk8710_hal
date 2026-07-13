@@ -24,6 +24,12 @@ static const uint32_t g_bcnSlotLen[] = {
     [9] = 6510,   [10] = 6510,  [11] = 6510,  [18] = 6510
 };
 
+/* 卫星和地面站各模式的BCN基础间隔(us)，地面WAN固定使用0 */
+static const uint32_t g_bcnBaseGap[] = {
+    [5] = 0,      [6] = 0,     [7] = 20000, [8] = 30000,
+    [9] = 10000,  [10] = 5000, [11] = 0,    [18] = 0
+};
+
 static const uint32_t g_brdBaseBody[] = {
     [5] = 131072, [6] = 65536, [7] = 32768,  [8] = 16384,
     [9] = 8192,  [10] = 4096, [11] = 2048,  [18] = 2048
@@ -84,6 +90,14 @@ static const uint32_t* trm_get_dl_base_gap_table(uint8_t calcType)
     return g_dlBaseGap;
 }
 
+static uint32_t trm_get_bcn_base_gap(uint8_t calcType, uint8_t mode)
+{
+    if (calcType == TRM_SLOT_CALC_TYPE_SATELLITE) {
+        return g_bcnBaseGap[mode];
+    }
+    return 0;
+}
+
 /**
  * @brief 求最大公约数
  * @param a 第一个数
@@ -142,9 +156,9 @@ int trm_calc_slot_config(const TRM_SlotCalcInput* input, TRM_SlotCalcOutput* out
                 input->minGapPos[0], input->minGapPos[1], input->minGapPos[2], input->minGapPos[3]);
     
     /* 计算各时隙长度 */
-    output->bcnSlotLen = g_bcnSlotLen[mode];
     /* 初始间隔 */
-    output->bcnGap = 0;
+    output->bcnGap = trm_get_bcn_base_gap(calcType, mode);
+    output->bcnSlotLen = g_bcnSlotLen[mode] + output->bcnGap;
     output->brdGap = g_brdBaseGap[mode];
     output->ulGap  = g_ulBaseGap[mode];
     output->dlGap  = dlBaseGap[mode];
@@ -324,8 +338,8 @@ int trm_calc_multi_rate_slot_config(const TRM_MultiRateSlotCalcInput* input, TRM
         TRM_RateSlotConfig* config = &output->rateConfigs[i];
         
         /* 计算各时隙长度 */
-        config->bcnSlotLen = g_bcnSlotLen[mode];
-        config->bcnGap = 0;
+        config->bcnGap = trm_get_bcn_base_gap(calcType, mode);
+        config->bcnSlotLen = g_bcnSlotLen[mode] + config->bcnGap;
         config->brdGap = g_brdBaseGap[mode];
         config->ulGap = g_ulBaseGap[mode];
         config->dlGap = dlBaseGap[mode];
@@ -450,8 +464,8 @@ found_multi_rate_solution:
     
     for (uint8_t i = 0; i < input->rateCount; i++) {
         TRM_RateSlotConfig* config = &output->rateConfigs[i];
-        TRM_LOG_INFO("  Rate[%d] - Gaps: BRD:%u, UL:%u, DL:%u us", 
-                    i, config->brdGap, config->ulGap, config->dlGap);
+        TRM_LOG_INFO("  Rate[%d] - Gaps: BCN:%u, BRD:%u, UL:%u, DL:%u us",
+                    i, config->bcnGap, config->brdGap, config->ulGap, config->dlGap);
         TRM_LOG_INFO("  Rate[%d] - Slot lengths: BCN:%u, BRD:%u, UL:%u, DL:%u us", 
                     i, config->bcnSlotLen, config->brdSlotLen, 
                     config->ulSlotLen, config->dlSlotLen);
@@ -501,8 +515,8 @@ void trm_print_multi_rate_slot_calc_result(const TRM_MultiRateSlotCalcOutput* ou
     
     for (uint8_t i = 0; i < output->rateCount; i++) {
         const TRM_RateSlotConfig* config = &output->rateConfigs[i];
-        TRM_LOG_DEBUG("Rate[%d] - Gaps: BRD=%u, UL=%u, DL=%u us", 
-                      i, config->brdGap, config->ulGap, config->dlGap);
+        TRM_LOG_DEBUG("Rate[%d] - Gaps: BCN=%u, BRD=%u, UL=%u, DL=%u us",
+                      i, config->bcnGap, config->brdGap, config->ulGap, config->dlGap);
         TRM_LOG_DEBUG("Rate[%d] - Slot lengths: BCN=%u, BRD=%u, UL=%u, DL=%u us", 
                       i, config->bcnSlotLen, config->brdSlotLen, 
                       config->ulSlotLen, config->dlSlotLen);

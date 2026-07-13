@@ -125,6 +125,7 @@ static void* IrqThreadFunc(void* arg)
             TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 
                 MAC_BASE + offsetof(struct mac, irq_ctrl1), 
                 irqCtrl1.data);
+            TK8710ProcessRuntimeWatchdog();
             continue;
         }
         
@@ -140,6 +141,7 @@ static void* IrqThreadFunc(void* arg)
             /* GPIO中断回调，传递用户上下文 */
             g_halIrqCallback(g_halUserContext);
         }
+        TK8710ProcessRuntimeWatchdog();
     }
     
     return NULL;

@@ -1167,15 +1167,29 @@ int TK8710Ctrl(TK8710CtrlType type, const void* params)
         
         case TK8710_CTRL_TYPE_SEND_WAKEUP:
         {
-            wakeUpParam_t* wakeUpParam = (wakeUpParam_t*)params;
+            const wakeUpParam_t* wakeUpParam = (const wakeUpParam_t*)params;
+            s_wakeup_ctrl wakeupCtrl;
             
             if (wakeUpParam == NULL) {
                 return TK8710_ERR;
             }
-            
-            /* TODO: 实现唤醒信号发送逻辑 */
-            (void)wakeUpParam;
-            return TK8710_OK;
+
+            if (wakeUpParam->wakeUpMode < TK8710_WAKEUP_MODE_1 ||
+                wakeUpParam->wakeUpMode > TK8710_WAKEUP_MODE_3 ||
+                wakeUpParam->wakeUpLen > 0xFFFFFFu) {
+                TK8710_LOG_CONFIG_ERROR("Invalid wakeup parameters: mode=%u, len=%u ms",
+                                        (unsigned int)wakeUpParam->wakeUpMode,
+                                        (unsigned int)wakeUpParam->wakeUpLen);
+                return TK8710_ERR;
+            }
+
+            wakeupCtrl.data = 0;
+            wakeupCtrl.b.wakeup_mode = (uint32_t)wakeUpParam->wakeUpMode;
+            wakeupCtrl.b.wakeup_len = wakeUpParam->wakeUpLen;
+
+            return TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                                  MAC_BASE + offsetof(struct mac, wakeup_ctrl),
+                                  wakeupCtrl.data);
         }
         
         default:
