@@ -1,0 +1,85 @@
+# TK8710 HAL JTOOL Makefile for Windows
+
+CC = gcc
+AR = ar
+
+CFLAGS = -Wall -Wextra -Wno-unused-parameter -O2
+CFLAGS += -DPLATFORM_JTOOL -DWIN32_LEAN_AND_MEAN
+
+INC = -I./inc -I./inc/driver -I./inc/trm -I./inc/phy -I./port -I./port/jtool
+
+JTOOL_DLL = port/jtool/x64/jtool.dll
+LDFLAGS = $(JTOOL_DLL)
+
+BUILD_DIR = build_jtool
+
+PHY_SRC = \
+	src/phy/phy_api.c \
+	src/phy/phy_irq.c \
+	src/phy/phy_regs.c \
+	src/phy/phy_log.c \
+	src/phy/phy_test.c
+
+HAL_SRC = \
+	src/hal/hal_api.c \
+	src/hal/hal_cb.c \
+	src/hal/hal_status.c
+
+TRM_V02_SRC = \
+	src/trm/trm_queue.c \
+	src/trm/phy_data.c \
+	src/trm/phy_cfg.c \
+	src/trm/phy_stat.c
+
+LEGACY_SRC = \
+	src/driver/tk8710_log.c \
+	src/driver/tk8710_core.c \
+	src/driver/tk8710_config.c \
+	src/driver/tk8710_irq.c \
+	src/trm/trm_core.c \
+	src/trm/trm_beam.c \
+	src/trm/trm_data.c \
+	src/trm/trm_slot.c \
+	src/trm/trm_freq.c \
+	src/trm/trm_power.c \
+	src/trm/trm_log.c \
+	port/jtool/port_jtool.c
+
+ALL_SRC = $(PHY_SRC) $(HAL_SRC) $(TRM_V02_SRC) $(LEGACY_SRC)
+ALL_OBJ = $(patsubst %.c,$(BUILD_DIR)/%.o,$(ALL_SRC))
+
+LIB_TARGET = $(BUILD_DIR)/libtk8710_hal.a
+API_SMOKE_TEST = $(BUILD_DIR)/test_hal_phy_api.o
+
+.PHONY: all clean lib tests copy_dll
+
+all: lib tests
+
+lib: $(LIB_TARGET)
+
+tests: $(API_SMOKE_TEST)
+
+$(BUILD_DIR):
+	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
+	@if not exist $(BUILD_DIR)\src mkdir $(BUILD_DIR)\src
+	@if not exist $(BUILD_DIR)\src\phy mkdir $(BUILD_DIR)\src\phy
+	@if not exist $(BUILD_DIR)\src\hal mkdir $(BUILD_DIR)\src\hal
+	@if not exist $(BUILD_DIR)\src\trm mkdir $(BUILD_DIR)\src\trm
+	@if not exist $(BUILD_DIR)\src\driver mkdir $(BUILD_DIR)\src\driver
+	@if not exist $(BUILD_DIR)\port mkdir $(BUILD_DIR)\port
+	@if not exist $(BUILD_DIR)\port\jtool mkdir $(BUILD_DIR)\port\jtool
+
+$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(LIB_TARGET): $(ALL_OBJ)
+	$(AR) rcs $@ $^
+
+$(API_SMOKE_TEST): test/example/test_hal_phy_api.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+copy_dll: $(LIB_TARGET)
+	@copy port\jtool\x64\jtool.dll $(BUILD_DIR)\ >nul 2>&1 || echo.
+
+clean:
+	@if exist $(BUILD_DIR) rmdir /s /q $(BUILD_DIR)

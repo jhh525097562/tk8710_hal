@@ -1,0 +1,59 @@
+# 编译输出文件
+*.o
+*.a
+*.exe
+*.out
+*.elf
+*.bin
+*.hex
+
+# 临时文件
+*.tmp
+*.temp
+*~
+
+# 日志文件
+*.log
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 编译器生成的文件夹
+build/
+dist/
+build_rk3506/
+build_jtool/
+
+# 工具链/SDK压缩包
+arm-buildroot-linux-gnueabihf_sdk-buildroot.tar.gz
+
+# 常见链接库/动态库产物
+*.dll
+*.so
+*.so.*
+*.lib
+
+# 测试/运行时产物
+*.gcda
+*.gcno
+*.gcov
+
+# 调试文件
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# 配置文件（如果包含敏感信息）
+config.local.h
+
+# 本地缓存/中间文件
+*.cache
+*.bak

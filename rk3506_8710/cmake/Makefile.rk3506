@@ -1,0 +1,109 @@
+# TK8710 HAL RK3506 Makefile
+# 使用方法:
+# 1. source ~/arm-buildroot-linux-gnueabihf_sdk-buildroot/environment-setup
+# 2. make -f Makefile.rk3506
+
+# 交叉编译器
+CROSS_COMPILE ?= arm-buildroot-linux-gnueabihf-
+CC = $(CROSS_COMPILE)gcc
+AR = $(CROSS_COMPILE)ar
+
+# 编译选项
+CFLAGS = -Wall -Wextra -Wno-unused-parameter -O2
+CFLAGS += -march=armv7-a -mfpu=neon -mfloat-abi=hard
+CFLAGS += -DPLATFORM_RK3506
+
+# 头文件路径
+INC = -I./inc -I./inc/driver -I./inc/trm -I../../hal
+
+# 链接选项
+LDFLAGS = -lpthread -lgpiod
+
+# 输出目录
+BUILD_DIR = build_rk3506
+
+# 源文件
+COMMON_SRC = src/driver/tk8710_log.c
+DRIVER_SRC = src/driver/tk8710_core.c \
+             src/driver/tk8710_spi.c \
+             src/driver/tk8710_irq.c \
+             src/driver/tk8710_config.c
+TRM_SRC = src/trm/trm_core.c \
+          src/trm/trm_beam.c \
+          src/trm/trm_data.c \
+          src/trm/trm_slot.c
+PORT_SRC = port/rk3506/port_rk3506.c
+
+ALL_SRC = $(COMMON_SRC) $(DRIVER_SRC) $(TRM_SRC) $(PORT_SRC)
+ALL_OBJ = $(patsubst %.c,$(BUILD_DIR)/%.o,$(notdir $(ALL_SRC)))
+
+# 示例程序
+EXAMPLE_SRC = test/example/basic_example.c
+
+# 目标
+LIB_TARGET = $(BUILD_DIR)/libtk8710_hal.a
+EXAMPLE_TARGET = $(BUILD_DIR)/basic_example
+
+.PHONY: all clean lib example
+
+all: lib example
+
+lib: $(LIB_TARGET)
+
+example: $(EXAMPLE_TARGET)
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+# 编译目标文件
+$(BUILD_DIR)/mempool.o: src/common/mempool.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/tk8710_log.o: src/common/tk8710_log.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/tk8710_core.o: src/driver/tk8710_core.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/tk8710_spi.o: src/driver/tk8710_spi.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/tk8710_irq.o: src/driver/tk8710_irq.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/tk8710_config.o: src/driver/tk8710_config.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/port_rk3506.o: port/rk3506/port_rk3506.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/trm_core.o: src/trm/trm_core.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/trm_beam.o: src/trm/trm_beam.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/trm_data.o: src/trm/trm_data.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/trm_slot.o: src/trm/trm_slot.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+# 生成静态库
+$(LIB_TARGET): $(ALL_OBJ)
+	$(AR) rcs $@ $^
+	@echo "Library built: $@"
+
+# 生成示例程序
+$(EXAMPLE_TARGET): $(EXAMPLE_SRC) $(LIB_TARGET)
+	$(CC) $(CFLAGS) $(INC) $< -L$(BUILD_DIR) -ltk8710_hal $(LDFLAGS) -o $@
+	@echo "Example built: $@"
+
+clean:
+	rm -rf $(BUILD_DIR)
+
+# 显示编译信息
+info:
+	@echo "Cross Compiler: $(CC)"
+	@echo "CFLAGS: $(CFLAGS)"
+	@echo "Sources: $(ALL_SRC)"
