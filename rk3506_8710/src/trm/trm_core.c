@@ -8,9 +8,11 @@
 #include "../inc/trm/trm_log.h"
 #include "../inc/trm/trm_beam.h"
 #include "../inc/trm/trm_data.h"
+#include "../inc/trm/trm_satellite.h"
 #include "../inc/driver/tk8710_driver_api.h"
 #include "../inc/driver/tk8710_internal.h"
 #include "../inc/driver/tk8710_regs.h"
+#include "../inc/driver/tk8710_reg_pack.h"
 #include "../inc/driver/tk8710_rf_regs.h"
 #include "../inc/tk8710_noise_api.h"
 #include "../port/tk8710_hal.h"
@@ -75,6 +77,7 @@ typedef struct {
     int lastResult;
     uint32_t lastElapsedUs;
     uint32_t lastWaitUs;
+    uint32_t completedCount;
 } TRM_AcmCalibState;
 
 static volatile TRM_AcmCalibState g_acmCalibState = {
@@ -82,7 +85,8 @@ static volatile TRM_AcmCalibState g_acmCalibState = {
     .running = 0,
     .lastResult = TRM_OK,
     .lastElapsedUs = 0,
-    .lastWaitUs = 0
+    .lastWaitUs = 0,
+    .completedCount = 0
 };
 
 static volatile uint8_t g_acmS0MonitorRemaining = 0;
@@ -138,6 +142,14 @@ int TRM_Init(const TRM_InitConfig* config)
         TRM_LOG_WARN("TRM already initialized, state: %d", g_trmCtx.state);
         return TRM_ERR_STATE;
     }
+
+#if defined(TK8710_TMS570_PAYLOAD_ONLY)
+    if (config->nodeRole != TRM_NODE_ROLE_SAT_PAYLOAD) {
+        TRM_LOG_ERROR("TRM init rejected: TMS570 supports SAT_PAYLOAD role only, role=%d",
+                      config->nodeRole);
+        return TRM_ERR_PARAM;
+    }
+#endif
     
     /* 初始化TRM日志系统 */
     /* 注意：不重复初始化日志系统，使用全局设置 */
@@ -176,6 +188,8 @@ int TRM_Init(const TRM_InitConfig* config)
     /* 初始化发送队列 */
     TRM_DataInit();
     TRM_LOG_INFO("TX queue initialized");
+
+    TRM_SatelliteInit(&g_trmCtx.config);
     
     g_trmCtx.state = TRM_STATE_INIT;
     TRM_LOG_INFO("TRM system initialized, state: INIT");
@@ -209,6 +223,8 @@ int TRM_Deinit(void)
     /* 清理发送队列 */
     TRM_DataDeinit();
     TRM_LOG_INFO("TX queue cleaned");
+
+    TRM_SatelliteDeinit();
     
     g_trmCtx.state = TRM_STATE_UNINIT;
     TRM_LOG_INFO("TRM system cleaned, state: UNINIT");
@@ -225,6 +241,8 @@ int TRM_Reset(void)
     
     /* 清理发送队列 */
     TRM_ClearTxData(0xFFFFFFFF);
+
+    TRM_SatelliteReset();
     
     return TRM_OK;
 }
@@ -248,6 +266,7 @@ int TRM_GetStats(TRM_Stats* stats)
     uint32_t currentCount = TRM_GetTxQueueCount();
     uint32_t maxCapacity = TRM_GetTxQueueCapacity();
     stats->txQueueRemaining = (maxCapacity > currentCount) ? (maxCapacity - currentCount) : 0;
+    TRM_SatelliteUpdateStats(stats);
     
     return TRM_OK;
 }
@@ -309,6 +328,21 @@ int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request)
     return TRM_OK;
 }
 
+int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status)
+{
+    if (status == NULL) {
+        return TRM_ERR_PARAM;
+    }
+
+    status->pending = g_acmCalibState.pending;
+    status->running = g_acmCalibState.running;
+    status->completedCount = g_acmCalibState.completedCount;
+    status->lastResult = g_acmCalibState.lastResult;
+    status->lastElapsedUs = g_acmCalibState.lastElapsedUs;
+    status->lastWaitUs = g_acmCalibState.lastWaitUs;
+    return TRM_OK;
+}
+
 
 
 void TRM_SetMaxFrameCount(uint32_t maxCount)
@@ -353,7 +387,7 @@ static int TRM_ConfigSweepCapture(void)
 {
     s_ram_rd0 ramRd0;
     ramRd0.data = 0;
-    ramRd0.b.cap_en = 1;
+    ramRd0.data = TK8710_S_RAM_RD0_CAP_EN_SET(ramRd0.data, 1U);
 
     int ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
                              RX_MUP_BASE + offsetof(struct rx_mup, ram_rd0),
@@ -507,6 +541,11 @@ static void TRM_OnDriverSlotRxAdapter(TK8710IrqResult* irqResult)
 
     if (g_sweepState.sweep_active) {
         TRM_ProcessSweepCaptureInRx();
+    }
+
+    TRM_SatelliteProcessIrq(irqResult);
+    if (irqResult->irq_type == TK8710_IRQ_RX_BCN) {
+        return;
     }
 
     TRM_OnDriverSlotRx(irqResult);
@@ -709,6 +748,9 @@ static void TRM_OnDriverSlotEnd(uint8_t slotType, uint8_t slotIndex, uint32_t fr
 static void TRM_OnDriverTxSlot(uint8_t slotIndex, uint8_t maxUserCount, TK8710IrqResult* irqResult)
 {
     TRM_LOG_DEBUG("TRM: TxSlot: slot=%d, maxUsers=%d\n", slotIndex, maxUserCount);
+
+    TRM_SatelliteProcessTxSlot(maxUserCount, irqResult);
+    maxUserCount = TRM_SatelliteLimitTxUserCount(maxUserCount);
     
     /* 处理广播发送管理 */
     TRM_ManageBroadcast();
@@ -733,8 +775,9 @@ static uint32_t TRM_GetAcmSlot3WindowUs(const slotCfg_t* slotCfg, const TK8710Ir
     }
 
     if (TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, obv_4),
-                      &obv4.data) == TK8710_OK && obv4.b.s3_len > 0) {
-        return obv4.b.s3_len;
+                      &obv4.data) == TK8710_OK &&
+        TK8710_S_OBV_4_S3_LEN_GET(obv4.data) > 0U) {
+        return TK8710_S_OBV_4_S3_LEN_GET(obv4.data);
     }
 
     if (irqResult != NULL && irqResult->currentRateIndex < slotCfg->rateCount) {
@@ -760,7 +803,7 @@ static uint32_t TRM_ReadAcmSlot3LenUs(void)
         return 0;
     }
 
-    return obv4.b.s3_len;
+    return TK8710_S_OBV_4_S3_LEN_GET(obv4.data);
 }
 
 static int TRM_RefreshAcmSlotConfig(const slotCfg_t* slotCfg)
@@ -976,6 +1019,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
                  s0BeforePeriodUs, s0AfterStartPeriodUs,
                  s0BeforeCount, s0AfterStartCount,
                  (uint32_t)(fastStartEndUs - s0BeforeTimeUs));
+    g_acmCalibState.completedCount++;
     g_acmCalibState.running = 0;
 
     return TRM_OK;

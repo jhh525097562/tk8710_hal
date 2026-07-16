@@ -769,6 +769,29 @@ int TK8710GetAcmCalibrationFactors(AcmCalibrationFactors* calFactors)
         
         fclose(outputFile);
         TK8710_LOG_CONFIG_INFO("ACM calibration factors appended to TXT file: %s\n", filename);
+#elif defined(PLATFORM_TMS570)
+        uint8_t stored[TK8710_MAX_ANTENNAS * 8U];
+        uint32_t offset = 0U;
+
+        for (i = 0; i < TK8710_MAX_ANTENNAS; i++) {
+            uint32_t iFactor = calFactors->channels[i].i_factor & 0x3FFFFU;
+            uint32_t qFactor = calFactors->channels[i].q_factor & 0x3FFFFU;
+
+            stored[offset++] = (uint8_t)(iFactor >> 24);
+            stored[offset++] = (uint8_t)(iFactor >> 16);
+            stored[offset++] = (uint8_t)(iFactor >> 8);
+            stored[offset++] = (uint8_t)iFactor;
+            stored[offset++] = (uint8_t)(qFactor >> 24);
+            stored[offset++] = (uint8_t)(qFactor >> 16);
+            stored[offset++] = (uint8_t)(qFactor >> 8);
+            stored[offset++] = (uint8_t)qFactor;
+        }
+        if (TK8710PortStorageWrite("acm_cal_factors.bin", 0U,
+                                   stored, sizeof(stored)) != 0) {
+            TK8710_LOG_CONFIG_WARN("ACM calibration storage is not available");
+        } else {
+            TK8710_LOG_CONFIG_INFO("ACM calibration factors saved to platform storage");
+        }
 #endif
     }
     
@@ -1474,8 +1497,100 @@ int TK8710DebugCtrl(TK8710DebugCtrlType ctrlType, CtrlOptType optType,
 
             TK8710_LOG_CONFIG_INFO("Capture data operation completed\n");
             return TK8710_OK;
+#elif defined(PLATFORM_TMS570)
+            int ret;
+            int result = TK8710_OK;
+            int16_t* captureBuffer16;
+            uint8_t* captureBuffer;
+            uint32_t captureLength;
+            uint8_t currentRateMode;
+            RateModeParams rateParams;
+            s_ram_rd0 ramRd0;
+            int antenna;
+
+            if (TK8710PortCaptureWrite("capture", NULL, 0U) != 0) {
+                TK8710_LOG_CONFIG_WARN("Capture backend is not available");
+                return TK8710_ERR_STATE;
+            }
+
+            currentRateMode = TK8710GetRateMode();
+            if (TK8710GetRateModeParams(currentRateMode, &rateParams) != TK8710_OK) {
+                TK8710_LOG_CONFIG_ERROR("Get rate mode %u parameters failed", currentRateMode);
+                return TK8710_ERR;
+            }
+            switch (currentRateMode) {
+                case 5: case 6: case 7: case 8:
+                    captureLength = 16384U;
+                    break;
+                case 9:
+                    captureLength = 4096U;
+                    break;
+                case 10:
+                    captureLength = 2048U;
+                    break;
+                case 11: case 18:
+                    captureLength = 1024U;
+                    break;
+                default:
+                    captureLength = 16384U;
+                    break;
+            }
+
+            captureBuffer16 = (int16_t*)malloc(captureLength * sizeof(int16_t));
+            if (captureBuffer16 == NULL) {
+                TK8710_LOG_CONFIG_ERROR("Allocate capture buffer failed");
+                return TK8710_ERR;
+            }
+            captureBuffer = (uint8_t*)captureBuffer16;
+
+            ramRd0.data = TK8710_S_RAM_RD0_CAP_EN_ENCODE(1U);
+            ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                                 RX_MUP_BASE + offsetof(struct rx_mup, ram_rd0),
+                                 ramRd0.data);
+            if (ret != TK8710_OK) {
+                free(captureBuffer16);
+                return ret;
+            }
+
+            for (antenna = 0; antenna < TK8710_MAX_ANTENNAS; antenna++) {
+                char stream[24];
+                uint32_t sample;
+
+                memset(captureBuffer, 0, captureLength * 2U);
+                ret = TK8710SpiGetInfo((uint8_t)(TK8710_GET_INFO_CAPTURE_0 + antenna),
+                                       captureBuffer, captureLength * 2U - 10U);
+                if (ret != TK8710_OK) {
+                    TK8710_LOG_CONFIG_ERROR("Get antenna %d capture data failed: ret=%d",
+                                            antenna + 1, ret);
+                    result = ret;
+                    break;
+                }
+
+                for (sample = 0U; sample < captureLength; sample++) {
+                    uint8_t high = captureBuffer[sample * 2U];
+                    captureBuffer[sample * 2U] = captureBuffer[sample * 2U + 1U];
+                    captureBuffer[sample * 2U + 1U] = high;
+                }
+                (void)snprintf(stream, sizeof(stream), "capture_ant%d", antenna + 1);
+                if (TK8710PortCaptureWrite(stream, captureBuffer,
+                                           captureLength * 2U) != 0) {
+                    TK8710_LOG_CONFIG_ERROR("Write antenna %d capture data failed",
+                                            antenna + 1);
+                    result = TK8710_ERR_STATE;
+                    break;
+                }
+            }
+
+            ramRd0.data = 0U;
+            ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                                 RX_MUP_BASE + offsetof(struct rx_mup, ram_rd0),
+                                 ramRd0.data);
+            free(captureBuffer16);
+            if (result == TK8710_OK && ret != TK8710_OK) {
+                result = ret;
+            }
+            return result;
 #else
-            TK8710_LOG_CONFIG_WARN("Capture/FFT file dump is disabled on PLATFORM_TMS570");
             return TK8710_ERR_STATE;
 #endif
         }

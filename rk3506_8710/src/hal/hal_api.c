@@ -20,12 +20,16 @@ TK8710HalError TK8710HalInit(const TK8710HalInitCfg* cfg)
         chipConfig = (const ChipConfig*)cfg->chipInitCfg;
     }
 
-    TK8710PhyLogConfig(TK8710_LOG_WARN, 0xFFFFFFFFu, 1);
-    TRM_LogConfig(TRM_LOG_DEBUG, 1);//TRM_LOG_INFO
+    TK8710PhyLogConfig(TK8710_LOG_WARN, 0xFFFFFFFFu, 0);
+    TRM_LogConfig(TRM_LOG_INFO, 0);
 
     if (TRM_PhyInit(chipConfig, &trmConfig) != TRM_OK) {
         return TK8710_HAL_ERROR_INIT;
     }
+
+    /* TK8710Init initializes the Driver logger, so enforce the platform level
+     * again after the complete PHY/Driver initialization sequence. */
+    TK8710PhyLogConfig(TK8710_LOG_WARN, 0xFFFFFFFFu, 0);
 
     TK8710HalStatusSetState(TK8710_HAL_STATE_INIT);
     return TK8710_HAL_OK;

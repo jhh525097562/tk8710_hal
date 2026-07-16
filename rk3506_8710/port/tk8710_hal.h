@@ -96,6 +96,7 @@ void TK8710DelayMs(uint32_t ms);
  * @param us 延时微秒数
  */
 void TK8710DelayUs(uint32_t us);
+int TK8710SleepUntilUs(uint64_t targetUs);
 
 /**
  * @brief 获取系统时间戳 (毫秒)

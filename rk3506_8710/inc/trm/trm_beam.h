@@ -33,6 +33,8 @@ int TRM_SetBeamInfo(uint32_t userId, const TRM_BeamInfo* beamInfo);
  */
 int TRM_GetBeamInfo(uint32_t userId, TRM_BeamInfo* beamInfo);
 
+int TRM_TouchBeamInfoNoLock(uint32_t userId);
+
 /**
  * @brief 清除波束信息
  * @param userId 用户ID (0xFFFFFFFF表示清除所有)

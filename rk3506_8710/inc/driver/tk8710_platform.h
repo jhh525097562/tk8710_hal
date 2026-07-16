@@ -7,6 +7,7 @@
 #define TK8710_PLATFORM_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,6 +48,11 @@ extern "C" {
 void* TK8710PortMalloc(size_t size);
 void TK8710PortFree(void* ptr);
 void TK8710PortLogWrite(const char* text, size_t len);
+int TK8710PortStorageRead(const char* key, uint32_t offset, void* data, size_t len);
+int TK8710PortStorageWrite(const char* key, uint32_t offset, const void* data, size_t len);
+int TK8710PortStorageErase(const char* key);
+/* data == NULL and len == 0 probes whether a capture backend is available. */
+int TK8710PortCaptureWrite(const char* stream, const void* data, size_t len);
 
 #define TK8710_MALLOC(size) TK8710PortMalloc(size)
 #define TK8710_FREE(ptr)    TK8710PortFree(ptr)

@@ -74,8 +74,8 @@ int TRM_ExtractUserIdFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* u
     /* 根据帧类型提取用户ID */
     switch (mhdr.frameType) {
         case TRM_MAC_FRAMETYPE_JOIN_ACCEPT:
-            /* Join Accept帧：使用Join Accept结构中DevEUI的后四字节作为userID */
-            if (len >= 3 + 4 + 8) {  /* MHDR(3) + JoinResult(1) + DevEUI(8) */
+            /* Join Accept帧：MACPayload为JoinResult(1) + DevEUI(8) + ... */
+            if (len >= 3 + 1 + 8) {
                 *userId = TRM_ExtractUserIdFromDevEui(&data[3 + 1]);
                 TRM_LOG_DEBUG("TRM: Extracted user ID from Join Accept DevEUI: 0x%08X", *userId);
                 return 0;
@@ -85,8 +85,8 @@ int TRM_ExtractUserIdFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* u
             }
             
         case TRM_MAC_FRAMETYPE_JOIN_REQUEST:
-            /* Join Request帧：使用Join Request结构中DevEUI的后四字节作为userID */
-            if (len >= 3 + 4 + 8) {  /* MHDR(3) + Capacity(1) + DevEUI(8) */
+            /* Join Request帧：MACPayload为Capacity(1) + DevEUI(8) + DevNonce(2) */
+            if (len >= 3 + 1 + 8) {
                 *userId = TRM_ExtractUserIdFromDevEui(&data[3 + 1]);
                 TRM_LOG_DEBUG("TRM: Extracted user ID from Join Request DevEUI: 0x%08X", *userId);
                 return 0;
@@ -139,6 +139,45 @@ int TRM_ExtractUserIdFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* u
     }
 }
 
+int TRM_ExtractSrcAddrFromMacFrame(const uint8_t* data, uint16_t len, uint32_t* srcAddr)
+{
+    TrmMacMhdr mhdr;
+    uint8_t fhdrOffset = 3;
+
+    if (data == NULL || srcAddr == NULL || len < 3) {
+        TRM_LOG_ERROR("TRM: Invalid parameters for source address extraction");
+        return -1;
+    }
+
+    if (TRM_ParseMacMhdr(data, len, &mhdr) != 0) {
+        return -1;
+    }
+
+    if (mhdr.frameType == TRM_MAC_FRAMETYPE_JOIN_REQUEST ||
+        mhdr.frameType == TRM_MAC_FRAMETYPE_JOIN_ACCEPT) {
+        /* Join帧没有普通FHDR，data[3]是Capacity/JoinResult，身份字段从DevEUI开始。 */
+        return TRM_ExtractUserIdFromMacFrame(data, len, srcAddr);
+    }
+
+    if (mhdr.addrMode == 0) {
+        if (len < fhdrOffset + 2) {
+            return -1;
+        }
+        *srcAddr = ((uint32_t)data[fhdrOffset] << 8) | data[fhdrOffset + 1];
+        return 0;
+    }
+
+    if (len < fhdrOffset + 4) {
+        return -1;
+    }
+
+    *srcAddr = ((uint32_t)data[fhdrOffset + 3] << 24) |
+               ((uint32_t)data[fhdrOffset + 2] << 16) |
+               ((uint32_t)data[fhdrOffset + 1] << 8) |
+               (uint32_t)data[fhdrOffset + 0];
+    return 0;
+}
+
 int TRM_GetMacFrameQosInfo(const uint8_t* data, uint16_t len, uint8_t* qosPri, uint8_t* qosTtl)
 {
     if (data == NULL || qosPri == NULL || qosTtl == NULL || len < 2) {
@@ -171,19 +210,18 @@ int TRM_BuildMacMhdr(const TrmMacMhdr* mhdr, uint8_t* data, uint16_t maxLen)
     pos++;
     
     /* 构建第二个字节 (QoS相关) */
-    data[pos] = ((mhdr->qosPri & TRM_MHDR_QOSPRI_MASK) << TRM_MHDR_QOSPRI_SHIFT) |
-               ((mhdr->qosTtl & TRM_MHDR_QOSTTL_MASK) << TRM_MHDR_QOSTTL_SHIFT) |
-               ((mhdr->hopNum & TRM_MHDR_HOPNUM_MASK_LAN) << TRM_MHDR_HOPNUM_SHIFT) |
-               ((mhdr->hopCnt & TRM_MHDR_HOPCNT_MASK_LAN) << TRM_MHDR_HOPCNT_SHIFT) |
-                TRM_MHDR_HOPCNT_MASK_WAN;
+    data[pos] = ((mhdr->qosPri & 0x03) << TRM_MHDR_QOSPRI_SHIFT) |
+               ((mhdr->qosTtl & 0x03) << TRM_MHDR_QOSTTL_SHIFT) |
+               ((mhdr->hopNum & 0x03) << TRM_MHDR_HOPNUM_SHIFT) |
+               ((mhdr->hopCnt & 0x03) << TRM_MHDR_HOPCNT_SHIFT);
     pos++;
     
     /* 构建第三个字节 */
-    data[pos] = ((mhdr->securityMode & TRM_MHDR_SECURITYMODE_MASK) << TRM_MHDR_SECURITYMODE_SHIFT) |
-               ((mhdr->addrMode      & TRM_MHDR_ADDRMODE_MASK)      << TRM_MHDR_ADDRMODE_SHIFT)     |
-               ((mhdr->nwkMode       & TRM_MHDR_NWKMODE_MASK)       << TRM_MHDR_NWKMODE_SHIFT)      |
-               ((mhdr->powerCtrlType & TRM_MHDR_POWERCTRL_MASK)     << TRM_MHDR_POWERCTRL_SHIFT)    |
-               ((mhdr->rfu           & TRM_MHDR_RFU_MASK)           << TRM_MHDR_RFU_SHIFT);
+    data[pos] = ((mhdr->securityMode & 0x07) << TRM_MHDR_SECURITYMODE_SHIFT) |
+               ((mhdr->addrMode      & 0x01) << TRM_MHDR_ADDRMODE_SHIFT)     |
+               ((mhdr->nwkMode       & 0x03) << TRM_MHDR_NWKMODE_SHIFT)      |
+               ((mhdr->powerCtrlType & 0x01) << TRM_MHDR_POWERCTRL_SHIFT)    |
+               ((mhdr->rfu           & 0x01) << TRM_MHDR_RFU_SHIFT);
     pos++;
     
     TRM_LOG_DEBUG("TRM: MHDR built - FrameType=0x%01X, DevType=%d, QosPri=%d, TTL=%d", 

@@ -83,6 +83,10 @@ int TK8710WriteReg(uint8_t regType, uint16_t addr, uint32_t data);
  * @return 0-成功, 1-失败, 2-超时
  */
 int TK8710ReadReg(uint8_t regType, uint16_t addr, uint32_t* data);
+int TK8710CheckAndRestoreInit10(void);
+void TK8710NotifySlaveBcnReceived(void);
+void TK8710StartSlaveBcnWatchdog(void);
+void TK8710ProcessRuntimeWatchdog(void);
 
 /* ============================================================================
  * Buffer读写API (内部使用)

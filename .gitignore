@@ -1,47 +1,29 @@
-# CCS/Eclipse build output
-/Debug/
-/Release/
+# CCS build output
+Debug/
+Release/
 *.obj
 *.o
 *.out
-*.elf
-*.bin
-*.hex
 *.map
-*.d_raw
-*_linkInfo.xml
+*.d
+*.pp
 
-# Native build output and libraries
-build/
-build_*/
-dist/
+# Libraries and host build artifacts
 *.a
 *.lib
 *.so
-*.so.*
 *.dll
 *.exe
+build_rk3506/
+cmake/build_rk3506/
 
-# Logs, temporary files, and local caches
-*.log
-*.tmp
-*.temp
-*.bak
-*.cache
-*~
-tmp/
-.metadata/
-
-# Local editor and agent state
-.vscode/
-.idea/
+# Local tools and temporary data
 .agents/
 .codex/
 .opencode/
 .sisyphus/
-*.swp
-*.swo
+opencode.json
+tmp/
 
-# Operating-system files
-.DS_Store
-Thumbs.db
+# Nested repository metadata
+rk3506_8710/.git/

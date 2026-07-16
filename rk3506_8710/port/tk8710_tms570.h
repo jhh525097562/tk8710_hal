@@ -24,7 +24,7 @@ extern "C" {
 #define TK8710_TMS570_IRQ_PIN_DEFAULT  3
 #define TK8710_TMS570_RST_PIN_DEFAULT  1
 #define TK8710_TMS570_SDRAM_BASE       0x80000000UL
-#define TK8710_TMS570_SDRAM_SIZE       (2UL * 1024UL * 1024UL)
+#define TK8710_TMS570_SDRAM_SIZE       (8UL * 1024UL * 1024UL)
 #define TK8710_TMS570_SDRAM_TEST_SIZE  (64UL * 1024UL)
 #define TK8710_TMS570_SDRAM_TEST_BASE  (TK8710_TMS570_SDRAM_BASE + TK8710_TMS570_SDRAM_SIZE - TK8710_TMS570_SDRAM_TEST_SIZE)
 #define TK8710_TMS570_HEAP_SIZE        (512UL * 1024UL)
@@ -54,10 +54,14 @@ typedef struct {
     uint32_t sdrcr;
     uint32_t sdtimr;
     uint32_t sdsretr;
+    uint32_t pinmmr29;
+    uint32_t clk2cntl;
+    uint32_t vclkacon1;
 } TK8710Tms570EmifDiag;
 
 int TK8710Tms570Init(void);
 void TK8710Tms570PollIrq(void);
+int TK8710Tms570SdramRecoverAtLowClock(void);
 int TK8710Tms570SdramSelfTest(uint32_t base, uint32_t bytes);
 void TK8710Tms570GetStats(TK8710Tms570Stats* stats);
 void TK8710Tms570GetSdramDiag(TK8710Tms570SdramDiag* diag);

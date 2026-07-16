@@ -35,6 +35,13 @@ extern "C" {
  * ============================================================================= */
 #define TRM_BEAM_MAX_USERS_DEFAULT  3000    /* 默认最大用户数 */
 #define TRM_BEAM_TIMEOUT_DEFAULT    10000    /* 默认波束超时时间(ms) */
+#define TRM_GS_BEAM_MAX_DEFAULT     5        /* 卫星载荷默认维护地面站波束数 */
+#define TRM_GS_BEAM_TIMEOUT_DEFAULT 30000    /* 地面站波束默认超时时间(ms) */
+#define TRM_SAT_UPLINK_CACHE_DEFAULT 128     /* 卫星载荷默认终端上行缓存条数 */
+#define TRM_GS_TERMINAL_BEAM_DEFAULT 2048    /* 地面站默认终端波束容量 */
+#define TRM_GS_JOIN_MAINTAIN_DEFAULT 60000   /* 地面站入网维持周期(ms) */
+#define TRM_GS_BCN_THRESHOLD_DEFAULT 2       /* 地面站连续BCN正确阈值 */
+#define TRM_GS_JOIN_RESPONSE_REQUIRED_DEFAULT 1 /* 地面站Join Request默认需要Join Accept */
 
 /* =============================================================================
  * 类型定义
@@ -59,6 +66,13 @@ typedef enum {
     TRM_STATE_UNINIT = 0,
     TRM_STATE_INIT,
 } TrmState;
+
+/* TRM节点角色 */
+typedef enum {
+    TRM_NODE_ROLE_GROUND_GATEWAY = 0,  /* 当前地面网关 */
+    TRM_NODE_ROLE_SAT_PAYLOAD    = 1,  /* 卫星载荷 */
+    TRM_NODE_ROLE_GROUND_STATION = 2,  /* 卫星地面站 */
+} TRM_NodeRole;
 
 /* 速率模式 */
 typedef enum {
@@ -110,7 +124,18 @@ typedef struct {
     uint32_t    memAllocCount;     /* 内存分配次数 */
     uint32_t    memFreeCount;      /* 内存释放次数 */
     uint32_t    txQueueRemaining;   /* 剩余发送队列数量 */
+    uint32_t    satelliteCacheCount; /* 卫星终端上行缓存数量 */
+    uint32_t    satelliteGroundStationBeamCount; /* 卫星载荷地面站波束数量 */
+    uint32_t    satelliteRouteCount; /* 卫星终端到地面站路由数量 */
+    uint32_t    satelliteBeamMissCount; /* 卫星/地面站波束未命中次数 */
+    uint32_t    groundStationOnline; /* 地面站在线状态 */
+    uint32_t    groundStationBeamCount; /* 地面站终端波束数量 */
 } TRM_Stats;
+
+typedef enum {
+    TRM_SLOT_CALC_TYPE_GROUND_WAN = 0,  /* Ground WAN slot calculation */
+    TRM_SLOT_CALC_TYPE_SATELLITE = 1    /* Satellite slot calculation */
+} TRM_SlotCalcType;
 
 /* 单速率时隙计算器输入参数 */
 typedef struct {
@@ -120,6 +145,7 @@ typedef struct {
     uint8_t  dlBlockNum;     /**< 下行包块数 */
     uint8_t  superFrameNum;  /**< 超帧数 */
     uint8_t  minGapPos[4];   /**< minGap位置指示: [0]=BCN, [1]=BRD, [2]=UL, [3]=DL */
+    uint8_t  calcType;       /**< TRM_SlotCalcType, default 0=ground WAN */
 } TRM_SlotCalcInput;
 
 /* 多速率时隙计算器输入参数 */
@@ -131,6 +157,8 @@ typedef struct {
     uint8_t  dlBlockNums[4]; /**< 各速率的下行包块数 */
     uint8_t  superFrameNum;  /**< 超帧数 */
     uint8_t  minGapPos[4];   /**< minGap位置指示: [0]=BCN, [1]=BRD, [2]=UL, [3]=DL */
+    uint8_t  calcType;       /**< TRM_SlotCalcType, default 0=ground WAN */
+    
 } TRM_MultiRateSlotCalcInput;
 
 /* 单速率时隙计算器输出结果 */
@@ -225,6 +253,18 @@ typedef struct {
     
     /* 帧管理配置 */
     uint32_t     maxFrameCount;     /* 最大帧数 */
+
+    /* 卫星物联网角色配置 */
+    TRM_NodeRole nodeRole;          /* 节点角色，默认地面网关 */
+    uint32_t     localAddr;         /* 本节点地址，地面站入网请求使用 */
+    uint32_t     groundStationBeamMax;       /* 卫星载荷地面站波束容量 */
+    uint32_t     groundStationBeamTimeoutMs; /* 卫星载荷地面站波束超时 */
+    uint32_t     satelliteUplinkCacheSize;   /* 卫星载荷终端上行缓存容量 */
+    uint32_t     groundStationTerminalBeamMax; /* 地面站终端波束容量 */
+    uint32_t     groundStationJoinMaintainMs;  /* 地面站入网维持周期 */
+    uint32_t     groundStationBcnThreshold;    /* 地面站连续BCN正确阈值 */
+    uint8_t      groundStationJoinResponseStatus; /* Join Request ResponseStatus */
+    uint8_t      groundStationJoinResponseStatusSet; /* 是否显式配置ResponseStatus */
     
     /* 回调函数 */
     struct {
@@ -243,6 +283,15 @@ typedef struct {
     uint32_t restartAdvanceUs;  /* 提前重启时隙时间，单位us */
     uint32_t guardUs;           /* slot3剩余时间保护门限，单位us，0使用默认值 */
 } TRM_AcmCalibRequest;
+
+typedef struct {
+    uint8_t pending;
+    uint8_t running;
+    uint32_t completedCount;
+    int lastResult;
+    uint32_t lastElapsedUs;
+    uint32_t lastWaitUs;
+} TRM_AcmCalibStatus;
 
 /* =============================================================================
  * 系统初始化与控制API
@@ -314,6 +363,8 @@ uint32_t TRM_GetCurrentFrame(void);
  * @return TRM_OK成功，其他失败
  */
 int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request);
+
+int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status);
 
 /* =============================================================================
  * TRM日志系统API

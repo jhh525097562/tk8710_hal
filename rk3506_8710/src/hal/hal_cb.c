@@ -25,6 +25,16 @@ void TK8710HalCbBuildTrmConfig(TRM_InitConfig* trmConfig, const TK8710HalTrmCfg*
     trmConfig->beamMaxUsers = cfg->beamMaxUsers;
     trmConfig->beamTimeoutMs = cfg->beamTimeoutMs;
     trmConfig->maxFrameCount = cfg->maxFrameCount;
+    trmConfig->nodeRole = cfg->nodeRole;
+    trmConfig->localAddr = cfg->localAddr;
+    trmConfig->groundStationBeamMax = cfg->groundStationBeamMax;
+    trmConfig->groundStationBeamTimeoutMs = cfg->groundStationBeamTimeoutMs;
+    trmConfig->satelliteUplinkCacheSize = cfg->satelliteUplinkCacheSize;
+    trmConfig->groundStationTerminalBeamMax = cfg->groundStationTerminalBeamMax;
+    trmConfig->groundStationJoinMaintainMs = cfg->groundStationJoinMaintainMs;
+    trmConfig->groundStationBcnThreshold = cfg->groundStationBcnThreshold;
+    trmConfig->groundStationJoinResponseStatus = cfg->groundStationJoinResponseStatus;
+    trmConfig->groundStationJoinResponseStatusSet = cfg->groundStationJoinResponseStatusSet;
     trmConfig->callbacks.onRxData = cfg->onRxData;
     trmConfig->callbacks.onTxComplete = cfg->onTxComplete;
 }

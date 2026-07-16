@@ -59,7 +59,8 @@ MEMORY
     FLASH1  (RX) : origin=0x00180000 length=0x00180000
     STACKS  (RW) : origin=0x08000000 length=0x00001500
     RAM     (RW) : origin=0x08001500 length=0x0003EB00
-    SDRAM_TK8710 (RW) : origin=0x80000000 length=0x00200000
+    SDRAM_TK8710 (RW) : origin=0x80000000 length=0x007F0000
+    SDRAM_TEST   (RW) : origin=0x807F0000 length=0x00010000
 
 /* USER CODE BEGIN (2) */
 /* USER CODE END */

@@ -22,6 +22,10 @@
 #include <stdbool.h>
 
 #define TK8710_TXADC_CONFIG_PATH "TxDC/txadc.txt"
+#define TK8710_TXADC_STORAGE_KEY "txadc.bin"
+#define TK8710_TXADC_STORAGE_SIZE (TK8710_MAX_ANTENNAS * 4U)
+#define TK8710_INIT10_RF_READY_VALUE (1U << 2)
+#define SLAVE_BCN_WATCHDOG_INTERVAL_MS 30000U
 
 /* 默认GPIO中断包装函数 */
 static void default_gpio_irq_handler(void* user)
@@ -30,6 +34,25 @@ static void default_gpio_irq_handler(void* user)
     
     /* 调用Driver层中断处理函数 */
     TK8710_IRQHandler();
+}
+
+static int TK8710HardwareResetPulse(void)
+{
+#if defined(PLATFORM_TMS570)
+    TK8710GpioWrite(1, 0);
+    TK8710DelayMs(10U);
+    TK8710GpioWrite(1, 1);
+    return TK8710_OK;
+#else
+    int ret;
+
+    ret = TK8710GpioSet("gpiochip0", 13, 0);
+    if (ret != TK8710_OK) {
+        return ret;
+    }
+    usleep(10000);
+    return TK8710GpioSet("gpiochip0", 13, 1);
+#endif
 }
 
 /* 速率模式参数查找表 */
@@ -70,6 +93,16 @@ static const ChipConfig g_defaultChipConfig = {
 };
 
 static uint8_t g_currentBcnBits = 10;
+static volatile uint32_t g_lastInit10Config = TK8710_INIT10_RF_READY_VALUE;
+static volatile uint8_t g_lastInit10ConfigValid = 0U;
+static volatile uint8_t g_slaveBcnWatchdogActive = 0U;
+static uint32_t g_slaveBcnWatchdogLastRecoveryMs = 0U;
+
+static void TK8710RecordInit10Config(uint32_t value)
+{
+    g_lastInit10Config = value;
+    g_lastInit10ConfigValid = 1U;
+}
 
 /* 注：工作类型、速率模式、天线使能、RF选择、广播用户数均已迁移到g_slotCfg中 */
 
@@ -194,6 +227,31 @@ static int TK8710LoadTxAdcConfigFromFile(TxAdcConfig txadc[TK8710_MAX_ANTENNAS])
 
     memcpy(txadc, loaded, sizeof(loaded));
     TK8710_LOG_CORE_INFO("Loaded TXADC config from %s", TK8710_TXADC_CONFIG_PATH);
+    return TK8710_OK;
+#elif defined(PLATFORM_TMS570)
+    uint8_t stored[TK8710_TXADC_STORAGE_SIZE];
+    int index;
+
+    if (txadc == NULL) {
+        return TK8710_ERR;
+    }
+    if (TK8710PortStorageRead(TK8710_TXADC_STORAGE_KEY, 0U,
+                              stored, sizeof(stored)) != 0) {
+        TK8710_LOG_CORE_WARN("TXADC storage %s is not available",
+                             TK8710_TXADC_STORAGE_KEY);
+        return TK8710_ERR;
+    }
+
+    for (index = 0; index < TK8710_MAX_ANTENNAS; index++) {
+        uint32_t offset = (uint32_t)index * 4U;
+        uint16_t iValue = ((uint16_t)stored[offset] << 8) |
+                          (uint16_t)stored[offset + 1U];
+        uint16_t qValue = ((uint16_t)stored[offset + 2U] << 8) |
+                          (uint16_t)stored[offset + 3U];
+        txadc[index].i = (int16_t)iValue;
+        txadc[index].q = (int16_t)qValue;
+    }
+    TK8710_LOG_CORE_INFO("Loaded TXADC config from platform storage");
     return TK8710_OK;
 #else
     (void)txadc;
@@ -352,15 +410,6 @@ int tk8710_rf_read(uint8_t rfSel, uint16_t addr, uint32_t* data)
  */
 int TK8710Init(const ChipConfig* initConfig)
 {
-#if defined(PLATFORM_TMS570)
-    TK8710GpioWrite(1, 0);
-    TK8710DelayMs(10U);
-    TK8710GpioWrite(1, 1);
-#else
-    TK8710GpioSet("gpiochip0", 13, 0);
-    usleep(10000);  /* 10ms等待复位完成 */
-    TK8710GpioSet("gpiochip0", 13, 1);
-#endif
     int ret;
     s_init_0 init0;
     s_init_5 init5;
@@ -368,16 +417,29 @@ int TK8710Init(const ChipConfig* initConfig)
     // s_init_11 init11;
     s_irq_ctrl1 irqCtrl1;
     const ChipConfig* cfg = initConfig ? initConfig : &g_defaultChipConfig;
+
+    ret = TK8710HardwareResetPulse();
+    if (ret != TK8710_OK) {
+        return ret;
+    }
     
     
     /* 初始化默认日志系统（如果尚未初始化） */
     TK8710LogConfig_t defaultLogConfig = {
+#if defined(PLATFORM_TMS570)
+        .level = TK8710_LOG_WARN,
+#else
         .level = TK8710_LOG_INFO,
+#endif
         .module_mask = TK8710_LOG_MODULE_ALL,
         .callback = NULL,
         .enable_timestamp = 1,
         .enable_module_name = 1,
+#if defined(PLATFORM_TMS570)
+        .enable_file_logging = 0,
+#else
         .enable_file_logging = 1,
+#endif
         .log_file_dir = NULL
     };
     TK8710LogInit(&defaultLogConfig);
@@ -578,7 +640,7 @@ int TK8710Init(const ChipConfig* initConfig)
  * @param workMode 工作模式: 1=连续, 2=单次
  * @return 0-成功, 1-失败, 2-超时
  */
-int TK8710Start(uint8_t workType, uint8_t workMode)
+static int tk8710_start_once(uint8_t workType, uint8_t workMode)
 {
     int ret;
     s_init_5 init5;
@@ -751,6 +813,91 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
 
     TK8710_LOG_CORE_INFO("Work started: type=%d, mode=%d", workType, workMode);
     return ret;
+}
+
+int TK8710Start(uint8_t workType, uint8_t workMode)
+{
+    uint8_t enableSlaveBcnWatchdog =
+        (workType == TK8710_MODE_SLAVE &&
+         workMode == TK8710_WORK_MODE_CONTINUOUS) ? 1U : 0U;
+    int ret;
+
+    g_slaveBcnWatchdogActive = enableSlaveBcnWatchdog;
+    if (enableSlaveBcnWatchdog != 0U) {
+        g_slaveBcnWatchdogLastRecoveryMs = TK8710GetTickMs();
+    }
+
+    ret = tk8710_start_once(workType, workMode);
+    if (ret == TK8710_OK && enableSlaveBcnWatchdog != 0U) {
+        if (g_slaveBcnWatchdogActive != 0U) {
+            TK8710_LOG_CORE_INFO("Slave first-BCN watchdog started, recovery interval=%u ms",
+                                 SLAVE_BCN_WATCHDOG_INTERVAL_MS);
+        } else {
+            TK8710_LOG_CORE_INFO("Slave received first RX_BCN during startup");
+        }
+    } else if (ret != TK8710_OK) {
+        g_slaveBcnWatchdogActive = 0U;
+    }
+
+    return ret;
+}
+
+void TK8710NotifySlaveBcnReceived(void)
+{
+    if (g_slaveBcnWatchdogActive != 0U) {
+        g_slaveBcnWatchdogActive = 0U;
+        TK8710_LOG_CORE_INFO("Slave received RX_BCN, BCN watchdog stopped");
+    }
+}
+
+void TK8710StartSlaveBcnWatchdog(void)
+{
+    if (TK8710GetWorkType() != TK8710_MODE_SLAVE) {
+        return;
+    }
+
+    g_slaveBcnWatchdogLastRecoveryMs = TK8710GetTickMs();
+    g_slaveBcnWatchdogActive = 1U;
+    TK8710_LOG_CORE_INFO("Slave BCN watchdog restarted, recovery interval=%u ms",
+                         SLAVE_BCN_WATCHDOG_INTERVAL_MS);
+}
+
+void TK8710ProcessRuntimeWatchdog(void)
+{
+    uint32_t nowMs;
+    int ret;
+
+    if (g_slaveBcnWatchdogActive == 0U ||
+        TK8710GetWorkType() != TK8710_MODE_SLAVE) {
+        return;
+    }
+
+    nowMs = TK8710GetTickMs();
+    if ((uint32_t)(nowMs - g_slaveBcnWatchdogLastRecoveryMs) <
+        SLAVE_BCN_WATCHDOG_INTERVAL_MS) {
+        return;
+    }
+    g_slaveBcnWatchdogLastRecoveryMs = nowMs;
+
+    TK8710_LOG_CORE_WARN("Slave has not received RX_BCN for %u ms, restarting state machine",
+                         SLAVE_BCN_WATCHDOG_INTERVAL_MS);
+
+    ret = TK8710SpiReset(TK8710_RST_STATE_MACHINE);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("Slave BCN watchdog state-machine reset failed: %d", ret);
+        return;
+    }
+    TK8710DelayMs(10U);
+
+    ret = tk8710_start_once(TK8710_MODE_SLAVE, TK8710_WORK_MODE_CONTINUOUS);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("Slave BCN watchdog restart failed: %d", ret);
+        return;
+    }
+
+    if (g_slaveBcnWatchdogActive != 0U) {
+        TK8710_LOG_CORE_INFO("Slave BCN watchdog restart completed");
+    }
 }
 
 /**
@@ -1152,11 +1299,14 @@ int TK8710RfConfig(const ChiprfConfig* initrfConfig)
     usleep(20000);  /* 20ms等待RF完全打开和稳定 */
 
     /* 12. 打开PA */
-    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_10), (1 << 2));
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                         MAC_BASE + offsetof(struct mac, init_10),
+                         TK8710_INIT10_RF_READY_VALUE);
     if (ret != TK8710_OK) {
         TK8710_LOG_CORE_ERROR("PA enable failed: %d", ret);
         return ret;
     }
+    TK8710RecordInit10Config(TK8710_INIT10_RF_READY_VALUE);
     TK8710_LOG_CORE_DEBUG("PA enabled");
     
     /* 等待PA稳定 */
@@ -1215,15 +1365,12 @@ int TK8710Reset(uint8_t rstType)
 {
     int ret;
     uint8_t resetConfig = 0;
-#if defined(PLATFORM_TMS570)
-    TK8710GpioWrite(1, 0);
-    TK8710DelayMs(10U);
-    TK8710GpioWrite(1, 1);
-#else
-    TK8710GpioSet("gpiochip0", 13, 0);
-    usleep(10000);  /* 10ms等待复位完成 */
-    TK8710GpioSet("gpiochip0", 13, 1);
-#endif
+
+    g_slaveBcnWatchdogActive = 0U;
+    ret = TK8710HardwareResetPulse();
+    if (ret != TK8710_OK) {
+        return ret;
+    }
     /* 根据复位类型设置复位配置 */
     switch (rstType) {
         case TK8710_RST_STATE_MACHINE:
@@ -1286,6 +1433,36 @@ int TK8710ReadReg(uint8_t regType, uint16_t addr, uint32_t* data)
         /* RF寄存器: 通过内部SPI接口读取 */
         return tk8710_rf_read(regType, addr, data);
     }
+}
+
+int TK8710CheckAndRestoreInit10(void)
+{
+    uint32_t currentValue;
+    uint32_t expectedValue = (g_lastInit10ConfigValid != 0U) ?
+        g_lastInit10Config : TK8710_INIT10_RF_READY_VALUE;
+    int ret;
+
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        MAC_BASE + offsetof(struct mac, init_10),
+                        &currentValue);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("init_10 check read failed: ret=%d", ret);
+        return ret;
+    }
+
+    if (currentValue == expectedValue) {
+        return TK8710_OK;
+    }
+
+    TK8710_LOG_CORE_ERROR("init_10 mismatch: read=0x%08X expected=0x%08X, restoring",
+                          currentValue, expectedValue);
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                         MAC_BASE + offsetof(struct mac, init_10),
+                         expectedValue);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("init_10 restore failed: ret=%d", ret);
+    }
+    return ret;
 }
 
 /**

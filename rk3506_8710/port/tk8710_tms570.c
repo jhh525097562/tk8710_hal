@@ -14,6 +14,7 @@
 #include "sys_core.h"
 #include "sys_vim.h"
 #include "emif.h"
+#include "reg_pinmux.h"
 #include "reg_system.h"
 
 #include <stdint.h>
@@ -214,6 +215,38 @@ void TK8710PortFree(void* ptr)
         }
     }
     TK8710ExitCritical();
+}
+
+int TK8710PortStorageRead(const char* key, uint32_t offset, void* data, size_t len)
+{
+    (void)key;
+    (void)offset;
+    (void)data;
+    (void)len;
+    return -1;
+}
+
+int TK8710PortStorageWrite(const char* key, uint32_t offset, const void* data, size_t len)
+{
+    (void)key;
+    (void)offset;
+    (void)data;
+    (void)len;
+    return -1;
+}
+
+int TK8710PortStorageErase(const char* key)
+{
+    (void)key;
+    return -1;
+}
+
+int TK8710PortCaptureWrite(const char* stream, const void* data, size_t len)
+{
+    (void)stream;
+    (void)data;
+    (void)len;
+    return -1;
 }
 
 void TK8710PortLogWrite(const char* text, size_t len)
@@ -703,6 +736,13 @@ void TK8710DelayUs(uint32_t us)
     }
 }
 
+int TK8710SleepUntilUs(uint64_t targetUs)
+{
+    while (TK8710GetTimeUs() < targetUs) {
+    }
+    return 0;
+}
+
 void TK8710DelayMs(uint32_t ms)
 {
     while (ms-- > 0U) {
@@ -957,11 +997,37 @@ int TK8710GpioGet(const char* chipPath, unsigned int lineOffset)
     return (int)TK8710GpioRead((int)lineOffset);
 }
 
+int TK8710Tms570SdramRecoverAtLowClock(void)
+{
+    uint32_t originalClk2Cntl = systemREG2->CLK2CNTL;
+    volatile uint32_t settle;
+
+    /* Reinitialize below 40 MHz as required by the HALCoGen EMIF startup flow. */
+    systemREG2->CLK2CNTL = (originalClk2Cntl & 0xFFFFFFF0U) | 0x00000007U;
+    settle = systemREG2->CLK2CNTL;
+    for (settle = 0U; settle < 1024U; settle++) {
+    }
+
+    emif_SDRAM_StartupInit();
+
+    systemREG2->CLK2CNTL = originalClk2Cntl;
+    settle = systemREG2->CLK2CNTL;
+    for (settle = 0U; settle < 1024U; settle++) {
+    }
+
+    systemREG1->GPREG1 |= 0x80000000U;
+    *((volatile unsigned char*)(&emifREG->SDCR) + 0x0U) = 0x00U;
+
+    return 0;
+}
+
 int TK8710Tms570SdramSelfTest(uint32_t base, uint32_t bytes)
 {
     volatile uint16_t* mem = (volatile uint16_t*)base;
     uint32_t halfWords = bytes / sizeof(uint16_t);
     uint32_t i;
+    uint32_t walkingFailCount = 0U;
+    uint16_t walkingPassMask = 0U;
     uint16_t expected;
     uint16_t actual;
 
@@ -976,10 +1042,16 @@ int TK8710Tms570SdramSelfTest(uint32_t base, uint32_t bytes)
         expected = (uint16_t)((uint16_t)1U << i);
         mem[0] = expected;
         actual = mem[0];
-        if (actual != expected) {
-            sdram_diag_set(1U, base, (uint32_t)expected, (uint32_t)actual, i);
-            return -1;
+        if (actual == expected) {
+            walkingPassMask = (uint16_t)(walkingPassMask | expected);
+        } else {
+            walkingFailCount++;
         }
+    }
+    if (walkingPassMask != 0xFFFFU) {
+        sdram_diag_set(1U, base, 0x0000FFFFU,
+                       (uint32_t)walkingPassMask, walkingFailCount);
+        return -1;
     }
 
     for (i = 0U; i < halfWords; i++) {
@@ -1037,6 +1109,9 @@ void TK8710Tms570GetEmifDiag(TK8710Tms570EmifDiag* diag)
     diag->sdrcr = emifREG->SDRCR;
     diag->sdtimr = emifREG->SDTIMR;
     diag->sdsretr = emifREG->SDSRETR;
+    diag->pinmmr29 = pinMuxReg->PINMMR29;
+    diag->clk2cntl = systemREG2->CLK2CNTL;
+    diag->vclkacon1 = systemREG2->VCLKACON1;
 }
 
 void TK8710Tms570GetStats(TK8710Tms570Stats* stats)

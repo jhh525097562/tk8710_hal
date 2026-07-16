@@ -35,6 +35,16 @@ typedef struct {
     uint32_t beamMaxUsers;
     uint32_t beamTimeoutMs;
     uint32_t maxFrameCount;
+    TRM_NodeRole nodeRole;
+    uint32_t localAddr;
+    uint32_t groundStationBeamMax;
+    uint32_t groundStationBeamTimeoutMs;
+    uint32_t satelliteUplinkCacheSize;
+    uint32_t groundStationTerminalBeamMax;
+    uint32_t groundStationJoinMaintainMs;
+    uint32_t groundStationBcnThreshold;
+    uint8_t groundStationJoinResponseStatus;
+    uint8_t groundStationJoinResponseStatusSet;
     TrmOnRxData onRxData;
     TrmOnTxComplete onTxComplete;
 } TK8710HalTrmCfg;

@@ -223,6 +223,18 @@ int TRM_GetBeamInfo(uint32_t userId, TRM_BeamInfo* beamInfo)
     return TRM_ERR_NO_BEAM;
 }
 
+int TRM_TouchBeamInfoNoLock(uint32_t userId)
+{
+    BeamEntry* entry = BeamFindEntry(userId);
+
+    if (entry == NULL || !entry->beamInfo.valid) {
+        return TRM_ERR_NO_BEAM;
+    }
+
+    entry->beamInfo.timestamp = (uint32_t)(TK8710GetTimeUs() / 1000U);
+    return TRM_OK;
+}
+
 int TRM_ClearBeamInfo(uint32_t userId)
 {
     TK8710EnterCritical();
