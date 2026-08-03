@@ -11,10 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if defined(PLATFORM_TMS570) && defined(__TI_COMPILER_VERSION__)
-#pragma SET_DATA_SECTION(".tk8710_sdram")
-#endif
-
 /* 外部函数声明 */
 extern void TK8710EnterCritical(void);
 extern void TK8710ExitCritical(void);
@@ -24,7 +20,12 @@ extern uint64_t TK8710GetTimeUs(void);
  * 私有定义
  *============================================================================*/
 
-#define BEAM_TABLE_SIZE     4096    /* 哈希表大小 */
+#if defined(PLATFORM_TMS570)
+#define BEAM_TABLE_SIZE     512U
+#define BEAM_NODE_POOL_SIZE 512U
+#else
+#define BEAM_TABLE_SIZE     4096U
+#endif
 
 /* 波束条目 */
 typedef struct BeamEntry {
@@ -45,7 +46,11 @@ typedef struct {
  * 私有变量
  *============================================================================*/
 
-static BeamTable g_beamTable TK8710_SECTION_SDRAM;
+static BeamTable g_beamTable;
+#if defined(PLATFORM_TMS570)
+static BeamEntry g_beamPool[BEAM_NODE_POOL_SIZE];
+static BeamEntry* g_beamFreeList;
+#endif
 
 /*==============================================================================
  * 私有函数
@@ -58,6 +63,34 @@ static uint32_t BeamHashFunc(uint32_t userId)
      * 这个常数能提供良好的哈希分布特性
      */
     return (userId * 2654435761U) % BEAM_TABLE_SIZE;
+}
+
+static BeamEntry* BeamAllocEntry(void)
+{
+#if defined(PLATFORM_TMS570)
+    BeamEntry* entry = g_beamFreeList;
+    if (entry != NULL) {
+        g_beamFreeList = entry->next;
+        entry->next = NULL;
+    }
+    return entry;
+#else
+    return (BeamEntry*)TK8710_MALLOC(sizeof(BeamEntry));
+#endif
+}
+
+static void BeamFreeEntry(BeamEntry* entry)
+{
+    if (entry == NULL) {
+        return;
+    }
+#if defined(PLATFORM_TMS570)
+    (void)memset(entry, 0, sizeof(*entry));
+    entry->next = g_beamFreeList;
+    g_beamFreeList = entry;
+#else
+    TK8710_FREE(entry);
+#endif
 }
 
 static BeamEntry* BeamFindEntry(uint32_t userId)
@@ -127,7 +160,7 @@ int TRM_SetBeamInfo(uint32_t userId, const TRM_BeamInfo* beamInfo)
 
         /* 新建 */
         TRM_LOG_DEBUG("TRM: Creating new beam entry for user ID=0x%08X", userId);
-        entry = (BeamEntry*)TK8710_MALLOC(sizeof(BeamEntry));
+        entry = BeamAllocEntry();
         if (entry == NULL) {
             TK8710ExitCritical();
             TRM_LOG_ERROR("TRM: Failed to allocate memory for beam entry");
@@ -245,7 +278,7 @@ int TRM_ClearBeamInfo(uint32_t userId)
             BeamEntry* entry = g_beamTable.table[i];
             while (entry != NULL) {
                 BeamEntry* next = entry->next;
-                TK8710_FREE(entry);
+                BeamFreeEntry(entry);
                 entry = next;
             }
             g_beamTable.table[i] = NULL;
@@ -264,7 +297,7 @@ int TRM_ClearBeamInfo(uint32_t userId)
                 } else {
                     prev->next = entry->next;
                 }
-                TK8710_FREE(entry);
+                BeamFreeEntry(entry);
                 g_beamTable.count--;
                 break;
             }
@@ -288,6 +321,20 @@ int TRM_SetBeamTimeout(uint32_t timeoutMs)
 void TRM_BeamInit(uint32_t maxUsers, uint32_t timeoutMs)
 {
     memset(&g_beamTable, 0, sizeof(g_beamTable));
+#if defined(PLATFORM_TMS570)
+    {
+        uint32_t i;
+        (void)memset(g_beamPool, 0, sizeof(g_beamPool));
+        for (i = 0U; i + 1U < BEAM_NODE_POOL_SIZE; i++) {
+            g_beamPool[i].next = &g_beamPool[i + 1U];
+        }
+        g_beamPool[BEAM_NODE_POOL_SIZE - 1U].next = NULL;
+        g_beamFreeList = &g_beamPool[0];
+        if (maxUsers > BEAM_NODE_POOL_SIZE) {
+            maxUsers = BEAM_NODE_POOL_SIZE;
+        }
+    }
+#endif
     g_beamTable.maxUsers = maxUsers;
     g_beamTable.timeoutMs = timeoutMs;
 }

@@ -322,6 +322,7 @@ uint8_t TK8710GetTxBeamCtrlMode(void);
  * @note 内部函数，不建议应用层直接调用
  */
 int TK8710GetAcmCalibrationFactors(AcmCalibrationFactors* calFactors);
+int TK8710GetLastAcmCalibrationFactors(AcmCalibrationFactors* calFactors);
 
 /**
  * @brief 补偿一次S3结束后的速率状态更新

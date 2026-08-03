@@ -6,6 +6,7 @@
 #include "tk8710_tms570.h"
 #include "../inc/driver/tk8710_regs.h"
 #include "../inc/driver/tk8710_internal.h"
+#include "../inc/driver/tk8710_reg_pack.h"
 
 #include "mibspi.h"
 #include "gio.h"
@@ -20,6 +21,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <math.h>
 
 #define TK8710_SPI_CMD_RST          0x00U
 #define TK8710_SPI_CMD_WR_REG       0x01U
@@ -30,24 +32,42 @@
 #define TK8710_SPI_CMD_GET_INFO     0x07U
 #define TK8710_REG_SIZE             4U
 #define TK8710_NOP_BYTE             0x00U
-#define TK8710_SPI_TX_BUF_SIZE      (16384U * 2U + 4U)
-#define TK8710_SPI_RX_BUF_SIZE      (16384U * 2U + 4U)
+#define TK8710_SPI_TX_BUF_SIZE      5164U
+#define TK8710_SPI_RX_BUF_SIZE      5164U
 
-#define TK8710_MIBSPI1_BANK_A_TG    0U
-#define TK8710_MIBSPI1_BANK_B_TG    7U
-#define TK8710_MIBSPI1_BANK_A       0U
-#define TK8710_MIBSPI1_BANK_B       1U
-#define TK8710_MIBSPI1_BANK_A_START 0U
-#define TK8710_MIBSPI1_BANK_B_START TK8710_TMS570_SPI_BANK_SIZE
-#define TK8710_MIBSPI1_RAM_ENTRIES  TK8710_TMS570_SPI_GROUP_WORDS
-#define TK8710_MIBSPI1_TIMEOUT      1000000U
-#define TK8710_MIBSPI1_STATUS_OK    0U
-#define TK8710_MIBSPI1_STATUS_TIMEOUT 0x80000000U
-#define TK8710_MIBSPI1_CS0_MASK     ((uint32)1U << PIN_CS0)
-#define TK8710_MIBSPI1_CLK_MASK     ((uint32)1U << PIN_CLK)
-#define TK8710_MIBSPI1_SIMO_MASK    ((uint32)1U << PIN_SIMO)
-#define TK8710_MIBSPI1_SOMI_MASK    ((uint32)1U << PIN_SOMI)
+#define TK8710_MIBSPI3_BANK_A_TG    0U
+#define TK8710_MIBSPI3_BANK_B_TG    7U
+#define TK8710_MIBSPI3_BANK_A       0U
+#define TK8710_MIBSPI3_BANK_B       1U
+#define TK8710_MIBSPI3_BANK_A_START 0U
+#define TK8710_MIBSPI3_BANK_B_START TK8710_TMS570_SPI_BANK_SIZE
+#define TK8710_MIBSPI3_RAM_ENTRIES  TK8710_TMS570_SPI_GROUP_WORDS
+#define TK8710_MIBSPI3_TIMEOUT      1000000U
+#define TK8710_MIBSPI3_STATUS_OK    0U
+#define TK8710_MIBSPI3_STATUS_TIMEOUT 0x80000000U
+#define TK8710_MIBSPI3_CS3_MASK     ((uint32)1U << PIN_CS3)
+#define TK8710_MIBSPI3_CLK_MASK     ((uint32)1U << PIN_CLK)
+#define TK8710_MIBSPI3_SIMO_MASK    ((uint32)1U << PIN_SIMO)
+#define TK8710_MIBSPI3_SOMI_MASK    ((uint32)1U << PIN_SOMI)
 #define TK8710_GIO_HIGH_CHANNEL     9U
+
+#define TK8710_CAPTURE_ANTENNAS             8U
+#define TK8710_CAPTURE_BANKS                2U
+#define TK8710_CAPTURE_MAX_RAW_BYTES        32768U
+#define TK8710_CAPTURE_MAX_FFT_LEN          8192U
+#define TK8710_CAPTURE_FIRST_MD_WAIT_COUNT  1U
+#define TK8710_CAPTURE_RX_WAIT_COUNT        2U
+#define TK8710_CAPTURE_ANOISE_THE1          4U
+#define TK8710_CAPTURE_ANOISE_THE2          5U
+#define TK8710_CAPTURE_ANOISE_MIN_VAL       (1.0F / 2048.0F)
+#define TK8710_CAPTURE_ANOISE_OFFSET        (-140.0F)
+#define TK8710_CAPTURE_PI                   3.14159265358979F
+#define TK8710_CAPTURE_ERR_PARAM            (-1)
+#define TK8710_CAPTURE_ERR_BUSY             (-2)
+#define TK8710_CAPTURE_ERR_ARM              (-3)
+#define TK8710_CAPTURE_ERR_SPI              (-4)
+#define TK8710_CAPTURE_ERR_PROCESS          (-5)
+#define TK8710_CAPTURE_ERR_UNAVAILABLE      (-6)
 
 #ifndef TK8710_TMS570_RTI_TICKS_PER_US
 #define TK8710_TMS570_RTI_TICKS_PER_US 10U
@@ -69,7 +89,7 @@
      ((uint32)TK8710_TMS570_SPI_PRESCALE << 8U) | \
      ((uint32)TK8710_TMS570_SPI_BITS << 0U))
 
-#define TK8710_MIBSPI1_TGCTRL(start) \
+#define TK8710_MIBSPI3_TGCTRL(start) \
     (0xFFFF7FFFU & (((uint32)1U << 30U) | \
      ((uint32)0U << 29U) | \
      ((uint32)TRG_ALWAYS << 20U) | \
@@ -82,14 +102,57 @@ typedef struct TK8710HeapBlock {
     struct TK8710HeapBlock* next;
 } TK8710HeapBlock;
 
+typedef struct {
+    float real;
+    float imag;
+} TK8710CaptureComplex;
+
+typedef struct {
+    TK8710CaptureState state;
+    uint8_t rateMode;
+    uint8_t activeAntenna;
+    uint8_t processAntenna;
+    uint8_t waitRxCount;
+    uint8_t waitRxTarget;
+    uint8_t nextWaitRxTarget;
+    uint8_t writeBank;
+    uint8_t publishedBank;
+    uint8_t publishedValid;
+    uint8_t validAntennaMask;
+    uint32_t rawBytes;
+    uint32_t fftLength;
+    uint32_t twiddleLength;
+    uint32_t generation;
+    uint32_t publishedTimestampMs;
+    uint32_t publishedRawBytes;
+    uint32_t errorCount;
+    uint32_t lastSpiUs;
+    uint32_t maxSpiUs;
+    uint32_t lastFftUs;
+    uint32_t maxFftUs;
+    int32_t lastError;
+    uint8_t publishedRateMode;
+    uint8_t publishedValidMask;
+    float workingNoiseDbmHz[TK8710_CAPTURE_ANTENNAS];
+    float publishedNoiseDbmHz[TK8710_CAPTURE_ANTENNAS];
+} TK8710CaptureContext;
+
 #if defined(__TI_COMPILER_VERSION__)
-#pragma DATA_SECTION(g_spiTxBuf, ".tk8710_sdram")
-#pragma DATA_SECTION(g_spiRxBuf, ".tk8710_sdram")
-#pragma DATA_SECTION(g_tk8710Heap, ".tk8710_sdram")
+#pragma DATA_SECTION(g_captureBanks, ".tk8710_sdram")
+#pragma DATA_SECTION(g_captureFft, ".tk8710_sdram")
+#pragma DATA_SECTION(g_capturePower, ".tk8710_sdram")
+#pragma DATA_SECTION(g_captureTwiddle, ".tk8710_sdram")
 #endif
-static uint8_t g_spiTxBuf[TK8710_SPI_TX_BUF_SIZE] TK8710_SECTION_SDRAM;
-static uint8_t g_spiRxBuf[TK8710_SPI_RX_BUF_SIZE] TK8710_SECTION_SDRAM;
-static uint8_t g_tk8710Heap[TK8710_TMS570_HEAP_SIZE] TK8710_SECTION_SDRAM;
+static uint8_t g_spiTxBuf[TK8710_SPI_TX_BUF_SIZE];
+static uint8_t g_spiRxBuf[TK8710_SPI_RX_BUF_SIZE];
+static uint8_t g_tk8710Heap[TK8710_TMS570_HEAP_SIZE];
+static uint8_t g_captureBanks[TK8710_CAPTURE_BANKS][TK8710_CAPTURE_ANTENNAS]
+                             [TK8710_CAPTURE_MAX_RAW_BYTES] TK8710_SECTION_SDRAM;
+static TK8710CaptureComplex g_captureFft[TK8710_CAPTURE_MAX_FFT_LEN]
+                                                TK8710_SECTION_SDRAM;
+static float g_capturePower[TK8710_CAPTURE_MAX_FFT_LEN] TK8710_SECTION_SDRAM;
+static TK8710CaptureComplex g_captureTwiddle[TK8710_CAPTURE_MAX_FFT_LEN]
+                                                     TK8710_SECTION_SDRAM;
 
 static TK8710HeapBlock* g_heapHead = NULL;
 static uint32_t g_heapUsed = 0U;
@@ -97,6 +160,14 @@ static uint32_t g_heapPeak = 0U;
 static uint32_t g_heapFailCount = 0U;
 static uint32_t g_spiErrorCount = 0U;
 static uint32_t g_irqCount = 0U;
+static uint32_t g_irqEdgeCount = 0U;
+static uint32_t g_irqLevelRecoveryCount = 0U;
+static uint32_t g_irqStatusPollCount = 0U;
+static uint32_t g_spiResetCount = 0U;
+static uint32_t g_resetDriveLowCount = 0U;
+static uint32_t g_resetPinLowCount = 0U;
+static uint32_t g_portInitCount = 0U;
+static uint32_t g_spiInitCount = 0U;
 static volatile uint32_t g_irqPending = 0U;
 static volatile uint32_t g_sdramFailPhase = 0U;
 static volatile uint32_t g_sdramFailAddress = 0U;
@@ -105,7 +176,12 @@ static volatile uint32_t g_sdramActual = 0U;
 static volatile uint32_t g_sdramFailIndex = 0U;
 static uint8_t g_spiInitialized = 0U;
 static uint8_t g_portInitialized = 0U;
+static uint8_t g_sdramAvailable = 0U;
 static uint32_t g_criticalDepth = 0U;
+static uint32_t g_rtiLastFrc = 0U;
+static uint64_t g_rtiElapsedTicks = 0U;
+static uint8_t g_rtiTimeInitialized = 0U;
+static TK8710CaptureContext g_captureContext;
 
 static TK8710GpioIrqCallback g_irqCallback = NULL;
 static void* g_irqUser = NULL;
@@ -113,16 +189,30 @@ static gioPORT_t* g_irqPort = gioPORTA;
 static uint32_t g_irqBit = TK8710_TMS570_IRQ_PIN_DEFAULT;
 
 static uint32_t gio_interrupt_mask(gioPORT_t* port, uint32_t bit);
-static void configure_mibspi1_16mhz(void);
+static void configure_mibspi3_16mhz(void);
 static uint32_t transfer_ping_pong(const uint8_t* tx, uint8_t* rx, uint32_t len);
+static uint32_t transfer_get_info(uint8_t infoType, uint8_t* data,
+                                  uint32_t dataLen);
 static void load_bank(uint32_t bank, const uint8_t* tx, uint32_t len);
+static void load_get_info_bank(uint32_t bank, uint8_t infoType,
+                               uint32_t offset, uint32_t len);
 static void start_bank(uint32_t bank);
 static uint32_t wait_bank_complete(uint32_t bank);
 static uint32_t read_bank(uint32_t bank, uint8_t* rx, uint32_t len);
+static uint32_t read_get_info_bank(uint32_t bank, uint8_t* data,
+                                   uint32_t dataLen, uint32_t offset,
+                                   uint32_t len);
 static uint32_t bank_start(uint32_t bank);
 static uint32_t bank_group(uint32_t bank);
 static void configure_scilin_uart(void);
 static void enable_emif_runtime_access(void);
+static int capture_get_config(uint8_t rateMode, uint32_t* rawBytes,
+                              uint32_t* fftLength);
+static int capture_set_enable(uint8_t enable);
+static int capture_fail(int error);
+static void capture_prepare_twiddles(uint32_t fftLength);
+static int capture_process_antenna(uint8_t antenna);
+static void capture_publish(void);
 void TK8710Tms570GioHighLevelInterrupt(void);
 
 static uint32_t align8(uint32_t value)
@@ -243,10 +333,462 @@ int TK8710PortStorageErase(const char* key)
 
 int TK8710PortCaptureWrite(const char* stream, const void* data, size_t len)
 {
-    (void)stream;
-    (void)data;
-    (void)len;
+    if ((stream != NULL) && (data == NULL) && (len == 0U)) {
+        return 0;
+    }
     return -1;
+}
+
+static int capture_get_config(uint8_t rateMode, uint32_t* rawBytes,
+                              uint32_t* fftLength)
+{
+    uint32_t rawValues;
+
+    if ((rawBytes == NULL) || (fftLength == NULL)) {
+        return TK8710_CAPTURE_ERR_PARAM;
+    }
+
+    switch (rateMode) {
+        case 5U:
+        case 6U:
+        case 7U:
+        case 8U:
+            rawValues = 16384U;
+            *fftLength = 8192U;
+            break;
+        case 9U:
+            rawValues = 8192U;
+            *fftLength = 4096U;
+            break;
+        case 10U:
+            rawValues = 4096U;
+            *fftLength = 2048U;
+            break;
+        case 11U:
+        case 18U:
+            rawValues = 2048U;
+            *fftLength = 1024U;
+            break;
+        default:
+            return TK8710_CAPTURE_ERR_PARAM;
+    }
+
+    *rawBytes = rawValues * 2U;
+    return 0;
+}
+
+static int capture_set_enable(uint8_t enable)
+{
+    uint32_t value = TK8710_S_RAM_RD0_CAP_EN_ENCODE((enable != 0U) ? 1U : 0U);
+
+    return TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                          RX_MUP_BASE + offsetof(struct rx_mup, ram_rd0),
+                          value);
+}
+
+static int capture_fail(int error)
+{
+    (void)capture_set_enable(0U);
+    g_captureContext.state = TK8710_CAPTURE_STATE_ERROR;
+    g_captureContext.lastError = error;
+    g_captureContext.errorCount++;
+    return error;
+}
+
+static void capture_prepare_twiddles(uint32_t fftLength)
+{
+    uint32_t index;
+
+    if (g_captureContext.twiddleLength == fftLength) {
+        return;
+    }
+
+    for (index = 0U; index < (fftLength / 2U); index++) {
+        float angle = (-2.0F * TK8710_CAPTURE_PI * (float)index) /
+                      (float)fftLength;
+        g_captureTwiddle[index].real = cosf(angle);
+        g_captureTwiddle[index].imag = sinf(angle);
+    }
+    g_captureContext.twiddleLength = fftLength;
+}
+
+static void capture_fft_radix2(uint32_t fftLength)
+{
+    uint32_t index;
+    uint32_t reversed = 0U;
+    uint32_t step;
+
+    for (index = 0U; index < (fftLength - 1U); index++) {
+        uint32_t bit;
+
+        if (index < reversed) {
+            TK8710CaptureComplex temp = g_captureFft[index];
+            g_captureFft[index] = g_captureFft[reversed];
+            g_captureFft[reversed] = temp;
+        }
+
+        bit = fftLength >> 1U;
+        while ((bit != 0U) && ((reversed & bit) != 0U)) {
+            reversed &= ~bit;
+            bit >>= 1U;
+        }
+        reversed |= bit;
+    }
+
+    for (step = 1U; step < fftLength; step <<= 1U) {
+        uint32_t groupSize = step << 1U;
+        uint32_t twiddleStride = fftLength / groupSize;
+        uint32_t offset;
+
+        for (offset = 0U; offset < step; offset++) {
+            TK8710CaptureComplex w = g_captureTwiddle[offset * twiddleStride];
+            uint32_t base;
+
+            for (base = offset; base < fftLength; base += groupSize) {
+                uint32_t pair = base + step;
+                TK8710CaptureComplex upper = g_captureFft[base];
+                TK8710CaptureComplex lower = g_captureFft[pair];
+                TK8710CaptureComplex product;
+
+                product.real = w.real * lower.real - w.imag * lower.imag;
+                product.imag = w.real * lower.imag + w.imag * lower.real;
+                g_captureFft[base].real = upper.real + product.real;
+                g_captureFft[base].imag = upper.imag + product.imag;
+                g_captureFft[pair].real = upper.real - product.real;
+                g_captureFft[pair].imag = upper.imag - product.imag;
+            }
+        }
+    }
+}
+
+static int16_t capture_decode_le16(const uint8_t* data)
+{
+    uint16_t value = (uint16_t)data[0] | ((uint16_t)data[1] << 8U);
+    return (int16_t)value;
+}
+
+static int capture_process_antenna(uint8_t antenna)
+{
+    const uint8_t* raw;
+    uint32_t fftLength = g_captureContext.fftLength;
+    uint32_t index;
+    float minimum;
+    float maximum;
+    float noiseFloor;
+
+    if ((antenna >= TK8710_CAPTURE_ANTENNAS) ||
+        (fftLength == 0U) || (fftLength > TK8710_CAPTURE_MAX_FFT_LEN)) {
+        return TK8710_CAPTURE_ERR_PROCESS;
+    }
+
+    raw = g_captureBanks[g_captureContext.writeBank][antenna];
+    capture_prepare_twiddles(fftLength);
+    for (index = 0U; index < fftLength; index++) {
+        int16_t real = capture_decode_le16(&raw[index * 4U]);
+        int16_t imag = capture_decode_le16(&raw[index * 4U + 2U]);
+        g_captureFft[index].real = (float)real / 32768.0F;
+        g_captureFft[index].imag = (float)imag / 32768.0F;
+    }
+    if (fftLength >= 3U) {
+        for (index = fftLength - 3U; index < fftLength; index++) {
+            g_captureFft[index].real = 0.0F;
+            g_captureFft[index].imag = 0.0F;
+        }
+    }
+
+    capture_fft_radix2(fftLength);
+    g_captureFft[0] = g_captureFft[1];
+
+    for (index = 0U; index < fftLength; index++) {
+        float real = g_captureFft[index].real;
+        float imag = g_captureFft[index].imag;
+        g_capturePower[index] = real * real + imag * imag;
+    }
+
+    minimum = g_capturePower[0];
+    maximum = g_capturePower[0];
+    for (index = 1U; index < fftLength; index++) {
+        if (g_capturePower[index] < minimum) {
+            minimum = g_capturePower[index];
+        }
+        if (g_capturePower[index] > maximum) {
+            maximum = g_capturePower[index];
+        }
+    }
+    if (minimum < TK8710_CAPTURE_ANOISE_MIN_VAL) {
+        minimum = TK8710_CAPTURE_ANOISE_MIN_VAL;
+    }
+    if (maximum < TK8710_CAPTURE_ANOISE_MIN_VAL) {
+        maximum = TK8710_CAPTURE_ANOISE_MIN_VAL;
+    }
+
+    if (maximum == minimum) {
+        noiseFloor = 1.0F;
+    } else {
+        uint32_t iteration;
+
+        noiseFloor = sqrtf(minimum * maximum);
+        for (iteration = 0U; iteration < 7U; iteration++) {
+            float threshold = sqrtf(minimum * maximum);
+            uint32_t below = 0U;
+
+            for (index = 0U; index < fftLength; index++) {
+                if (g_capturePower[index] < threshold) {
+                    below++;
+                }
+            }
+            if (below < (fftLength / TK8710_CAPTURE_ANOISE_THE1)) {
+                minimum = threshold;
+            } else {
+                maximum = threshold;
+            }
+            noiseFloor = sqrtf(minimum * maximum);
+            if ((maximum / minimum) <=
+                ((float)TK8710_CAPTURE_ANOISE_THE2 /
+                 (float)TK8710_CAPTURE_ANOISE_THE1)) {
+                break;
+            }
+        }
+    }
+
+    g_captureContext.workingNoiseDbmHz[antenna] =
+        10.0F * log10f(noiseFloor) + TK8710_CAPTURE_ANOISE_OFFSET;
+    return 0;
+}
+
+static void capture_publish(void)
+{
+    uint32_t antenna;
+
+    TK8710EnterCritical();
+    g_captureContext.publishedBank = g_captureContext.writeBank;
+    g_captureContext.publishedValid = 1U;
+    g_captureContext.generation++;
+    g_captureContext.publishedTimestampMs = TK8710GetTickMs();
+    g_captureContext.publishedRawBytes = g_captureContext.rawBytes;
+    g_captureContext.publishedRateMode = g_captureContext.rateMode;
+    g_captureContext.publishedValidMask = g_captureContext.validAntennaMask;
+    for (antenna = 0U; antenna < TK8710_CAPTURE_ANTENNAS; antenna++) {
+        g_captureContext.publishedNoiseDbmHz[antenna] =
+            g_captureContext.workingNoiseDbmHz[antenna];
+    }
+    g_captureContext.lastError = 0;
+    g_captureContext.state = TK8710_CAPTURE_STATE_READY;
+    TK8710ExitCritical();
+}
+
+int TK8710CaptureRequest(uint8_t rateMode)
+{
+    uint32_t rawBytes;
+    uint32_t fftLength;
+
+    if (g_sdramAvailable == 0U) {
+        return TK8710_CAPTURE_ERR_UNAVAILABLE;
+    }
+    if (capture_get_config(rateMode, &rawBytes, &fftLength) != 0) {
+        return TK8710_CAPTURE_ERR_PARAM;
+    }
+    if ((g_captureContext.state == TK8710_CAPTURE_STATE_ARMING) ||
+        (g_captureContext.state == TK8710_CAPTURE_STATE_WAIT_RX) ||
+        (g_captureContext.state == TK8710_CAPTURE_STATE_CAPTURING) ||
+        (g_captureContext.state == TK8710_CAPTURE_STATE_PROCESSING)) {
+        return TK8710_CAPTURE_ERR_BUSY;
+    }
+
+    g_captureContext.rateMode = rateMode;
+    g_captureContext.rawBytes = rawBytes;
+    g_captureContext.fftLength = fftLength;
+    g_captureContext.activeAntenna = 0U;
+    g_captureContext.processAntenna = 0U;
+    g_captureContext.waitRxCount = 0U;
+    g_captureContext.waitRxTarget =
+        (g_captureContext.nextWaitRxTarget != 0U) ?
+        g_captureContext.nextWaitRxTarget :
+        TK8710_CAPTURE_FIRST_MD_WAIT_COUNT;
+    g_captureContext.nextWaitRxTarget = TK8710_CAPTURE_RX_WAIT_COUNT;
+    g_captureContext.validAntennaMask = 0U;
+    g_captureContext.writeBank = (g_captureContext.publishedValid != 0U) ?
+                                 (uint8_t)(g_captureContext.publishedBank ^ 1U) : 0U;
+    (void)memset(g_captureContext.workingNoiseDbmHz, 0,
+                 sizeof(g_captureContext.workingNoiseDbmHz));
+    g_captureContext.lastError = 0;
+    g_captureContext.state = TK8710_CAPTURE_STATE_ARMING;
+    return 0;
+}
+
+void TK8710CaptureNotifyMdData(void)
+{
+    if (g_captureContext.state == TK8710_CAPTURE_STATE_WAIT_RX) {
+        if (g_captureContext.waitRxCount < g_captureContext.waitRxTarget) {
+            g_captureContext.waitRxCount++;
+        }
+        if (g_captureContext.waitRxCount >= g_captureContext.waitRxTarget) {
+            g_captureContext.state = TK8710_CAPTURE_STATE_CAPTURING;
+        }
+    }
+}
+
+int TK8710CaptureProcess(void)
+{
+    if (g_sdramAvailable == 0U) {
+        return TK8710_CAPTURE_ERR_UNAVAILABLE;
+    }
+
+    if (g_captureContext.state == TK8710_CAPTURE_STATE_ARMING) {
+        if (capture_set_enable(1U) != TK8710_OK) {
+            return capture_fail(TK8710_CAPTURE_ERR_ARM);
+        }
+        g_captureContext.waitRxCount = 0U;
+        g_captureContext.state = TK8710_CAPTURE_STATE_WAIT_RX;
+        return 0;
+    }
+
+    if (g_captureContext.state == TK8710_CAPTURE_STATE_CAPTURING) {
+        uint8_t antenna = g_captureContext.activeAntenna;
+        uint8_t* buffer = g_captureBanks[g_captureContext.writeBank][antenna];
+        uint32_t sample;
+        uint64_t beginUs;
+        uint64_t endUs;
+
+        (void)memset(buffer, 0, g_captureContext.rawBytes);
+        beginUs = TK8710GetTimeUs();
+        if (TK8710SpiGetInfo((uint8_t)(TK8710_GET_INFO_CAPTURE_0 + antenna),
+                             buffer,
+                             (uint16_t)(g_captureContext.rawBytes - 10U)) != 0) {
+            return capture_fail(TK8710_CAPTURE_ERR_SPI);
+        }
+        endUs = TK8710GetTimeUs();
+        g_captureContext.lastSpiUs = (uint32_t)(endUs - beginUs);
+        if (g_captureContext.lastSpiUs > g_captureContext.maxSpiUs) {
+            g_captureContext.maxSpiUs = g_captureContext.lastSpiUs;
+        }
+        for (sample = 0U; sample < (g_captureContext.rawBytes / 2U); sample++) {
+            uint8_t high = buffer[sample * 2U];
+            buffer[sample * 2U] = buffer[sample * 2U + 1U];
+            buffer[sample * 2U + 1U] = high;
+        }
+        g_captureContext.validAntennaMask |= (uint8_t)(1U << antenna);
+        g_captureContext.activeAntenna++;
+        if (g_captureContext.activeAntenna >= TK8710_CAPTURE_ANTENNAS) {
+            if (capture_set_enable(0U) != TK8710_OK) {
+                return capture_fail(TK8710_CAPTURE_ERR_ARM);
+            }
+            g_captureContext.processAntenna = 0U;
+            g_captureContext.state = TK8710_CAPTURE_STATE_PROCESSING;
+        }
+        return 0;
+    }
+
+    if (g_captureContext.state == TK8710_CAPTURE_STATE_PROCESSING) {
+        uint64_t beginUs = TK8710GetTimeUs();
+        int result = capture_process_antenna(g_captureContext.processAntenna);
+        uint64_t endUs = TK8710GetTimeUs();
+        int32_t noiseCentiDb;
+        uint32_t noiseMagnitude;
+        const char* noiseSign;
+        g_captureContext.lastFftUs = (uint32_t)(endUs - beginUs);
+        if (g_captureContext.lastFftUs > g_captureContext.maxFftUs) {
+            g_captureContext.maxFftUs = g_captureContext.lastFftUs;
+        }
+        if (result != 0) {
+            return capture_fail(result);
+        }
+        noiseCentiDb = (int32_t)(
+            g_captureContext.workingNoiseDbmHz[g_captureContext.processAntenna] *
+            100.0F);
+        if (noiseCentiDb < 0) {
+            noiseSign = "-";
+            noiseMagnitude = (uint32_t)(-(noiseCentiDb + 1)) + 1U;
+        } else {
+            noiseSign = "";
+            noiseMagnitude = (uint32_t)noiseCentiDb;
+        }
+        TK8710_LOG_CORE_WARN(
+            "[CAPTURE] generation=%lu antenna=%u noiseDbmHz=%s%lu.%02lu fftUs=%lu",
+            (unsigned long)(g_captureContext.generation + 1U),
+            (unsigned int)(g_captureContext.processAntenna + 1U),
+            noiseSign,
+            (unsigned long)(noiseMagnitude / 100U),
+            (unsigned long)(noiseMagnitude % 100U),
+            (unsigned long)g_captureContext.lastFftUs);
+        g_captureContext.processAntenna++;
+        if (g_captureContext.processAntenna >= TK8710_CAPTURE_ANTENNAS) {
+            capture_publish();
+        }
+    }
+    return 0;
+}
+
+int TK8710CaptureCancel(void)
+{
+    int result = 0;
+
+    if ((g_captureContext.state == TK8710_CAPTURE_STATE_ARMING) ||
+        (g_captureContext.state == TK8710_CAPTURE_STATE_WAIT_RX) ||
+        (g_captureContext.state == TK8710_CAPTURE_STATE_CAPTURING) ||
+        (g_captureContext.state == TK8710_CAPTURE_STATE_PROCESSING)) {
+        if (capture_set_enable(0U) != TK8710_OK) {
+            result = TK8710_CAPTURE_ERR_ARM;
+        }
+    }
+    g_captureContext.state = TK8710_CAPTURE_STATE_IDLE;
+    g_captureContext.activeAntenna = 0U;
+    g_captureContext.processAntenna = 0U;
+    g_captureContext.waitRxCount = 0U;
+    g_captureContext.waitRxTarget = 0U;
+    g_captureContext.nextWaitRxTarget = TK8710_CAPTURE_FIRST_MD_WAIT_COUNT;
+    g_captureContext.lastError = result;
+    return result;
+}
+
+int TK8710CaptureGetInfo(TK8710CaptureInfo* info)
+{
+    uint32_t antenna;
+
+    if (info == NULL) {
+        return TK8710_CAPTURE_ERR_PARAM;
+    }
+
+    TK8710EnterCritical();
+    (void)memset(info, 0, sizeof(*info));
+    info->generation = g_captureContext.generation;
+    info->timestampMs = g_captureContext.publishedTimestampMs;
+    info->bytesPerAntenna = g_captureContext.publishedRawBytes;
+    info->errorCount = g_captureContext.errorCount;
+    info->lastSpiUs = g_captureContext.lastSpiUs;
+    info->maxSpiUs = g_captureContext.maxSpiUs;
+    info->lastFftUs = g_captureContext.lastFftUs;
+    info->maxFftUs = g_captureContext.maxFftUs;
+    info->lastError = g_captureContext.lastError;
+    info->rateMode = g_captureContext.publishedRateMode;
+    info->validAntennaMask = g_captureContext.publishedValidMask;
+    info->state = (uint8_t)g_captureContext.state;
+    info->activeAntenna = (g_captureContext.state == TK8710_CAPTURE_STATE_PROCESSING) ?
+                          g_captureContext.processAntenna :
+                          g_captureContext.activeAntenna;
+    for (antenna = 0U; antenna < TK8710_CAPTURE_ANTENNAS; antenna++) {
+        info->noiseDbmHz[antenna] = g_captureContext.publishedNoiseDbmHz[antenna];
+    }
+    TK8710ExitCritical();
+    return 0;
+}
+
+int TK8710CaptureReadAntenna(uint32_t generation, uint8_t antenna,
+                             uint32_t offset, void* data, uint32_t len)
+{
+    if ((g_sdramAvailable == 0U) ||
+        (data == NULL) || (antenna >= TK8710_CAPTURE_ANTENNAS) ||
+        (g_captureContext.publishedValid == 0U) ||
+        (generation != g_captureContext.generation) ||
+        (offset > g_captureContext.publishedRawBytes) ||
+        (len > (g_captureContext.publishedRawBytes - offset))) {
+        return TK8710_CAPTURE_ERR_PARAM;
+    }
+
+    (void)memcpy(data,
+                 &g_captureBanks[g_captureContext.publishedBank][antenna][offset],
+                 len);
+    return 0;
 }
 
 void TK8710PortLogWrite(const char* text, size_t len)
@@ -296,54 +838,54 @@ static uint32_t gio_interrupt_mask(gioPORT_t* port, uint32_t bit)
     return (port == gioPORTB) ? ((uint32_t)1U << (bit + 8U)) : ((uint32_t)1U << bit);
 }
 
-static void configure_mibspi1_16mhz(void)
+static void configure_mibspi3_16mhz(void)
 {
     uint32 i;
 
     mibspiInit();
 
-    mibspiREG1->GCR1 &= 0xFEFFFFFFU;
-    mibspiREG1->GCR1 = (mibspiREG1->GCR1 & 0xFFFFFFFCU) |
+    mibspiREG3->GCR1 &= 0xFEFFFFFFU;
+    mibspiREG3->GCR1 = (mibspiREG3->GCR1 & 0xFFFFFFFCU) |
                        ((uint32)1U << 1U) |
                        1U;
 
-    mibspiREG1->FMT0 = TK8710_MIBSPI_FMT0_VALUE;
-    mibspiREG1->FMT1 = TK8710_MIBSPI_FMT0_VALUE;
-    mibspiREG1->FMT2 = TK8710_MIBSPI_FMT0_VALUE;
-    mibspiREG1->FMT3 = TK8710_MIBSPI_FMT0_VALUE;
-    mibspiREG1->DEF = (uint32)CS_NONE;
+    mibspiREG3->FMT0 = TK8710_MIBSPI_FMT0_VALUE;
+    mibspiREG3->FMT1 = TK8710_MIBSPI_FMT0_VALUE;
+    mibspiREG3->FMT2 = TK8710_MIBSPI_FMT0_VALUE;
+    mibspiREG3->FMT3 = TK8710_MIBSPI_FMT0_VALUE;
+    mibspiREG3->DEF = (uint32)CS_NONE;
 
-    mibspiREG1->PC1 |= TK8710_MIBSPI1_CS0_MASK;
-    mibspiREG1->PC4 = TK8710_MIBSPI1_CS0_MASK;
-    mibspiREG1->PC0 = (mibspiREG1->PC0 |
-                       TK8710_MIBSPI1_CLK_MASK |
-                       TK8710_MIBSPI1_SIMO_MASK |
-                       TK8710_MIBSPI1_SOMI_MASK) &
-                      ~TK8710_MIBSPI1_CS0_MASK;
+    mibspiREG3->PC1 |= TK8710_MIBSPI3_CS3_MASK;
+    mibspiREG3->PC4 = TK8710_MIBSPI3_CS3_MASK;
+    mibspiREG3->PC0 = (mibspiREG3->PC0 |
+                       TK8710_MIBSPI3_CLK_MASK |
+                       TK8710_MIBSPI3_SIMO_MASK |
+                       TK8710_MIBSPI3_SOMI_MASK) &
+                      ~TK8710_MIBSPI3_CS3_MASK;
 
-    mibspiREG1->TGCTRL[0U] = TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_A_START);
-    mibspiREG1->TGCTRL[1U] = TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_B_START);
-    mibspiREG1->TGCTRL[2U] = TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_B_START);
-    mibspiREG1->TGCTRL[3U] = TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_B_START);
-    mibspiREG1->TGCTRL[4U] = TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_B_START);
-    mibspiREG1->TGCTRL[5U] = TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_B_START);
-    mibspiREG1->TGCTRL[6U] = TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_B_START);
-    mibspiREG1->TGCTRL[7U] = TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_B_START);
-    mibspiREG1->LTGPEND = (mibspiREG1->LTGPEND & 0xFFFF00FFU) |
-                          ((uint32)(TK8710_MIBSPI1_RAM_ENTRIES - 1U) << 8U);
+    mibspiREG3->TGCTRL[0U] = TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_A_START);
+    mibspiREG3->TGCTRL[1U] = TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_B_START);
+    mibspiREG3->TGCTRL[2U] = TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_B_START);
+    mibspiREG3->TGCTRL[3U] = TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_B_START);
+    mibspiREG3->TGCTRL[4U] = TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_B_START);
+    mibspiREG3->TGCTRL[5U] = TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_B_START);
+    mibspiREG3->TGCTRL[6U] = TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_B_START);
+    mibspiREG3->TGCTRL[7U] = TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_B_START);
+    mibspiREG3->LTGPEND = (mibspiREG3->LTGPEND & 0xFFFF00FFU) |
+                          ((uint32)(TK8710_MIBSPI3_RAM_ENTRIES - 1U) << 8U);
 
-    for (i = 0U; i < TK8710_MIBSPI1_RAM_ENTRIES; i++) {
-        mibspiRAM1->tx[i].control = ((uint16)4U << 13U) |
+    for (i = 0U; i < TK8710_MIBSPI3_RAM_ENTRIES; i++) {
+        mibspiRAM3->tx[i].control = ((uint16)4U << 13U) |
                                     ((uint16)DATA_FORMAT0 << 8U) |
                                     (uint16)CS_NONE;
-        mibspiRAM1->tx[i].data = (uint16)TK8710_NOP_BYTE;
-        mibspiRAM1->rx[i].flags = 0U;
-        mibspiRAM1->rx[i].data = 0U;
+        mibspiRAM3->tx[i].data = (uint16)TK8710_NOP_BYTE;
+        mibspiRAM3->rx[i].flags = 0U;
+        mibspiRAM3->rx[i].data = 0U;
     }
 
-    mibspiREG1->TGINTFLG = ((uint32)1U << (16U + TK8710_MIBSPI1_BANK_A_TG)) |
-                           ((uint32)1U << (16U + TK8710_MIBSPI1_BANK_B_TG));
-    mibspiREG1->GCR1 = (mibspiREG1->GCR1 & 0xFEFFFFFFU) | 0x01000000U;
+    mibspiREG3->TGINTFLG = ((uint32)1U << (16U + TK8710_MIBSPI3_BANK_A_TG)) |
+                           ((uint32)1U << (16U + TK8710_MIBSPI3_BANK_B_TG));
+    mibspiREG3->GCR1 = (mibspiREG3->GCR1 & 0xFEFFFFFFU) | 0x01000000U;
 }
 
 static uint32_t transfer_ping_pong(const uint8_t* tx, uint8_t* rx, uint32_t len)
@@ -358,13 +900,13 @@ static uint32_t transfer_ping_pong(const uint8_t* tx, uint8_t* rx, uint32_t len)
     uint32_t bankValid[2U];
 
     offset = 0U;
-    status = TK8710_MIBSPI1_STATUS_OK;
-    bankLength[TK8710_MIBSPI1_BANK_A] = 0U;
-    bankLength[TK8710_MIBSPI1_BANK_B] = 0U;
-    bankOffset[TK8710_MIBSPI1_BANK_A] = 0U;
-    bankOffset[TK8710_MIBSPI1_BANK_B] = 0U;
-    bankValid[TK8710_MIBSPI1_BANK_A] = 0U;
-    bankValid[TK8710_MIBSPI1_BANK_B] = 0U;
+    status = TK8710_MIBSPI3_STATUS_OK;
+    bankLength[TK8710_MIBSPI3_BANK_A] = 0U;
+    bankLength[TK8710_MIBSPI3_BANK_B] = 0U;
+    bankOffset[TK8710_MIBSPI3_BANK_A] = 0U;
+    bankOffset[TK8710_MIBSPI3_BANK_B] = 0U;
+    bankValid[TK8710_MIBSPI3_BANK_A] = 0U;
+    bankValid[TK8710_MIBSPI3_BANK_B] = 0U;
 
     if (len == 0U) {
         return status;
@@ -374,10 +916,10 @@ static uint32_t transfer_ping_pong(const uint8_t* tx, uint8_t* rx, uint32_t len)
     if (chunk > TK8710_TMS570_SPI_BANK_SIZE) {
         chunk = TK8710_TMS570_SPI_BANK_SIZE;
     }
-    load_bank(TK8710_MIBSPI1_BANK_A, (tx != NULL) ? &tx[offset] : NULL, chunk);
-    bankLength[TK8710_MIBSPI1_BANK_A] = chunk;
-    bankOffset[TK8710_MIBSPI1_BANK_A] = offset;
-    bankValid[TK8710_MIBSPI1_BANK_A] = 1U;
+    load_bank(TK8710_MIBSPI3_BANK_A, (tx != NULL) ? &tx[offset] : NULL, chunk);
+    bankLength[TK8710_MIBSPI3_BANK_A] = chunk;
+    bankOffset[TK8710_MIBSPI3_BANK_A] = offset;
+    bankValid[TK8710_MIBSPI3_BANK_A] = 1U;
     offset += chunk;
 
     if (offset < len) {
@@ -385,20 +927,20 @@ static uint32_t transfer_ping_pong(const uint8_t* tx, uint8_t* rx, uint32_t len)
         if (chunk > TK8710_TMS570_SPI_BANK_SIZE) {
             chunk = TK8710_TMS570_SPI_BANK_SIZE;
         }
-        load_bank(TK8710_MIBSPI1_BANK_B, (tx != NULL) ? &tx[offset] : NULL, chunk);
-        bankLength[TK8710_MIBSPI1_BANK_B] = chunk;
-        bankOffset[TK8710_MIBSPI1_BANK_B] = offset;
-        bankValid[TK8710_MIBSPI1_BANK_B] = 1U;
+        load_bank(TK8710_MIBSPI3_BANK_B, (tx != NULL) ? &tx[offset] : NULL, chunk);
+        bankLength[TK8710_MIBSPI3_BANK_B] = chunk;
+        bankOffset[TK8710_MIBSPI3_BANK_B] = offset;
+        bankValid[TK8710_MIBSPI3_BANK_B] = 1U;
         offset += chunk;
     }
 
     TK8710SpiCsControl(1U);
-    currentBank = TK8710_MIBSPI1_BANK_A;
+    currentBank = TK8710_MIBSPI3_BANK_A;
     start_bank(currentBank);
 
     while (bankValid[currentBank] != 0U) {
         status |= wait_bank_complete(currentBank);
-        if ((status & TK8710_MIBSPI1_STATUS_TIMEOUT) != 0U) {
+        if ((status & TK8710_MIBSPI3_STATUS_TIMEOUT) != 0U) {
             break;
         }
 
@@ -451,6 +993,120 @@ static uint32_t transfer_ping_pong(const uint8_t* tx, uint8_t* rx, uint32_t len)
     return status;
 }
 
+static uint32_t transfer_get_info(uint8_t infoType, uint8_t* data,
+                                  uint32_t dataLen)
+{
+    uint32_t totalLen = dataLen + 3U;
+    uint32_t offset = 0U;
+    uint32_t chunk;
+    uint32_t status = TK8710_MIBSPI3_STATUS_OK;
+    uint32_t currentBank;
+    uint32_t nextBank;
+    uint32_t bankLength[2U] = {0U, 0U};
+    uint32_t bankOffset[2U] = {0U, 0U};
+    uint32_t bankValid[2U] = {0U, 0U};
+
+    chunk = totalLen;
+    if (chunk > TK8710_TMS570_SPI_BANK_SIZE) {
+        chunk = TK8710_TMS570_SPI_BANK_SIZE;
+    }
+    load_get_info_bank(TK8710_MIBSPI3_BANK_A, infoType, offset, chunk);
+    bankLength[TK8710_MIBSPI3_BANK_A] = chunk;
+    bankOffset[TK8710_MIBSPI3_BANK_A] = offset;
+    bankValid[TK8710_MIBSPI3_BANK_A] = 1U;
+    offset += chunk;
+
+    if (offset < totalLen) {
+        chunk = totalLen - offset;
+        if (chunk > TK8710_TMS570_SPI_BANK_SIZE) {
+            chunk = TK8710_TMS570_SPI_BANK_SIZE;
+        }
+        load_get_info_bank(TK8710_MIBSPI3_BANK_B, infoType, offset, chunk);
+        bankLength[TK8710_MIBSPI3_BANK_B] = chunk;
+        bankOffset[TK8710_MIBSPI3_BANK_B] = offset;
+        bankValid[TK8710_MIBSPI3_BANK_B] = 1U;
+        offset += chunk;
+    }
+
+    TK8710SpiCsControl(1U);
+    currentBank = TK8710_MIBSPI3_BANK_A;
+    start_bank(currentBank);
+
+    while (bankValid[currentBank] != 0U) {
+        status |= wait_bank_complete(currentBank);
+        if ((status & TK8710_MIBSPI3_STATUS_TIMEOUT) != 0U) {
+            break;
+        }
+
+        nextBank = currentBank ^ 1U;
+        if (bankValid[nextBank] != 0U) {
+            start_bank(nextBank);
+        }
+
+        status |= read_get_info_bank(currentBank, data, dataLen,
+                                     bankOffset[currentBank],
+                                     bankLength[currentBank]);
+        bankValid[currentBank] = 0U;
+
+        if (offset < totalLen) {
+            chunk = totalLen - offset;
+            if (chunk > TK8710_TMS570_SPI_BANK_SIZE) {
+                chunk = TK8710_TMS570_SPI_BANK_SIZE;
+            }
+            load_get_info_bank(currentBank, infoType, offset, chunk);
+            bankLength[currentBank] = chunk;
+            bankOffset[currentBank] = offset;
+            bankValid[currentBank] = 1U;
+            offset += chunk;
+        }
+
+        if (bankValid[nextBank] != 0U) {
+            currentBank = nextBank;
+        } else if (bankValid[currentBank] != 0U) {
+            start_bank(currentBank);
+        }
+    }
+
+    TK8710SpiCsControl(0U);
+    return status;
+}
+
+static void load_get_info_bank(uint32_t bank, uint8_t infoType,
+                               uint32_t offset, uint32_t len)
+{
+    uint8_t tx[TK8710_TMS570_SPI_BANK_SIZE];
+    uint32_t i;
+
+    for (i = 0U; i < len; i++) {
+        uint32_t position = offset + i;
+        if (position == 0U) {
+            tx[i] = TK8710_SPI_CMD_GET_INFO;
+        } else if (position == 1U) {
+            tx[i] = infoType;
+        } else {
+            tx[i] = TK8710_NOP_BYTE;
+        }
+    }
+    load_bank(bank, tx, len);
+}
+
+static uint32_t read_get_info_bank(uint32_t bank, uint8_t* data,
+                                   uint32_t dataLen, uint32_t offset,
+                                   uint32_t len)
+{
+    uint8_t rx[TK8710_TMS570_SPI_BANK_SIZE];
+    uint32_t i;
+    uint32_t status = read_bank(bank, rx, len);
+
+    for (i = 0U; i < len; i++) {
+        uint32_t position = offset + i;
+        if ((position >= 3U) && ((position - 3U) < dataLen)) {
+            data[position - 3U] = rx[i];
+        }
+    }
+    return status;
+}
+
 static void load_bank(uint32_t bank, const uint8_t* tx, uint32_t len)
 {
     uint32_t i;
@@ -463,31 +1119,31 @@ static void load_bank(uint32_t bank, const uint8_t* tx, uint32_t len)
         control = ((uint16)4U << 13U) |
                   (uint16)(((i + 1U) < len) ? ((uint16)1U << 12U) : 0U) |
                   ((uint16)DATA_FORMAT0 << 8U) |
-                  (uint16)CS_0;
-        mibspiRAM1->tx[start + i].control = control;
-        mibspiRAM1->tx[start + i].data = (tx != NULL) ? (uint16)tx[i] : (uint16)TK8710_NOP_BYTE;
-        mibspiRAM1->rx[start + i].flags = 0U;
-        mibspiRAM1->rx[start + i].data = 0U;
+                  (uint16)CS_3;
+        mibspiRAM3->tx[start + i].control = control;
+        mibspiRAM3->tx[start + i].data = (tx != NULL) ? (uint16)tx[i] : (uint16)TK8710_NOP_BYTE;
+        mibspiRAM3->rx[start + i].flags = 0U;
+        mibspiRAM3->rx[start + i].data = 0U;
     }
 
-    if (bank == TK8710_MIBSPI1_BANK_A) {
-        mibspiREG1->TGCTRL[TK8710_MIBSPI1_BANK_A_TG] =
-            TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_A_START);
-        mibspiREG1->TGCTRL[1U] =
-            TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_A_START + len);
+    if (bank == TK8710_MIBSPI3_BANK_A) {
+        mibspiREG3->TGCTRL[TK8710_MIBSPI3_BANK_A_TG] =
+            TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_A_START);
+        mibspiREG3->TGCTRL[1U] =
+            TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_A_START + len);
     } else {
-        mibspiREG1->TGCTRL[TK8710_MIBSPI1_BANK_B_TG] =
-            TK8710_MIBSPI1_TGCTRL(TK8710_MIBSPI1_BANK_B_START);
-        mibspiREG1->LTGPEND = (mibspiREG1->LTGPEND & 0xFFFF00FFU) |
-                              ((uint32)(TK8710_MIBSPI1_BANK_B_START + len - 1U) << 8U);
+        mibspiREG3->TGCTRL[TK8710_MIBSPI3_BANK_B_TG] =
+            TK8710_MIBSPI3_TGCTRL(TK8710_MIBSPI3_BANK_B_START);
+        mibspiREG3->LTGPEND = (mibspiREG3->LTGPEND & 0xFFFF00FFU) |
+                              ((uint32)(TK8710_MIBSPI3_BANK_B_START + len - 1U) << 8U);
     }
 }
 
 static void start_bank(uint32_t bank)
 {
     uint32_t group = bank_group(bank);
-    mibspiREG1->TGINTFLG = (uint32)((uint32)1U << (16U + group));
-    mibspiTransfer(mibspiREG1, group);
+    mibspiREG3->TGINTFLG = (uint32)((uint32)1U << (16U + group));
+    mibspiTransfer(mibspiREG3, group);
 }
 
 static uint32_t wait_bank_complete(uint32_t bank)
@@ -496,16 +1152,16 @@ static uint32_t wait_bank_complete(uint32_t bank)
     uint32_t group;
 
     group = bank_group(bank);
-    timeout = TK8710_MIBSPI1_TIMEOUT;
+    timeout = TK8710_MIBSPI3_TIMEOUT;
 
-    while (mibspiIsTransferComplete(mibspiREG1, group) == FALSE) {
+    while (mibspiIsTransferComplete(mibspiREG3, group) == FALSE) {
         if (timeout == 0U) {
-            return TK8710_MIBSPI1_STATUS_TIMEOUT;
+            return TK8710_MIBSPI3_STATUS_TIMEOUT;
         }
         timeout--;
     }
 
-    return TK8710_MIBSPI1_STATUS_OK;
+    return TK8710_MIBSPI3_STATUS_OK;
 }
 
 static uint32_t read_bank(uint32_t bank, uint8_t* rx, uint32_t len)
@@ -515,16 +1171,16 @@ static uint32_t read_bank(uint32_t bank, uint8_t* rx, uint32_t len)
     uint32_t status;
 
     start = bank_start(bank);
-    status = TK8710_MIBSPI1_STATUS_OK;
+    status = TK8710_MIBSPI3_STATUS_OK;
 
     if (rx != NULL) {
         for (i = 0U; i < len; i++) {
-            rx[i] = (uint8_t)(mibspiRAM1->rx[start + i].data & 0x00FFU);
-            status |= ((uint32_t)mibspiRAM1->rx[start + i].flags >> 8U) & 0x5FU;
+            rx[i] = (uint8_t)(mibspiRAM3->rx[start + i].data & 0x00FFU);
+            status |= ((uint32_t)mibspiRAM3->rx[start + i].flags >> 8U) & 0x5FU;
         }
     } else {
         for (i = 0U; i < len; i++) {
-            status |= ((uint32_t)mibspiRAM1->rx[start + i].flags >> 8U) & 0x5FU;
+            status |= ((uint32_t)mibspiRAM3->rx[start + i].flags >> 8U) & 0x5FU;
         }
     }
 
@@ -533,16 +1189,16 @@ static uint32_t read_bank(uint32_t bank, uint8_t* rx, uint32_t len)
 
 static uint32_t bank_start(uint32_t bank)
 {
-    return (bank == TK8710_MIBSPI1_BANK_A) ?
-           TK8710_MIBSPI1_BANK_A_START :
-           TK8710_MIBSPI1_BANK_B_START;
+    return (bank == TK8710_MIBSPI3_BANK_A) ?
+           TK8710_MIBSPI3_BANK_A_START :
+           TK8710_MIBSPI3_BANK_B_START;
 }
 
 static uint32_t bank_group(uint32_t bank)
 {
-    return (bank == TK8710_MIBSPI1_BANK_A) ?
-           TK8710_MIBSPI1_BANK_A_TG :
-           TK8710_MIBSPI1_BANK_B_TG;
+    return (bank == TK8710_MIBSPI3_BANK_A) ?
+           TK8710_MIBSPI3_BANK_A_TG :
+           TK8710_MIBSPI3_BANK_B_TG;
 }
 
 static void sdram_diag_set(uint32_t phase,
@@ -597,13 +1253,18 @@ int TK8710Tms570Init(void)
         configure_scilin_uart();
         rtiInit();
         rtiStartCounter(rtiCOUNTER_BLOCK0);
+        g_rtiLastFrc = rtiREG1->CNT[0U].FRCx;
+        g_rtiElapsedTicks = 0U;
+        g_rtiTimeInitialized = 1U;
         enable_emif_runtime_access();
         g_portInitialized = 1U;
+        g_portInitCount++;
     }
 
     if (g_spiInitialized == 0U) {
-        configure_mibspi1_16mhz();
+        configure_mibspi3_16mhz();
         g_spiInitialized = 1U;
+        g_spiInitCount++;
     }
 
     return 0;
@@ -640,7 +1301,7 @@ int TK8710SpiTransfer(const uint8_t* tx, uint8_t* rx, size_t len)
     }
 
     status = transfer_ping_pong(tx, rx, (uint32_t)len);
-    if (status != TK8710_MIBSPI1_STATUS_OK) {
+    if (status != TK8710_MIBSPI3_STATUS_OK) {
         g_spiErrorCount++;
         return -1;
     }
@@ -651,9 +1312,9 @@ int TK8710SpiTransfer(const uint8_t* tx, uint8_t* rx, size_t len)
 void TK8710SpiCsControl(uint8_t active)
 {
     if (active != 0U) {
-        mibspiREG1->PC5 = TK8710_MIBSPI1_CS0_MASK;
+        mibspiREG3->PC5 = TK8710_MIBSPI3_CS3_MASK;
     } else {
-        mibspiREG1->PC4 = TK8710_MIBSPI1_CS0_MASK;
+        mibspiREG3->PC4 = TK8710_MIBSPI3_CS3_MASK;
     }
 }
 
@@ -668,6 +1329,7 @@ int TK8710GpioInit(int pin, TK8710GpioEdge edge, TK8710GpioIrqCallback cb, void*
     g_irqPort = irq_port_from_pin(pin, &g_irqBit);
     g_irqCallback = cb;
     g_irqUser = user;
+    g_irqPending = 0U;
 
     g_irqPort->DIR &= ~((uint32)1U << g_irqBit);
     mask = gio_interrupt_mask(g_irqPort, g_irqBit);
@@ -719,6 +1381,11 @@ void TK8710GpioWrite(int pin, uint8_t level)
 
     port->DIR |= ((uint32)1U << bit);
     gioSetBit(port, bit, (level != 0U) ? 1U : 0U);
+    if ((port == gioPORTA) &&
+        (bit == (uint32_t)TK8710_TMS570_RST_PIN_DEFAULT) &&
+        (level == 0U)) {
+        g_resetDriveLowCount++;
+    }
 }
 
 uint8_t TK8710GpioRead(int pin)
@@ -757,8 +1424,32 @@ uint32_t TK8710GetTickMs(void)
 
 uint64_t TK8710GetTimeUs(void)
 {
-    uint32_t frc = rtiREG1->CNT[0U].FRCx;
-    return (uint64_t)(frc / TK8710_TMS570_RTI_TICKS_PER_US);
+    uint32_t cpsr = _getCPSRValue_();
+    uint32_t frc;
+    uint64_t elapsedTicks;
+
+    /*
+     * RTI FRC0 wraps every 2^32 ticks (about 429.5 seconds at 10 ticks/us).
+     * Accumulate the unsigned delta so an FRC wrap does not make the public
+     * microsecond clock jump back to zero.  The payload main loop calls this
+     * function much more frequently than one wrap period.
+     */
+    _disable_IRQ_interrupt_();
+    frc = rtiREG1->CNT[0U].FRCx;
+    if (g_rtiTimeInitialized == 0U) {
+        g_rtiLastFrc = frc;
+        g_rtiElapsedTicks = 0U;
+        g_rtiTimeInitialized = 1U;
+    } else {
+        g_rtiElapsedTicks += (uint32_t)(frc - g_rtiLastFrc);
+        g_rtiLastFrc = frc;
+    }
+    elapsedTicks = g_rtiElapsedTicks;
+    if ((cpsr & 0x80U) == 0U) {
+        _enable_interrupt_();
+    }
+
+    return elapsedTicks / TK8710_TMS570_RTI_TICKS_PER_US;
 }
 
 void TK8710EnterCritical(void)
@@ -781,6 +1472,7 @@ void gioNotification(gioPORT_t *port, uint32 bit)
 {
     if ((port == g_irqPort) && (bit == g_irqBit)) {
         g_irqCount++;
+        g_irqEdgeCount++;
         g_irqPending = 1U;
     }
 }
@@ -826,6 +1518,7 @@ int TK8710SpiReset(uint8_t resetConfig)
 
     txBuf[0] = TK8710_SPI_CMD_RST;
     txBuf[1] = resetConfig;
+    g_spiResetCount++;
 
     return TK8710SpiWrite(txBuf, sizeof(txBuf));
 }
@@ -962,6 +1655,7 @@ int TK8710SpiSetInfo(uint8_t infoType, const uint8_t* data, uint16_t len)
 int TK8710SpiGetInfo(uint8_t infoType, uint8_t* data, uint16_t len)
 {
     uint32_t rxLen;
+    uint32_t status;
 
     if ((data == NULL) || (len == 0U)) {
         return -1;
@@ -969,7 +1663,17 @@ int TK8710SpiGetInfo(uint8_t infoType, uint8_t* data, uint16_t len)
 
     rxLen = 3U + (uint32_t)len;
     if (rxLen > TK8710_SPI_RX_BUF_SIZE) {
-        return -1;
+        if (g_spiInitialized == 0U) {
+            if (TK8710Tms570Init() != 0) {
+                return -1;
+            }
+        }
+        status = transfer_get_info(infoType, data, (uint32_t)len);
+        if (status != TK8710_MIBSPI3_STATUS_OK) {
+            g_spiErrorCount++;
+            return -1;
+        }
+        return 0;
     }
 
     memset(g_spiTxBuf, TK8710_NOP_BYTE, rxLen);
@@ -1031,6 +1735,7 @@ int TK8710Tms570SdramSelfTest(uint32_t base, uint32_t bytes)
     uint16_t expected;
     uint16_t actual;
 
+    g_sdramAvailable = 0U;
     sdram_diag_set(0U, 0U, 0U, 0U, 0U);
 
     if ((base == 0U) || (halfWords == 0U) || ((base & 1U) != 0U)) {
@@ -1080,7 +1785,13 @@ int TK8710Tms570SdramSelfTest(uint32_t base, uint32_t bytes)
         }
     }
 
+    g_sdramAvailable = 1U;
     return 0;
+}
+
+uint8_t TK8710Tms570SdramIsAvailable(void)
+{
+    return g_sdramAvailable;
 }
 
 void TK8710Tms570GetSdramDiag(TK8710Tms570SdramDiag* diag)
@@ -1126,4 +1837,23 @@ void TK8710Tms570GetStats(TK8710Tms570Stats* stats)
     stats->heap_fail_count = g_heapFailCount;
     stats->spi_error_count = g_spiErrorCount;
     stats->irq_count = g_irqCount;
+    stats->irq_edge_count = g_irqEdgeCount;
+    stats->irq_level_recovery_count = g_irqLevelRecoveryCount;
+    stats->irq_status_poll_count = g_irqStatusPollCount;
+    stats->spi_reset_count = g_spiResetCount;
+    stats->reset_drive_low_count = g_resetDriveLowCount;
+    stats->reset_pin_low_count = g_resetPinLowCount;
+    stats->port_init_count = g_portInitCount;
+    stats->spi_init_count = g_spiInitCount;
+    stats->reset_gio_dout = gioPORTA->DOUT;
+    stats->reset_gio_dir = gioPORTA->DIR;
+    stats->gio_din = g_irqPort->DIN;
+    stats->gio_flg = gioREG->FLG;
+    stats->gio_enaset = gioREG->ENASET;
+    stats->vim_reqmask0 = vimREG->REQMASKSET0;
+    stats->irq_pin_level = (uint8_t)gioGetBit(g_irqPort, g_irqBit);
+    stats->reset_pin_level = (uint8_t)gioGetBit(
+        gioPORTA, TK8710_TMS570_RST_PIN_DEFAULT);
+    stats->irq_callback_configured = (g_irqCallback != NULL) ? 1U : 0U;
+    stats->sdram_available = g_sdramAvailable;
 }

@@ -26,13 +26,11 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#if defined(PLATFORM_TMS570) && defined(__TI_COMPILER_VERSION__)
-#pragma SET_DATA_SECTION(".tk8710_sdram")
-#endif
-
 #if defined(PLATFORM_TMS570)
-#define malloc(size) TK8710_MALLOC(size)
-#define free(ptr)    TK8710_FREE(ptr)
+#define TK8710_TMS570_PAYLOAD_MAX 64U
+#define TK8710_IRQ_FREE(ptr) ((void)(ptr))
+#else
+#define TK8710_IRQ_FREE(ptr) free(ptr)
 #endif
 
 /* 全局变量 */
@@ -77,6 +75,12 @@ static TK8710RxBuffer g_rxBuffers[128] = {0};      /* 接收数据Buffer */
 static TK8710TxBuffer g_txBuffers[128] = {0};      /* 发送数据Buffer */
 static TK8710BrdBuffer g_brdBuffers[16] = {0};     /* 广播数据Buffer */
 static TK8710SignalInfo g_signalInfo[128] = {0};   /* 接收用户信号质量信息buffer */
+#if defined(PLATFORM_TMS570)
+static uint8_t g_rxPayloadPool[128][TK8710_TMS570_PAYLOAD_MAX];
+static uint8_t g_txPayloadPool[128][TK8710_TMS570_PAYLOAD_MAX];
+static uint8_t g_brdPayloadPool[16][TK8710_TMS570_PAYLOAD_MAX];
+static uint8_t g_irqTransferScratch[5160];
+#endif
 
 /* 用户信息Buffer (用于指定信息发送模式) */
 typedef struct {
@@ -113,7 +117,17 @@ static int TK8710PadTxUserData(TK8710TxBuffer* txBuffer,
         return TK8710_OK;
     }
 
+#if defined(PLATFORM_TMS570)
+    if (expectedLen > TK8710_TMS570_PAYLOAD_MAX) {
+        TK8710_LOG_IRQ_ERROR("Cannot pad user[%u] TX data beyond %u bytes",
+                             userIndex,
+                             (unsigned int)TK8710_TMS570_PAYLOAD_MAX);
+        return TK8710_ERR;
+    }
+    newData = txBuffer->data;
+#else
     newData = (uint8_t*)TK8710_MALLOC(expectedLen);
+#endif
     if (newData == NULL) {
         TK8710_LOG_IRQ_ERROR("Failed to pad user[%u] TX data: actual=%u expected=%u",
                              userIndex, oldLen, expectedLen);
@@ -125,8 +139,10 @@ static int TK8710PadTxUserData(TK8710TxBuffer* txBuffer,
         newData[i] = (uint8_t)(0xA5U ^ userIndex ^ (uint8_t)i);
     }
 
+#if !defined(PLATFORM_TMS570)
     TK8710_FREE(txBuffer->data);
     txBuffer->data = newData;
+#endif
     txBuffer->dataLen = expectedLen;
     TK8710_LOG_IRQ_DEBUG("User[%u] TX data padded: actual=%u expected=%u",
                          userIndex, oldLen, expectedLen);
@@ -1239,7 +1255,7 @@ static void tk8710_handle_md_data(void)
     /* 释放之前分配的接收数据内存，防止内存泄漏 */
     for (int i = 0; i < 128; i++) {
         if (g_rxBuffers[i].valid && g_rxBuffers[i].data != NULL) {
-            free(g_rxBuffers[i].data);
+            TK8710_IRQ_FREE(g_rxBuffers[i].data);
             g_rxBuffers[i].data = NULL;
         }
         g_rxBuffers[i].dataLen = 0;
@@ -1353,7 +1369,13 @@ static void tk8710_md_data_process(void)
         /* 读取接收数据并存储到Buffer系统 */
         if (crcBit || g_forceProcessAllUsers) {
             /* 分配数据缓冲区 */
-            uint8_t* dataBuffer = malloc(dataLen);
+            uint8_t* dataBuffer;
+#if defined(PLATFORM_TMS570)
+            dataBuffer = (dataLen <= TK8710_TMS570_PAYLOAD_MAX) ?
+                         g_rxPayloadPool[i] : NULL;
+#else
+            dataBuffer = (uint8_t*)malloc(dataLen);
+#endif
             if (dataBuffer != NULL) {
                 /* 读取用户数据 */
                 int ret = TK8710ReadBuffer(i, dataBuffer, dataLen);
@@ -1371,7 +1393,7 @@ static void tk8710_md_data_process(void)
                                        g_forceProcessAllUsers && !crcBit ? " (forced)" : "");
                 } else {
                     TK8710_LOG_IRQ_ERROR("Failed to read user[%d] data", i);
-                    free(dataBuffer);
+                    TK8710_IRQ_FREE(dataBuffer);
                     g_rxBuffers[i].data = NULL;
                     g_rxBuffers[i].dataLen = 0;
                     g_rxBuffers[i].valid = 0;
@@ -1517,7 +1539,7 @@ int TK8710ClearTxUserData(uint8_t userIndex)
         for (int i = 0; i < 128; i++) {
             if (g_txBuffers[i].valid && 
                 g_txBuffers[i].data != NULL) {
-                free(g_txBuffers[i].data);
+                TK8710_IRQ_FREE(g_txBuffers[i].data);
             }
             memset(&g_txBuffers[i], 0, sizeof(TK8710TxBuffer));
         }
@@ -1527,7 +1549,7 @@ int TK8710ClearTxUserData(uint8_t userIndex)
         /* 清除指定用户数据 */
         if (g_txBuffers[userIndex].valid && 
             g_txBuffers[userIndex].data != NULL) {
-            free(g_txBuffers[userIndex].data);
+            TK8710_IRQ_FREE(g_txBuffers[userIndex].data);
         }
         memset(&g_txBuffers[userIndex], 0, sizeof(TK8710TxBuffer));
         TK8710_LOG_IRQ_DEBUG("TX user data cleared: user[%d]", userIndex);
@@ -1561,11 +1583,17 @@ int TK8710SetTxData(TK8710DownlinkType downlinkType, uint8_t index, const uint8_
         /* 检查是否已存在数据，先释放 */
         if (g_brdBuffers[index].valid && 
             g_brdBuffers[index].data != NULL) {
-            free(g_brdBuffers[index].data);
+            TK8710_IRQ_FREE(g_brdBuffers[index].data);
         }
         
         /* 分配内存并复制数据 */
-        uint8_t* newData = malloc(dataLen);
+        uint8_t* newData;
+#if defined(PLATFORM_TMS570)
+        newData = (dataLen <= TK8710_TMS570_PAYLOAD_MAX) ?
+                  g_brdPayloadPool[index] : NULL;
+#else
+        newData = (uint8_t*)malloc(dataLen);
+#endif
         if (newData == NULL) {
             TK8710_LOG_IRQ_ERROR("Failed to allocate memory for downlink1[%d] data", index);
             return TK8710_ERR;
@@ -1594,11 +1622,17 @@ int TK8710SetTxData(TK8710DownlinkType downlinkType, uint8_t index, const uint8_
         /* 检查是否已存在数据，先释放 */
         if (g_txBuffers[index].valid && 
             g_txBuffers[index].data != NULL) {
-            free(g_txBuffers[index].data);
+            TK8710_IRQ_FREE(g_txBuffers[index].data);
         }
         
         /* 分配内存并复制数据 */
-        uint8_t* newData = malloc(dataLen);
+        uint8_t* newData;
+#if defined(PLATFORM_TMS570)
+        newData = (dataLen <= TK8710_TMS570_PAYLOAD_MAX) ?
+                  g_txPayloadPool[index] : NULL;
+#else
+        newData = (uint8_t*)malloc(dataLen);
+#endif
         if (newData == NULL) {
             TK8710_LOG_IRQ_ERROR("Failed to allocate memory for downlink2[%d] data", index);
             return TK8710_ERR;
@@ -2067,7 +2101,12 @@ static void tk8710_s1_manual_tx_process(void)
                         validUserCount, actualMaxUsers, maxUsers);
     
     /* 复用最大的缓冲区(5160字节)来处理所有SPI传输 */
-    uint8_t* spiBuffer = (uint8_t*)malloc(5160);
+    uint8_t* spiBuffer;
+#if defined(PLATFORM_TMS570)
+    spiBuffer = g_irqTransferScratch;
+#else
+    spiBuffer = (uint8_t*)malloc(5160);
+#endif
     if (spiBuffer == NULL) {
         TK8710_LOG_IRQ_ERROR("Failed to allocate SPI buffer");
         return;
@@ -2137,7 +2176,7 @@ static void tk8710_s1_manual_tx_process(void)
             ret = TK8710SpiSetInfo(TK8710_GET_INFO_FREQ, spiBuffer, writeLen * 4);
             if (ret != 0) {
                 TK8710_LOG_IRQ_ERROR("SPI SetInfo frequency failed: %d", ret);
-                free(spiBuffer);
+                TK8710_IRQ_FREE(spiBuffer);
                 return;
             }
             TK8710_LOG_IRQ_DEBUG("Manual TX frequency configured successfully (broadcast + %d users)", 
@@ -2221,7 +2260,7 @@ static void tk8710_s1_manual_tx_process(void)
             ret = TK8710SpiSetInfo(TK8710_GET_INFO_AH, spiBuffer, writeLen * 40);
             if (ret != 0) {
                 TK8710_LOG_IRQ_ERROR("SPI SetInfo AH failed: %d", ret);
-                free(spiBuffer);
+                TK8710_IRQ_FREE(spiBuffer);
                 return;
             }
             TK8710_LOG_IRQ_DEBUG("Manual TX AH configured successfully (broadcast + %d users)", 
@@ -2267,7 +2306,7 @@ static void tk8710_s1_manual_tx_process(void)
             ret = TK8710SpiSetInfo(TK8710_GET_INFO_PILOT_POW, spiBuffer, writeLen * 5);
             if (ret != 0) {
                 TK8710_LOG_IRQ_ERROR("SPI SetInfo pilot power failed: %d", ret);
-                free(spiBuffer);
+                TK8710_IRQ_FREE(spiBuffer);
                 return;
             }
             TK8710_LOG_IRQ_DEBUG("Manual TX pilot power configured successfully (broadcast + %d users)", 
@@ -2291,7 +2330,7 @@ static void tk8710_s1_manual_tx_process(void)
         ret = TK8710SpiSetInfo(TK8710_GET_INFO_ANOISE, spiBuffer, 16);
         if (ret != 0) {
             TK8710_LOG_IRQ_ERROR("SPI SetInfo anoise failed: %d", ret);
-            free(spiBuffer);
+            TK8710_IRQ_FREE(spiBuffer);
             return;
         }
         TK8710_LOG_IRQ_DEBUG("Manual TX anoise configured successfully");
@@ -2334,7 +2373,7 @@ static void tk8710_s1_manual_tx_process(void)
                 MAC_BASE + offsetof(struct mac, tx_pow_ctrl), tx_pow_ctrl.data);
             if (ret != TK8710_OK) {
                 TK8710_LOG_IRQ_ERROR("Failed to set manual TX power for user %d: %d", userIndex, ret);
-                free(spiBuffer);
+                TK8710_IRQ_FREE(spiBuffer);
                 return;
             }
 
@@ -2393,7 +2432,7 @@ static void tk8710_s1_manual_tx_process(void)
                     
                     /* 释放对应的RAM资源 */
                     if (g_brdBuffers[i].data != NULL) {
-                        free(g_brdBuffers[i].data);
+                        TK8710_IRQ_FREE(g_brdBuffers[i].data);
                         g_brdBuffers[i].data = NULL;
                     }
                     
@@ -2541,7 +2580,7 @@ static void tk8710_s1_manual_tx_process(void)
     }
     
     /* 释放SPI缓冲区 */
-    free(spiBuffer);
+    TK8710_IRQ_FREE(spiBuffer);
     
     TK8710_LOG_IRQ_INFO("S1 manual TX configuration completed successfully");
 }
@@ -2753,7 +2792,7 @@ static void tk8710_s1_broadcast_tx_process(void)
                     
                     /* 释放对应的RAM资源 */
                     if (g_brdBuffers[i].data != NULL) {
-                        free(g_brdBuffers[i].data);
+                        TK8710_IRQ_FREE(g_brdBuffers[i].data);
                         g_brdBuffers[i].data = NULL;
                     }
                     
@@ -2904,7 +2943,7 @@ int TK8710ReleaseRxData(uint8_t userIndex)
     }
     
     if (g_rxBuffers[userIndex].valid && g_rxBuffers[userIndex].data != NULL) {
-        free(g_rxBuffers[userIndex].data);
+        TK8710_IRQ_FREE(g_rxBuffers[userIndex].data);
         memset(&g_rxBuffers[userIndex], 0, sizeof(TK8710RxBuffer));
         TK8710_LOG_IRQ_DEBUG("RX data released: user[%d]", userIndex);
     }

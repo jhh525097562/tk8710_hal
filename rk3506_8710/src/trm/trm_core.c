@@ -14,8 +14,14 @@
 #include "../inc/driver/tk8710_regs.h"
 #include "../inc/driver/tk8710_reg_pack.h"
 #include "../inc/driver/tk8710_rf_regs.h"
+#include "../inc/driver/tk8710_platform.h"
+#if !defined(PLATFORM_TMS570)
 #include "../inc/tk8710_noise_api.h"
+#endif
 #include "../port/tk8710_hal.h"
+#if defined(PLATFORM_TMS570)
+#include "../port/tk8710_tms570.h"
+#endif
 #include "driver/tk8710_log.h"
 #include <stddef.h>
 #include <string.h>
@@ -61,14 +67,28 @@ static volatile TRM_SweepState g_sweepState = {0};
 static volatile uint8_t g_sweepCapturePending = 0;
 static volatile uint8_t g_sweepCaptureWaitCount = 0;
 static volatile uint8_t g_sweepCaptureDone = 0;
+static volatile uint8_t g_sweepRestartPending = 0;
 static volatile uint32_t g_sweepCaptureFreq = 0;
 
-#define TRM_ACM_DEFAULT_CALIB_COUNT       5
-#define TRM_ACM_DEFAULT_SNR_THRESHOLD     32
+#if defined(PLATFORM_TMS570)
+#if defined(__TI_COMPILER_VERSION__)
+#pragma DATA_SECTION(g_sweepResults, ".tk8710_sdram")
+#endif
+static TRM_SweepResultPoint g_sweepResults[TRM_SWEEP_MAX_RESULT_POINTS]
+                                                  TK8710_SECTION_SDRAM;
+static TRM_SweepResultInfo g_sweepResultInfo;
+static uint32_t g_sweepCaptureGeneration = 0U;
+static uint8_t g_sweepPointRetryCount = 0U;
+#define TRM_SWEEP_CAPTURE_MAX_RETRIES 3U
+#endif
+
+#define TRM_ACM_DEFAULT_CALIB_COUNT       1
+#define TRM_ACM_DEFAULT_SNR_THRESHOLD     28
 #define TRM_ACM_DEFAULT_RESTART_ADVANCE_US 90
 #define TRM_ACM_DEFAULT_GUARD_US          1000
 #define TRM_ACM_BUSY_WAIT_US              2000
 #define TRM_ACM_S0_PERIOD_WARN_US         5000
+#define TRM_ACM_RESULT_BANK_COUNT         2U
 
 typedef struct {
     volatile uint8_t pending;
@@ -88,6 +108,9 @@ static volatile TRM_AcmCalibState g_acmCalibState = {
     .lastWaitUs = 0,
     .completedCount = 0
 };
+static TRM_AcmCalibResult g_acmResultBanks[TRM_ACM_RESULT_BANK_COUNT];
+static volatile uint8_t g_acmResultPublishedBank = 0U;
+static volatile uint8_t g_acmResultPublishedValid = 0U;
 
 static volatile uint8_t g_acmS0MonitorRemaining = 0;
 static volatile uint32_t g_acmS0MonitorSeq = 0;
@@ -113,7 +136,9 @@ static void TRM_OnDriverTxSlotAdapter(TK8710IrqResult* irqResult);
 static void TRM_OnDriverSlotRxAdapter(TK8710IrqResult* irqResult);
 static void TRM_OnDriverErrorAdapter(TK8710IrqResult* irqResult);
 static int TRM_ConfigSweepCapture(void);
+#if !defined(PLATFORM_TMS570)
 static void TRM_ProcessSweepCaptureInRx(void);
+#endif
 static void TRM_UpdateSweepFrequencyAfterCapture(void);
 static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult);
 static uint32_t TRM_GetAcmSlot3WindowUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult);
@@ -121,6 +146,9 @@ static uint32_t TRM_ReadAcmSlot3LenUs(void);
 static int TRM_RefreshAcmSlotConfig(const slotCfg_t* slotCfg);
 static void TRM_CompleteVirtualS3(void);
 static uint32_t TRM_WaitUntilUs(uint64_t targetUs);
+static void TRM_PublishAcmCalibrationResult(
+    const AcmCalibrationFactors* factors, uint8_t validCalibCount,
+    int32_t lastResult);
 
 /*==============================================================================
  * 公共接口实现
@@ -213,6 +241,13 @@ int TRM_Deinit(void)
     }
     
     TRM_LOG_INFO("Start TRM system cleanup");
+
+#if defined(PLATFORM_TMS570)
+    (void)TK8710CaptureCancel();
+    g_sweepState.sweep_active = 0U;
+    g_sweepCapturePending = 0U;
+    g_sweepResultInfo.active = 0U;
+#endif
     
     /* TRM不直接控制Driver停止，由DriverManager控制 */
     
@@ -343,6 +378,65 @@ int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status)
     return TRM_OK;
 }
 
+int TRM_GetAcmCalibrationResult(TRM_AcmCalibResult* result)
+{
+    if (result == NULL) {
+        return TRM_ERR_PARAM;
+    }
+
+    TK8710EnterCritical();
+    if (g_acmResultPublishedValid == 0U) {
+        memset(result, 0, sizeof(*result));
+        TK8710ExitCritical();
+        return TRM_ERR_STATE;
+    }
+    *result = g_acmResultBanks[g_acmResultPublishedBank];
+    TK8710ExitCritical();
+    return TRM_OK;
+}
+
+static void TRM_PublishAcmCalibrationResult(
+    const AcmCalibrationFactors* factors, uint8_t validCalibCount,
+    int32_t lastResult)
+{
+    TRM_AcmCalibResult* result;
+    uint8_t writeBank;
+    uint32_t generation;
+    uint32_t antenna;
+
+    if (factors == NULL) {
+        return;
+    }
+
+    writeBank = (g_acmResultPublishedValid != 0U) ?
+                (uint8_t)(g_acmResultPublishedBank ^ 1U) : 0U;
+    generation = (g_acmResultPublishedValid != 0U) ?
+                 (g_acmResultBanks[g_acmResultPublishedBank].generation + 1U) :
+                 1U;
+    result = &g_acmResultBanks[writeBank];
+    memset(result, 0, sizeof(*result));
+    result->generation = generation;
+    result->timestampMs = TK8710GetTickMs();
+    result->lastResult = lastResult;
+    result->valid = 1U;
+    result->validCalibCount = validCalibCount;
+    result->validAntennaMask = 0xFFU;
+    for (antenna = 0U; antenna < TK8710_MAX_ANTENNAS; antenna++) {
+        result->iFactor[antenna] =
+            factors->channels[antenna].i_factor & 0x3FFFFU;
+        result->qFactor[antenna] =
+            factors->channels[antenna].q_factor & 0x3FFFFU;
+    }
+
+    TK8710EnterCritical();
+    g_acmResultPublishedBank = writeBank;
+    g_acmResultPublishedValid = 1U;
+    TK8710ExitCritical();
+    TRM_LOG_INFO("TRM: ACM result published to RAM bank=%u generation=%u valid=%u",
+                 (unsigned int)writeBank, (unsigned int)generation,
+                 (unsigned int)validCalibCount);
+}
+
 
 
 void TRM_SetMaxFrameCount(uint32_t maxCount)
@@ -385,6 +479,25 @@ TrmContext* TRM_GetContext(void)
 
 static int TRM_ConfigSweepCapture(void)
 {
+#if defined(PLATFORM_TMS570)
+    TK8710CaptureInfo captureInfo;
+    int ret;
+
+    if (TK8710CaptureGetInfo(&captureInfo) != 0) {
+        return TRM_ERR_STATE;
+    }
+    ret = TK8710CaptureRequest(g_sweepState.rate_mode);
+    if (ret != 0) {
+        TRM_LOG_ERROR("TRM: Queue sweep capture failed: %d", ret);
+        return TRM_ERR_STATE;
+    }
+    g_sweepCaptureGeneration = captureInfo.generation;
+    g_sweepCapturePending = 1;
+    g_sweepCaptureWaitCount = 0;
+    g_sweepCaptureDone = 0;
+    g_sweepCaptureFreq = g_sweepState.current_freq;
+    return TK8710_OK;
+#else
     s_ram_rd0 ramRd0;
     ramRd0.data = 0;
     ramRd0.data = TK8710_S_RAM_RD0_CAP_EN_SET(ramRd0.data, 1U);
@@ -402,8 +515,10 @@ static int TRM_ConfigSweepCapture(void)
     g_sweepCaptureDone = 0;
     g_sweepCaptureFreq = g_sweepState.current_freq;
     return TK8710_OK;
+#endif
 }
 
+#if !defined(PLATFORM_TMS570)
 static void TRM_ProcessSweepCaptureInRx(void)
 {
     if (!g_sweepCapturePending) {
@@ -431,11 +546,94 @@ static void TRM_ProcessSweepCaptureInRx(void)
     g_sweepCapturePending = 0;
     g_sweepCaptureWaitCount = 0;
 }
+#endif
+
+void TRM_ProcessBackground(void)
+{
+#if defined(PLATFORM_TMS570)
+    TK8710CaptureInfo captureInfo;
+    int processResult;
+
+    if (TK8710Tms570SdramIsAvailable() == 0U) {
+        return;
+    }
+    processResult = TK8710CaptureProcess();
+
+    if (TK8710CaptureGetInfo(&captureInfo) != 0) {
+        return;
+    }
+    if (!g_sweepState.sweep_active || !g_sweepCapturePending) {
+        return;
+    }
+
+    if ((processResult != 0) ||
+        (captureInfo.state == TK8710_CAPTURE_STATE_ERROR)) {
+        int sweepError = (processResult != 0) ? processResult :
+                         captureInfo.lastError;
+        g_sweepCapturePending = 0;
+        g_sweepCaptureWaitCount = 0;
+        g_sweepPointRetryCount++;
+        (void)TK8710CaptureCancel();
+        if (g_sweepPointRetryCount >= TRM_SWEEP_CAPTURE_MAX_RETRIES) {
+            g_sweepState.sweep_active = 0;
+            g_sweepResultInfo.active = 0U;
+            g_sweepResultInfo.complete = 0U;
+            g_sweepResultInfo.lastError = sweepError;
+            TRM_LOG_ERROR("TRM: Sweep capture failed after %u retries: %d",
+                          (unsigned int)g_sweepPointRetryCount, sweepError);
+        }
+        return;
+    }
+
+    if ((captureInfo.state == TK8710_CAPTURE_STATE_READY) &&
+        (captureInfo.generation != g_sweepCaptureGeneration)) {
+        uint32_t antenna;
+        uint32_t resultIndex = g_sweepResultInfo.completedPoints;
+
+        if ((captureInfo.validAntennaMask != 0xFFU) ||
+            (resultIndex >= TRM_SWEEP_MAX_RESULT_POINTS)) {
+            g_sweepCapturePending = 0;
+            g_sweepResultInfo.active = 0U;
+            g_sweepResultInfo.complete = 0U;
+            g_sweepResultInfo.lastError = TRM_ERR_STATE;
+            g_sweepState.sweep_active = 0;
+            return;
+        }
+
+        g_sweepResults[resultIndex].frequencyHz = g_sweepCaptureFreq;
+        for (antenna = 0U; antenna < 8U; antenna++) {
+            g_sweepResults[resultIndex].noiseDbmHz[antenna] =
+                captureInfo.noiseDbmHz[antenna];
+        }
+        g_sweepResultInfo.completedPoints++;
+        g_sweepResultInfo.lastError = TRM_OK;
+        g_sweepPointRetryCount = 0U;
+        g_sweepCapturePending = 0;
+        g_sweepCaptureWaitCount = 0;
+        g_sweepCaptureDone = 1;
+    }
+#endif
+}
 
 static void TRM_UpdateSweepFrequencyAfterCapture(void)
 {
     g_sweepState.current_freq += g_sweepState.step_freq;
     if (g_sweepState.current_freq > g_sweepState.end_freq) {
+#if defined(PLATFORM_TMS570)
+        TRM_LOG_INFO("TRM: Frequency sweep round %u completed: points=%u/%u",
+                     (unsigned int)g_sweepResultInfo.generation,
+                     (unsigned int)g_sweepResultInfo.completedPoints,
+                     (unsigned int)g_sweepResultInfo.totalPoints);
+        g_sweepState.current_freq = g_sweepState.start_freq;
+        g_sweepCapturePending = 0;
+        g_sweepCaptureWaitCount = 0;
+        g_sweepCaptureDone = 0;
+        g_sweepPointRetryCount = 0U;
+        g_sweepResultInfo.lastError = TRM_OK;
+        g_sweepResultInfo.active = 1U;
+        g_sweepResultInfo.complete = 1U;
+        g_sweepRestartPending = 1U;
+#else
         g_sweepState.sweep_active = 0;
         g_sweepCapturePending = 0;
         g_sweepCaptureWaitCount = 0;
@@ -460,6 +658,7 @@ static void TRM_UpdateSweepFrequencyAfterCapture(void)
         }
 #endif
         return;
+#endif
     }
 
     int ret = TK8710_OK;
@@ -539,9 +738,15 @@ static void TRM_OnDriverSlotRxAdapter(TK8710IrqResult* irqResult)
     /* 调试：记录中断类型 */
     TRM_LOG_DEBUG("TRM: Received RX interrupt type=%d", irqResult->irq_type);
 
+#if defined(PLATFORM_TMS570)
+    if (irqResult->irq_type == TK8710_IRQ_MD_DATA) {
+        TK8710CaptureNotifyMdData();
+    }
+#else
     if (g_sweepState.sweep_active) {
         TRM_ProcessSweepCaptureInRx();
     }
+#endif
 
     TRM_SatelliteProcessIrq(irqResult);
     if (irqResult->irq_type == TK8710_IRQ_RX_BCN) {
@@ -587,6 +792,13 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
                 if (g_sweepCaptureDone) {
                     TRM_UpdateSweepFrequencyAfterCapture();
                     g_sweepCaptureDone = 0;
+#if defined(PLATFORM_TMS570)
+                    if (g_sweepRestartPending != 0U) {
+                        slotType = 3;
+                        slotIndex = 3;
+                        break;
+                    }
+#endif
                 }
 
                 if (!g_sweepState.sweep_active) {
@@ -601,6 +813,18 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
                 } else {
 #ifdef PLATFORM_RK3506
                     TK8710ScanIpcNotifySweepRunning();
+#endif
+#if defined(PLATFORM_TMS570)
+                    if (g_sweepRestartPending != 0U) {
+                        g_sweepResultInfo.generation++;
+                        g_sweepResultInfo.completedPoints = 0U;
+                        g_sweepResultInfo.complete = 0U;
+                        g_sweepRestartPending = 0U;
+                        TRM_LOG_INFO(
+                            "TRM: Frequency sweep round %u started at %u Hz",
+                            (unsigned int)g_sweepResultInfo.generation,
+                            (unsigned int)g_sweepState.current_freq);
+                    }
 #endif
                     TRM_LOG_DEBUG("TRM: Configure sweep capture at frequency %u", g_sweepState.current_freq);
                     int ret = TRM_ConfigSweepCapture();
@@ -684,6 +908,24 @@ static void TRM_OnDriverSlotRx(TK8710IrqResult* irqResult)
     } else {
         TRM_LOG_DEBUG("TRM: MD_DATA interrupt but mdDataValid=0, skipping");
     }
+    // static int CalibrateCount = 0; // 默认值
+    // CalibrateCount++;
+    // int Tmp = 400;
+    // // if(CalibrateCount % 10 == 0 && CalibrateCount <= 20000) {
+    // if(CalibrateCount % 10 == 0) {
+    //     TRM_AcmCalibRequest acmRequest = {
+    //         .calibCount = 1,
+    //         .snrThreshold = 28,
+    //         .restartAdvanceUs = Tmp,//mode5-6:200,mode7:212,mode8:
+    //         .guardUs = 1000
+    //     };
+    //     int ret0 = TRM_RequestAcmCalibration(&acmRequest);
+    //     if (ret0 == TRM_OK) {
+    //         printf("TRM ACM calibration request submitted; it will run at last-frame S2 end\n");
+    //     } else {
+    //         printf("TRM ACM calibration request failed: ret=%d\n", ret0);
+    //     }
+    // }
 }
 
 /*==============================================================================
@@ -879,6 +1121,8 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     uint32_t triggerLateUs = 0;
     uint32_t irqAfterCalib = 0;
     uint32_t irqAfterStart = 0;
+    AcmCalibrationFactors factors;
+    uint8_t factorsValid = 0U;
     int calibRet;
     int ret;
 
@@ -943,6 +1187,17 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
         TRM_LOG_ERROR("TRM: ACM calibration failed: ret=%d elapsed=%u us", calibRet, elapsedUs);
         g_acmCalibState.running = 0;
         return TRM_ERR_DRIVER;
+    }
+    if (calibRet > 0) {
+        if (TK8710GetLastAcmCalibrationFactors(&factors) != TK8710_OK) {
+            TRM_LOG_ERROR("TRM: ACM calibration succeeded but result readback failed");
+            g_acmCalibState.lastResult = TRM_ERR_DRIVER;
+            g_acmCalibState.running = 0;
+            return TRM_ERR_DRIVER;
+        }
+        factorsValid = 1U;
+    } else {
+        TRM_LOG_WARN("TRM: ACM calibration produced no valid result; RAM snapshot unchanged");
     }
 
     ret = TRM_RefreshAcmSlotConfig(&slotCfgBeforeAcm);
@@ -1019,6 +1274,9 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
                  s0BeforePeriodUs, s0AfterStartPeriodUs,
                  s0BeforeCount, s0AfterStartCount,
                  (uint32_t)(fastStartEndUs - s0BeforeTimeUs));
+    if (factorsValid != 0U) {
+        TRM_PublishAcmCalibrationResult(&factors, (uint8_t)calibRet, calibRet);
+    }
     g_acmCalibState.completedCount++;
     g_acmCalibState.running = 0;
 
@@ -1040,6 +1298,17 @@ int TRM_StartFrequencySweep(uint32_t start_freq, uint32_t end_freq, uint8_t swee
         TRM_LOG_ERROR("TRM: Invalid sweep mode: %d (should be 0-3)", sweep_mode);
         return TRM_ERR_PARAM;
     }
+#if defined(PLATFORM_TMS570)
+    if (TK8710Tms570SdramIsAvailable() == 0U) {
+        TRM_LOG_ERROR("TRM: Frequency sweep unavailable without SDRAM");
+        return TRM_ERR_STATE;
+    }
+    if ((rate_mode < 5U) || (rate_mode > 8U)) {
+        TRM_LOG_ERROR("TRM: TMS570 sweep rate mode must be 5-8: %u",
+                      (unsigned int)rate_mode);
+        return TRM_ERR_PARAM;
+    }
+#endif
 
     /* 计算扫频间隔 */
     uint32_t step_freq = 0;
@@ -1060,6 +1329,25 @@ int TRM_StartFrequencySweep(uint32_t start_freq, uint32_t end_freq, uint8_t swee
         return TRM_ERR_STATE;
     }
 
+#if defined(PLATFORM_TMS570)
+    {
+        uint32_t pointCount = ((end_freq - start_freq) / step_freq) + 1U;
+        if (pointCount > TRM_SWEEP_MAX_RESULT_POINTS) {
+            TRM_LOG_ERROR("TRM: Sweep point count %u exceeds TMS570 limit %u",
+                          pointCount, (unsigned int)TRM_SWEEP_MAX_RESULT_POINTS);
+            return TRM_ERR_PARAM;
+        }
+        (void)TK8710CaptureCancel();
+        g_sweepResultInfo.generation++;
+        g_sweepResultInfo.totalPoints = pointCount;
+        g_sweepResultInfo.completedPoints = 0U;
+        g_sweepResultInfo.lastError = TRM_OK;
+        g_sweepResultInfo.active = 1U;
+        g_sweepResultInfo.complete = 0U;
+        g_sweepPointRetryCount = 0U;
+    }
+#endif
+
     /* 初始化扫频状态 - RF参数从当前配置获取，增益使用默认值 */
     g_sweepState.sweep_active = 1;
     g_sweepState.sweep_mode = sweep_mode;
@@ -1076,6 +1364,7 @@ int TRM_StartFrequencySweep(uint32_t start_freq, uint32_t end_freq, uint8_t swee
     g_sweepCapturePending = 0;
     g_sweepCaptureWaitCount = 0;
     g_sweepCaptureDone = 0;
+    g_sweepRestartPending = 0;
     g_sweepCaptureFreq = start_freq;
 
     TRM_LOG_INFO("TRM: Frequency sweep started: start=%u Hz, end=%u Hz, step=%u Hz, mode=%d, rate=%d, rfSel=0x%02X",
@@ -1090,6 +1379,14 @@ int TRM_StopFrequencySweep(void)
     g_sweepCapturePending = 0;
     g_sweepCaptureWaitCount = 0;
     g_sweepCaptureDone = 0;
+    g_sweepRestartPending = 0;
+#if defined(PLATFORM_TMS570)
+    (void)TK8710CaptureCancel();
+    g_sweepResultInfo.active = 0U;
+    if (g_sweepResultInfo.completedPoints != g_sweepResultInfo.totalPoints) {
+        g_sweepResultInfo.complete = 0U;
+    }
+#endif
     TRM_LOG_INFO("TRM: Frequency sweep stopped");
     return TRM_OK;
 }
@@ -1105,4 +1402,52 @@ int TRM_GetSweepState(TRM_SweepState* sweep_state)
     *sweep_state = g_sweepState;
     
     return TRM_OK;
+}
+
+int TRM_GetSweepResultInfo(TRM_SweepResultInfo* info)
+{
+    if (info == NULL) {
+        return TRM_ERR_PARAM;
+    }
+#if defined(PLATFORM_TMS570)
+    *info = g_sweepResultInfo;
+    return TRM_OK;
+#else
+    memset(info, 0, sizeof(*info));
+    return TRM_ERR_STATE;
+#endif
+}
+
+int TRM_ReadSweepResults(uint32_t startIndex, TRM_SweepResultPoint* results,
+                         uint32_t capacity, uint32_t* resultCount)
+{
+    if ((results == NULL) || (resultCount == NULL) || (capacity == 0U)) {
+        return TRM_ERR_PARAM;
+    }
+#if defined(PLATFORM_TMS570)
+    {
+        uint32_t available;
+        uint32_t count;
+
+        if (TK8710Tms570SdramIsAvailable() == 0U) {
+            *resultCount = 0U;
+            return TRM_ERR_STATE;
+        }
+        if (startIndex > g_sweepResultInfo.completedPoints) {
+            return TRM_ERR_PARAM;
+        }
+        available = g_sweepResultInfo.completedPoints - startIndex;
+        count = (available < capacity) ? available : capacity;
+        if (count > 0U) {
+            memcpy(results, &g_sweepResults[startIndex],
+                   count * sizeof(TRM_SweepResultPoint));
+        }
+        *resultCount = count;
+        return TRM_OK;
+    }
+#else
+    (void)startIndex;
+    *resultCount = 0U;
+    return TRM_ERR_STATE;
+#endif
 }

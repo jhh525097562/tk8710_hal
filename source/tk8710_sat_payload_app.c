@@ -1,5 +1,6 @@
 #include "tk8710_sat_payload_app.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #include "hal_api.h"
@@ -8,13 +9,14 @@
 #include "driver/tk8710_driver_api.h"
 #include "driver/tk8710_internal.h"
 #include "driver/tk8710_platform.h"
+#include "driver/tk8710_reg_pack.h"
 #include "driver/tk8710_regs.h"
 #include "trm/trm_api.h"
 #include "trm/trm_log.h"
 
 #define SAT_PAYLOAD_TELEMETRY_PERIOD_MS       1000U
-#define SAT_PAYLOAD_CALIBRATION_PERIOD_MS     1000U
-#define SAT_PAYLOAD_CAPTURE_PERIOD_MS         1000U
+#define SAT_PAYLOAD_CALIBRATION_S0_INTERVAL     10U
+#define SAT_PAYLOAD_MODE_C_ACM_PERIOD_MS     600000U
 #define SAT_PAYLOAD_BEAM_MAX_USERS            512U
 #define SAT_PAYLOAD_BEAM_TIMEOUT_MS            20000U
 #define SAT_PAYLOAD_GS_BEAM_MAX                5U
@@ -24,6 +26,14 @@
 #define SAT_PAYLOAD_CALLBACK_DATA_PREFIX       8U
 #define SAT_PAYLOAD_HW_RESERVED_USER_SLOTS     1U
 #define SAT_PAYLOAD_HW_RESERVED_FREQ_OFFSET    20000.0F
+#define SAT_PAYLOAD_SLOT_BLOCK_BYTES            26U
+#define SAT_PAYLOAD_SLOT_MODE18_BLOCK_BYTES     40U
+#define SAT_PAYLOAD_SLOT_MAX_BLOCKS             16U
+#define SAT_PAYLOAD_SLOT_MAX_SUPER_FRAMES       64U
+#define SAT_PAYLOAD_DEFAULT_SWEEP_STEP_HZ    125000U
+#define SAT_PAYLOAD_DEFAULT_SWEEP_POINTS          8U
+#define SAT_PAYLOAD_DEFAULT_SWEEP_MODE            1U
+#define SAT_PAYLOAD_TX_FE_ANTENNA_STRIDE       0x1000U
 
 typedef struct {
     SatPayloadState state;
@@ -36,8 +46,9 @@ typedef struct {
     uint32_t configVersion;
     uint32_t startMs;
     uint32_t lastTelemetryMs;
-    uint32_t lastCalibrationRequestMs;
-    uint32_t lastCaptureMs;
+    uint32_t lastCalibrationS0Count;
+    uint32_t lastModeCAcmRequestMs;
+    uint32_t lastCaptureGeneration;
     int32_t lastResult;
     SatPayloadLastRx lastRx;
     SatPayloadTelemetry telemetry;
@@ -145,6 +156,33 @@ static uint8_t SatPayloadRateModeValid(uint8_t mode)
                      (mode == 11U) || (mode == 18U));
 }
 
+static uint8_t SatPayloadSlotBlockBytes(uint8_t rateMode)
+{
+    return (rateMode == 18U) ? SAT_PAYLOAD_SLOT_MODE18_BLOCK_BYTES :
+                               SAT_PAYLOAD_SLOT_BLOCK_BYTES;
+}
+
+static SatPayloadResult SatPayloadSlotBlockCount(uint8_t rateMode,
+                                                  uint16_t byteLen,
+                                                  uint8_t* blockCount)
+{
+    uint32_t blockBytes;
+    uint32_t blocks;
+
+    if (blockCount == NULL) {
+        return SAT_PAYLOAD_ERR_PARAM;
+    }
+
+    blockBytes = SatPayloadSlotBlockBytes(rateMode);
+    blocks = ((uint32_t)byteLen + blockBytes - 1U) / blockBytes;
+    if (blocks > SAT_PAYLOAD_SLOT_MAX_BLOCKS) {
+        return SAT_PAYLOAD_ERR_PARAM;
+    }
+
+    *blockCount = (uint8_t)blocks;
+    return SAT_PAYLOAD_OK;
+}
+
 static SatPayloadResult SatPayloadValidateParams(const SatPayloadWorkParams* params)
 {
     uint32_t rate;
@@ -154,7 +192,8 @@ static SatPayloadResult SatPayloadValidateParams(const SatPayloadWorkParams* par
         (params->rateCount == 0U) ||
         (params->rateCount > SAT_PAYLOAD_MAX_RATES) ||
         (params->bcnBits > 31U) ||
-        (params->maxFrameCount == 0U)) {
+        (params->maxFrameCount == 0U) ||
+        (params->maxFrameCount > SAT_PAYLOAD_SLOT_MAX_SUPER_FRAMES)) {
         return SAT_PAYLOAD_ERR_PARAM;
     }
 
@@ -167,9 +206,20 @@ static SatPayloadResult SatPayloadValidateParams(const SatPayloadWorkParams* par
                 return SAT_PAYLOAD_ERR_PARAM;
             }
         }
+        for (slot = 1U; slot < SAT_PAYLOAD_SLOT_COUNT; slot++) {
+            uint8_t blockCount;
+
+            if (SatPayloadSlotBlockCount(params->rates[rate].rateMode,
+                                         params->rates[rate].slots[slot].byteLen,
+                                         &blockCount) != SAT_PAYLOAD_OK) {
+                return SAT_PAYLOAD_ERR_PARAM;
+            }
+        }
     }
 
     if ((params->sweepMode > 3U) ||
+        ((params->sweepStartFreqHz == 0U) !=
+         (params->sweepEndFreqHz == 0U)) ||
         ((params->sweepStartFreqHz != 0U) &&
          (params->sweepEndFreqHz < params->sweepStartFreqHz))) {
         return SAT_PAYLOAD_ERR_PARAM;
@@ -178,13 +228,21 @@ static SatPayloadResult SatPayloadValidateParams(const SatPayloadWorkParams* par
     return SAT_PAYLOAD_OK;
 }
 
-static void SatPayloadBuildSlotConfig(const SatPayloadWorkParams* params,
-                                      slotCfg_t* slotCfg)
+static SatPayloadResult SatPayloadBuildSlotConfig(SatPayloadWorkParams* params,
+                                                  slotCfg_t* slotCfg)
 {
+    TRM_MultiRateSlotCalcInput calcInput;
+    TRM_MultiRateSlotCalcOutput calcOutput;
     uint32_t rate;
     uint32_t antenna;
 
+    if ((params == NULL) || (slotCfg == NULL)) {
+        return SAT_PAYLOAD_ERR_PARAM;
+    }
+
     (void)memset(slotCfg, 0, sizeof(*slotCfg));
+    (void)memset(&calcInput, 0, sizeof(calcInput));
+    (void)memset(&calcOutput, 0, sizeof(calcOutput));
     slotCfg->msMode = TK8710_MODE_MASTER;
     slotCfg->plCrcEn = params->plCrcEnable;
     slotCfg->rateCount = params->rateCount;
@@ -199,34 +257,95 @@ static void SatPayloadBuildSlotConfig(const SatPayloadWorkParams* params,
     slotCfg->md_agc = params->mdAgc;
     slotCfg->local_sync = params->localSync;
 
+    calcInput.rateCount = params->rateCount;
+    calcInput.superFrameNum = (uint8_t)params->maxFrameCount;
+    calcInput.calcType = TRM_SLOT_CALC_TYPE_SATELLITE;
+    calcInput.minGapPos[3] = 1U;
+
     for (antenna = 0U; antenna < TK8710_MAX_ANTENNAS; antenna++) {
         slotCfg->bcnRotation[antenna] = (uint8_t)antenna;
     }
 
     for (rate = 0U; rate < params->rateCount; rate++) {
+        SatPayloadResult result;
+
         slotCfg->rateModes[rate] = (rateMode_e)params->rates[rate].rateMode;
+        calcInput.rateModes[rate] = params->rates[rate].rateMode;
+
+        result = SatPayloadSlotBlockCount(params->rates[rate].rateMode,
+                                          params->rates[rate].slots[1].byteLen,
+                                          &calcInput.brdBlockNums[rate]);
+        if (result != SAT_PAYLOAD_OK) {
+            return result;
+        }
+        result = SatPayloadSlotBlockCount(params->rates[rate].rateMode,
+                                          params->rates[rate].slots[2].byteLen,
+                                          &calcInput.ulBlockNums[rate]);
+        if (result != SAT_PAYLOAD_OK) {
+            return result;
+        }
+        result = SatPayloadSlotBlockCount(params->rates[rate].rateMode,
+                                          params->rates[rate].slots[3].byteLen,
+                                          &calcInput.dlBlockNums[rate]);
+        if (result != SAT_PAYLOAD_OK) {
+            return result;
+        }
 
         slotCfg->s0Cfg[rate].byteLen = params->rates[rate].slots[0].byteLen;
-        slotCfg->s0Cfg[rate].da_m = params->rates[rate].slots[0].daM;
         slotCfg->s0Cfg[rate].centerFreq = params->centerFreqHz;
 
         slotCfg->s1Cfg[rate].byteLen = params->rates[rate].slots[1].byteLen;
-        slotCfg->s1Cfg[rate].da_m = params->rates[rate].slots[1].daM;
         slotCfg->s1Cfg[rate].centerFreq = params->centerFreqHz;
 
         slotCfg->s2Cfg[rate].byteLen = params->rates[rate].slots[2].byteLen;
-        slotCfg->s2Cfg[rate].da_m = params->rates[rate].slots[2].daM;
         slotCfg->s2Cfg[rate].centerFreq = params->centerFreqHz;
 
         slotCfg->s3Cfg[rate].byteLen = params->rates[rate].slots[3].byteLen;
-        slotCfg->s3Cfg[rate].da_m = params->rates[rate].slots[3].daM;
         slotCfg->s3Cfg[rate].centerFreq = params->centerFreqHz;
     }
+
+    if (trm_calc_multi_rate_slot_config(&calcInput, &calcOutput) != 0) {
+        TRM_LOG_ERROR("SAT APP slot calculation failed");
+        return SAT_PAYLOAD_ERR_DRIVER;
+    }
+
+    for (rate = 0U; rate < params->rateCount; rate++) {
+        const TRM_RateSlotConfig* calculated = &calcOutput.rateConfigs[rate];
+
+        slotCfg->s0Cfg[rate].da_m = calculated->bcnGap;
+        slotCfg->s1Cfg[rate].da_m = calculated->brdGap;
+        slotCfg->s2Cfg[rate].da_m = calculated->ulGap;
+        slotCfg->s3Cfg[rate].da_m = calculated->dlGap;
+
+        params->rates[rate].slots[0].daM = calculated->bcnGap;
+        params->rates[rate].slots[1].daM = calculated->brdGap;
+        params->rates[rate].slots[2].daM = calculated->ulGap;
+        params->rates[rate].slots[3].daM = calculated->dlGap;
+
+        TRM_LOG_INFO("SAT APP slot[%u]: mode=%u blocks=%u/%u/%u da_m=%lu/%lu/%lu/%lu",
+                     (unsigned int)rate,
+                     (unsigned int)params->rates[rate].rateMode,
+                     (unsigned int)calcInput.brdBlockNums[rate],
+                     (unsigned int)calcInput.ulBlockNums[rate],
+                     (unsigned int)calcInput.dlBlockNums[rate],
+                     (unsigned long)calculated->bcnGap,
+                     (unsigned long)calculated->brdGap,
+                     (unsigned long)calculated->ulGap,
+                     (unsigned long)calculated->dlGap);
+    }
+
+    TRM_LOG_INFO("SAT APP slot period: raw=%lu adjusted=%lu frames=%lu addedGap=%lu",
+                 (unsigned long)calcOutput.totalRawPeriod,
+                 (unsigned long)calcOutput.framePeriod,
+                 (unsigned long)calcOutput.frameCount,
+                 (unsigned long)calcOutput.addedGap);
+    return SAT_PAYLOAD_OK;
 }
 
 static void SatPayloadOnRxData(const TRM_RxDataList* rxDataList)
 {
     const TRM_RxUserData* user;
+    int64_t frequencyHz;
     uint32_t logUserCount;
     uint32_t i;
 
@@ -235,18 +354,46 @@ static void SatPayloadOnRxData(const TRM_RxDataList* rxDataList)
         return;
     }
 
-    user = &rxDataList->users[0];
+    /*
+     * TRM only puts CRC/data-valid users in this callback.  Still require a
+     * successfully obtained payload so a failed buffer read cannot replace
+     * the last good telemetry snapshot.
+     */
+    user = NULL;
+    for (i = 0U; i < rxDataList->userCount; i++) {
+        if ((rxDataList->users[i].data != NULL) &&
+            (rxDataList->users[i].dataLen != 0U)) {
+            user = &rxDataList->users[i];
+            break;
+        }
+    }
+    if (user == NULL) {
+        TRM_LOG_WARN("SAT APP RX: no readable CRC-valid user to publish");
+        return;
+    }
+
+    frequencyHz = (int64_t)g_satPayload.activeParams.centerFreqHz +
+                  ((int64_t)user->freq / 128);
     TK8710EnterCritical();
-    g_satPayload.lastRx.valid = user->valid;
+    g_satPayload.lastRx.valid = 1U;
+    g_satPayload.lastRx.generation++;
     g_satPayload.lastRx.userId = user->userId;
     g_satPayload.lastRx.rateMode = user->rateMode;
     g_satPayload.lastRx.rssi = user->rssi;
     g_satPayload.lastRx.snr = user->snr;
     g_satPayload.lastRx.freqOffset = user->freq;
+    g_satPayload.lastRx.frequencyHz =
+        (frequencyHz > 0) ? (uint32_t)frequencyHz : 0U;
     g_satPayload.lastRx.dataLen = user->dataLen;
     g_satPayload.lastRx.frameNo = rxDataList->frameNo;
     g_satPayload.lastRx.timestampMs = TK8710GetTickMs();
     TK8710ExitCritical();
+
+    TRM_LOG_INFO("SAT APP first valid RX: gen=%lu user=0x%08lX freq=%luHz rssi=%d snr=%u",
+                 (unsigned long)g_satPayload.lastRx.generation,
+                 (unsigned long)user->userId,
+                 (unsigned long)g_satPayload.lastRx.frequencyHz,
+                 (int)user->rssi, (unsigned int)user->snr);
 
     logUserCount = rxDataList->userCount;
     if (logUserCount > SAT_PAYLOAD_CALLBACK_LOG_MAX_USERS) {
@@ -313,6 +460,7 @@ static void SatPayloadOnTxComplete(const TRM_TxCompleteResult* txResult)
 
 static SatPayloadResult SatPayloadStopHal(void)
 {
+    (void)TK8710CaptureCancel();
     if (g_satPayload.halActive == 0U) {
         return SAT_PAYLOAD_OK;
     }
@@ -325,7 +473,7 @@ static SatPayloadResult SatPayloadStopHal(void)
     return SAT_PAYLOAD_OK;
 }
 
-static SatPayloadResult SatPayloadStartMode(const SatPayloadWorkParams* params,
+static SatPayloadResult SatPayloadStartMode(SatPayloadWorkParams* params,
                                             uint8_t mode)
 {
     TK8710HalInitCfg halCfg;
@@ -334,7 +482,23 @@ static SatPayloadResult SatPayloadStartMode(const SatPayloadWorkParams* params,
     TxToneConfig tone;
     int trmRet;
 
-    g_satRfConfig.Freq = params->centerFreqHz;
+    if ((mode == SAT_PAYLOAD_MODE_SWEEP) &&
+        (params->sweepStartFreqHz == 0U) &&
+        (params->sweepEndFreqHz == 0U)) {
+        params->sweepStartFreqHz = params->centerFreqHz;
+        params->sweepEndFreqHz = params->centerFreqHz +
+            (SAT_PAYLOAD_DEFAULT_SWEEP_STEP_HZ *
+             (SAT_PAYLOAD_DEFAULT_SWEEP_POINTS - 1U));
+        params->sweepMode = SAT_PAYLOAD_DEFAULT_SWEEP_MODE;
+        TRM_LOG_INFO("SAT APP default sweep: start=%lu end=%lu mode=%u points=%u",
+                     (unsigned long)params->sweepStartFreqHz,
+                     (unsigned long)params->sweepEndFreqHz,
+                     (unsigned int)params->sweepMode,
+                     (unsigned int)SAT_PAYLOAD_DEFAULT_SWEEP_POINTS);
+    }
+
+    g_satRfConfig.Freq = (mode == SAT_PAYLOAD_MODE_SWEEP) ?
+                         params->sweepStartFreqHz : params->centerFreqHz;
     g_satRfConfig.rxgain = params->rxGain;
     g_satRfConfig.txgain = params->txGain;
     g_satChipConfig.ant_en = params->antennaMask;
@@ -360,7 +524,12 @@ static SatPayloadResult SatPayloadStartMode(const SatPayloadWorkParams* params,
     }
     g_satPayload.halActive = 1U;
 
-    SatPayloadBuildSlotConfig(params, &slotCfg);
+    {
+        SatPayloadResult slotResult = SatPayloadBuildSlotConfig(params, &slotCfg);
+        if (slotResult != SAT_PAYLOAD_OK) {
+            return slotResult;
+        }
+    }
     if (TK8710HalCfg(&slotCfg) != TK8710_HAL_OK) {
         return SAT_PAYLOAD_ERR_DRIVER;
     }
@@ -383,7 +552,11 @@ static SatPayloadResult SatPayloadStartMode(const SatPayloadWorkParams* params,
     switch (mode) {
         case SAT_PAYLOAD_MODE_A:
         case SAT_PAYLOAD_MODE_B:
+            g_satPayload.state = SAT_PAYLOAD_STATE_RUNNING;
+            return SAT_PAYLOAD_OK;
+
         case SAT_PAYLOAD_MODE_C:
+            g_satPayload.lastModeCAcmRequestMs = TK8710GetTickMs();
             g_satPayload.state = SAT_PAYLOAD_STATE_RUNNING;
             return SAT_PAYLOAD_OK;
 
@@ -405,18 +578,24 @@ static SatPayloadResult SatPayloadStartMode(const SatPayloadWorkParams* params,
             if (TRM_RequestAcmCalibration(&acmRequest) != TRM_OK) {
                 return SAT_PAYLOAD_ERR_DRIVER;
             }
-            g_satPayload.lastCalibrationRequestMs = TK8710GetTickMs();
+            TK8710GetS0PeriodStats(NULL, NULL,
+                                   &g_satPayload.lastCalibrationS0Count);
             g_satPayload.state = SAT_PAYLOAD_STATE_CALIBRATING;
             return SAT_PAYLOAD_OK;
 
         case SAT_PAYLOAD_MODE_CAPTURE:
-            if (TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA,
-                                TK8710_DBG_OPT_GET, NULL, NULL) != TK8710_OK) {
+        {
+            TK8710CaptureInfo captureInfo;
+            if (TK8710CaptureGetInfo(&captureInfo) != 0) {
                 return SAT_PAYLOAD_ERR_DRIVER;
             }
-            g_satPayload.lastCaptureMs = TK8710GetTickMs();
+            g_satPayload.lastCaptureGeneration = captureInfo.generation;
+            if (TK8710CaptureRequest(params->rates[0].rateMode) != 0) {
+                return SAT_PAYLOAD_ERR_DRIVER;
+            }
             g_satPayload.state = SAT_PAYLOAD_STATE_CAPTURING;
             return SAT_PAYLOAD_OK;
+        }
 
         default:
             return SAT_PAYLOAD_ERR_PARAM;
@@ -432,12 +611,6 @@ static SatPayloadResult SatPayloadStartModeWithRollback(uint8_t mode)
 
     if ((mode > SAT_PAYLOAD_MODE_CAPTURE) || (g_satPayload.pendingValid == 0U)) {
         return SAT_PAYLOAD_ERR_STATE;
-    }
-
-    if (((mode == SAT_PAYLOAD_MODE_SWEEP) ||
-         (mode == SAT_PAYLOAD_MODE_CAPTURE)) &&
-        (TK8710PortCaptureWrite("capture", NULL, 0U) != 0)) {
-        return SAT_PAYLOAD_ERR_UNSUPPORTED;
     }
 
     oldParams = g_satPayload.activeParams;
@@ -483,12 +656,18 @@ static void SatPayloadUpdateTelemetry(void)
     TK8710Tms570Stats portStats;
     TRM_Stats trmStats;
     TRM_AcmCalibStatus acmStatus;
+    TRM_AcmCalibResult acmResult;
+    TK8710CaptureInfo captureInfo;
+    TRM_SweepResultInfo sweepInfo;
     uint32_t now = TK8710GetTickMs();
 
     (void)memset(&next, 0, sizeof(next));
     (void)memset(&portStats, 0, sizeof(portStats));
     (void)memset(&trmStats, 0, sizeof(trmStats));
     (void)memset(&acmStatus, 0, sizeof(acmStatus));
+    (void)memset(&acmResult, 0, sizeof(acmResult));
+    (void)memset(&captureInfo, 0, sizeof(captureInfo));
+    (void)memset(&sweepInfo, 0, sizeof(sweepInfo));
 
     TK8710Tms570GetStats(&portStats);
     next.sequence = g_satPayload.telemetry.sequence + 1U;
@@ -504,8 +683,35 @@ static void SatPayloadUpdateTelemetry(void)
     next.heapFailCount = portStats.heap_fail_count;
     next.spiErrorCount = portStats.spi_error_count;
     next.gpioIrqCount = portStats.irq_count;
+    next.gpioIrqEdgeCount = portStats.irq_edge_count;
+    next.gpioIrqRecoveryCount = portStats.irq_level_recovery_count;
+    next.irqStatusPollCount = portStats.irq_status_poll_count;
+    next.spiResetCount = portStats.spi_reset_count;
+    next.resetDriveLowCount = portStats.reset_drive_low_count;
+    next.resetPinLowCount = portStats.reset_pin_low_count;
+    next.portInitCount = portStats.port_init_count;
+    next.spiInitCount = portStats.spi_init_count;
+    next.resetGioDout = portStats.reset_gio_dout;
+    next.resetGioDir = portStats.reset_gio_dir;
+    next.gpioDin = portStats.gio_din;
+    next.gpioFlag = portStats.gio_flg;
+    next.gpioEnable = portStats.gio_enaset;
+    next.vimReqMask0 = portStats.vim_reqmask0;
+    next.gpioIrqLevel = portStats.irq_pin_level;
+    next.resetPinLevel = portStats.reset_pin_level;
+    next.gpioIrqCallbackConfigured = portStats.irq_callback_configured;
+    next.sdramAvailable = portStats.sdram_available;
     TK8710GetAllIrqCounters(next.irqCounters);
     next.irqStatus = TK8710GetIrqStatus();
+    (void)TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        MAC_BASE + offsetof(struct mac, irq_ctrl0),
+                        &next.irqMask);
+    if (TK8710CaptureGetInfo(&captureInfo) == 0) {
+        next.capture = captureInfo;
+    }
+    if (TRM_GetSweepResultInfo(&sweepInfo) == TRM_OK) {
+        next.sweep = sweepInfo;
+    }
 
     if ((g_satPayload.halActive != 0U) &&
         (TK8710HalGetStatus(&trmStats) == TK8710_HAL_OK)) {
@@ -524,6 +730,9 @@ static void SatPayloadUpdateTelemetry(void)
             next.acmRunning = acmStatus.running;
             next.acmCompletedCount = acmStatus.completedCount;
             next.acmLastResult = acmStatus.lastResult;
+        }
+        if (TRM_GetAcmCalibrationResult(&acmResult) == TRM_OK) {
+            next.acmResult = acmResult;
         }
     }
 
@@ -547,30 +756,62 @@ void SatPayloadApp_Init(void)
 void SatPayloadApp_Process(void)
 {
     uint32_t now = TK8710GetTickMs();
+    TK8710CaptureInfo captureInfo;
+
+    TRM_ProcessBackground();
 
     if (g_satPayload.state == SAT_PAYLOAD_STATE_CALIBRATING) {
         TRM_AcmCalibStatus status;
+        uint32_t s0Count = 0U;
+        TK8710GetS0PeriodStats(NULL, NULL, &s0Count);
         if ((TRM_GetAcmCalibrationStatus(&status) == TRM_OK) &&
             (status.pending == 0U) && (status.running == 0U) &&
-            ((now - g_satPayload.lastCalibrationRequestMs) >=
-             SAT_PAYLOAD_CALIBRATION_PERIOD_MS)) {
+            ((s0Count - g_satPayload.lastCalibrationS0Count) >=
+             SAT_PAYLOAD_CALIBRATION_S0_INTERVAL)) {
             TRM_AcmCalibRequest request;
             (void)memset(&request, 0, sizeof(request));
             request.calibCount = g_satPayload.activeParams.acmCalibCount;
             request.snrThreshold = g_satPayload.activeParams.acmSnrThreshold;
             if (TRM_RequestAcmCalibration(&request) == TRM_OK) {
-                g_satPayload.lastCalibrationRequestMs = now;
+                g_satPayload.lastCalibrationS0Count = s0Count;
+            }
+        }
+    }
+
+    if ((g_satPayload.state == SAT_PAYLOAD_STATE_RUNNING) &&
+        (g_satPayload.activeMode == SAT_PAYLOAD_MODE_C) &&
+        ((now - g_satPayload.lastModeCAcmRequestMs) >=
+         SAT_PAYLOAD_MODE_C_ACM_PERIOD_MS)) {
+        TRM_AcmCalibStatus status;
+
+        if ((TRM_GetAcmCalibrationStatus(&status) == TRM_OK) &&
+            (status.pending == 0U) && (status.running == 0U)) {
+            TRM_AcmCalibRequest request;
+
+            (void)memset(&request, 0, sizeof(request));
+            request.calibCount = g_satPayload.activeParams.acmCalibCount;
+            request.snrThreshold = g_satPayload.activeParams.acmSnrThreshold;
+            if (TRM_RequestAcmCalibration(&request) == TRM_OK) {
+                g_satPayload.lastModeCAcmRequestMs = now;
+                TRM_LOG_INFO("SAT APP mode C periodic ACM requested at %lu ms",
+                             (unsigned long)now);
             }
         }
     }
 
     if ((g_satPayload.state == SAT_PAYLOAD_STATE_CAPTURING) &&
-        ((now - g_satPayload.lastCaptureMs) >= SAT_PAYLOAD_CAPTURE_PERIOD_MS)) {
-        if (TK8710DebugCtrl(TK8710_DBG_TYPE_CAPTURE_DATA,
-                            TK8710_DBG_OPT_GET, NULL, NULL) == TK8710_OK) {
-            g_satPayload.lastCaptureMs = now;
-        } else {
-            g_satPayload.lastResult = SAT_PAYLOAD_ERR_DRIVER;
+        (TK8710CaptureGetInfo(&captureInfo) == 0)) {
+        if (captureInfo.generation != g_satPayload.lastCaptureGeneration) {
+            g_satPayload.lastCaptureGeneration = captureInfo.generation;
+            g_satPayload.lastResult = SAT_PAYLOAD_OK;
+        }
+        if ((captureInfo.state == TK8710_CAPTURE_STATE_READY) ||
+            (captureInfo.state == TK8710_CAPTURE_STATE_ERROR) ||
+            (captureInfo.state == TK8710_CAPTURE_STATE_IDLE)) {
+            if (TK8710CaptureRequest(
+                    g_satPayload.activeParams.rates[0].rateMode) != 0) {
+                g_satPayload.lastResult = SAT_PAYLOAD_ERR_DRIVER;
+            }
         }
     }
 
@@ -615,6 +856,71 @@ SatPayloadResult SatPayloadApp_Stop(void)
     return result;
 }
 
+SatPayloadResult SatPayloadApp_ReadRegister(uint16_t address,
+                                            uint32_t* value)
+{
+    SatPayloadResult result;
+
+    if (value == NULL) {
+        result = SAT_PAYLOAD_ERR_PARAM;
+    } else {
+        result = (TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, address, value) ==
+                  TK8710_OK) ? SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_DRIVER;
+    }
+
+    g_satPayload.lastResult = result;
+    return result;
+}
+
+SatPayloadResult SatPayloadApp_WriteRegister(uint16_t address,
+                                             uint32_t value)
+{
+    SatPayloadResult result;
+
+    result = (TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, address, value) ==
+              TK8710_OK) ? SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_DRIVER;
+    g_satPayload.lastResult = result;
+    return result;
+}
+
+SatPayloadResult SatPayloadApp_SetRfTxDc(uint8_t antenna,
+                                        int16_t iDc,
+                                        int16_t qDc)
+{
+    SatPayloadResult result = SAT_PAYLOAD_OK;
+    uint32_t value;
+    uint16_t address;
+
+    if (antenna >= SAT_PAYLOAD_RF_ANTENNA_COUNT) {
+        result = SAT_PAYLOAD_ERR_PARAM;
+    } else {
+        value = TK8710_S_TX_CONFIG_29_ENCODE((uint16_t)qDc,
+                                             (uint16_t)iDc);
+        address = (uint16_t)(TX_FE_BASE +
+                  ((uint32_t)antenna * SAT_PAYLOAD_TX_FE_ANTENNA_STRIDE) +
+                  offsetof(struct tx_dac_if, tx_config_29));
+
+        if ((g_satPayload.halActive != 0U) &&
+            (TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                            address, value) != TK8710_OK)) {
+            result = SAT_PAYLOAD_ERR_DRIVER;
+        }
+
+        if (result == SAT_PAYLOAD_OK) {
+            g_satRfConfig.txadc[antenna].i = iDc;
+            g_satRfConfig.txadc[antenna].q = qDc;
+            TRM_LOG_INFO("SAT APP RF TX DC set: antenna=%u I=0x%04X Q=0x%04X applied=%s",
+                         (unsigned int)antenna,
+                         (unsigned int)(uint16_t)iDc,
+                         (unsigned int)(uint16_t)qDc,
+                         (g_satPayload.halActive != 0U) ? "live" : "next-init");
+        }
+    }
+
+    g_satPayload.lastResult = result;
+    return result;
+}
+
 SatPayloadResult SatPayloadApp_HandleTelecommand(
     const SatPayloadTelecommand* request,
     SatPayloadTelecommandResponse* response)
@@ -652,17 +958,13 @@ SatPayloadResult SatPayloadApp_HandleTelecommand(
                      SAT_PAYLOAD_ACCEPTED : SAT_PAYLOAD_ERR_STATE;
             break;
         case SAT_PAYLOAD_TC_READ_REG:
-            driverResult = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-                                         request->payload.reg.address, &value);
-            result = (driverResult == TK8710_OK) ?
-                     SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_DRIVER;
+            result = SatPayloadApp_ReadRegister(
+                request->payload.reg.address, &value);
             break;
         case SAT_PAYLOAD_TC_WRITE_REG:
-            driverResult = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
-                                          request->payload.reg.address,
-                                          request->payload.reg.value);
-            result = (driverResult == TK8710_OK) ?
-                     SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_DRIVER;
+            result = SatPayloadApp_WriteRegister(
+                request->payload.reg.address,
+                request->payload.reg.value);
             break;
         case SAT_PAYLOAD_TC_READ_RF_REG:
             driverResult = tk8710_rf_read(request->payload.reg.rfMask,
@@ -676,6 +978,15 @@ SatPayloadResult SatPayloadApp_HandleTelecommand(
                                            request->payload.reg.value);
             result = (driverResult == TK8710_OK) ?
                      SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_DRIVER;
+            break;
+        case SAT_PAYLOAD_TC_SET_RF_TX_DC:
+            value = TK8710_S_TX_CONFIG_29_ENCODE(
+                (uint16_t)request->payload.rfTxDc.qDc,
+                (uint16_t)request->payload.rfTxDc.iDc);
+            result = SatPayloadApp_SetRfTxDc(
+                request->payload.rfTxDc.antenna,
+                request->payload.rfTxDc.iDc,
+                request->payload.rfTxDc.qDc);
             break;
         case SAT_PAYLOAD_TC_SELECT_PAYLOAD:
         case SAT_PAYLOAD_TC_SYSTEM_RESET:
@@ -705,6 +1016,45 @@ void SatPayloadApp_GetTelemetry(SatPayloadTelemetry* telemetry)
     TK8710EnterCritical();
     *telemetry = g_satPayload.telemetry;
     TK8710ExitCritical();
+}
+
+SatPayloadResult SatPayloadApp_GetAcmCalibrationResult(
+    TRM_AcmCalibResult* result)
+{
+    return (TRM_GetAcmCalibrationResult(result) == TRM_OK) ?
+           SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_STATE;
+}
+
+SatPayloadResult SatPayloadApp_GetCaptureInfo(TK8710CaptureInfo* info)
+{
+    return (TK8710CaptureGetInfo(info) == 0) ?
+           SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_PARAM;
+}
+
+SatPayloadResult SatPayloadApp_ReadCaptureData(uint32_t generation,
+                                               uint8_t antenna,
+                                               uint32_t offset,
+                                               void* data, uint32_t len)
+{
+    return (TK8710CaptureReadAntenna(generation, antenna, offset,
+                                     data, len) == 0) ?
+           SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_PARAM;
+}
+
+SatPayloadResult SatPayloadApp_GetSweepResultInfo(TRM_SweepResultInfo* info)
+{
+    return (TRM_GetSweepResultInfo(info) == TRM_OK) ?
+           SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_PARAM;
+}
+
+SatPayloadResult SatPayloadApp_ReadSweepResults(uint32_t startIndex,
+                                                TRM_SweepResultPoint* results,
+                                                uint32_t capacity,
+                                                uint32_t* resultCount)
+{
+    return (TRM_ReadSweepResults(startIndex, results, capacity,
+                                 resultCount) == TRM_OK) ?
+           SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_PARAM;
 }
 
 SatPayloadState SatPayloadApp_GetState(void)

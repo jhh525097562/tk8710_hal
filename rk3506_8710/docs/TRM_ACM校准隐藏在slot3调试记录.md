@@ -27,8 +27,8 @@ int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request);
 
 请求参数包括：
 
-- `calibCount`：连续校准次数，默认 5。
-- `snrThreshold`：SNR 门限，默认 32。
+- `calibCount`：连续校准次数，默认 1。
+- `snrThreshold`：SNR 门限，默认 28。
 - `restartAdvanceUs`：相对 slot3 结束提前启动的时间。
 - `guardUs`：slot3 剩余时间保护门限。
 

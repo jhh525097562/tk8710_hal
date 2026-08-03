@@ -13,10 +13,6 @@
 #include "../port/tk8710_hal.h"
 #include <string.h>
 
-#if defined(PLATFORM_TMS570) && defined(__TI_COMPILER_VERSION__)
-#pragma SET_DATA_SECTION(".tk8710_sdram")
-#endif
-
 #define TRM_SAT_GS_BEAM_MAX        5
 #define TRM_SAT_UPLINK_CACHE_MAX   128
 #if defined(TK8710_TMS570_PAYLOAD_ONLY)

@@ -26,6 +26,8 @@
 #define TK8710_TXADC_STORAGE_SIZE (TK8710_MAX_ANTENNAS * 4U)
 #define TK8710_INIT10_RF_READY_VALUE (1U << 2)
 #define SLAVE_BCN_WATCHDOG_INTERVAL_MS 30000U
+#define IRQ_MASK_WATCHDOG_INTERVAL_MS 100U
+#define TK8710_IRQ_CTRL0_VALID_MASK 0x7FFU
 
 /* 默认GPIO中断包装函数 */
 static void default_gpio_irq_handler(void* user)
@@ -97,6 +99,15 @@ static volatile uint32_t g_lastInit10Config = TK8710_INIT10_RF_READY_VALUE;
 static volatile uint8_t g_lastInit10ConfigValid = 0U;
 static volatile uint8_t g_slaveBcnWatchdogActive = 0U;
 static uint32_t g_slaveBcnWatchdogLastRecoveryMs = 0U;
+static volatile uint8_t g_irqMaskWatchdogActive = 0U;
+static uint8_t g_irqMaskWatchdogWorkType = TK8710_MODE_MASTER;
+static uint8_t g_irqMaskWatchdogWorkMode = TK8710_WORK_MODE_CONTINUOUS;
+static uint32_t g_irqMaskWatchdogExpected = TK8710_IRQ_CTRL0_VALID_MASK;
+static uint32_t g_irqMaskWatchdogLastCheckMs = 0U;
+static ChipConfig g_runtimeChipConfig;
+static ChiprfConfig g_runtimeRfConfig;
+static SpiConfig g_runtimeSpiConfig;
+static uint8_t g_runtimeChipConfigValid = 0U;
 
 static void TK8710RecordInit10Config(uint32_t value)
 {
@@ -108,7 +119,7 @@ static void TK8710RecordInit10Config(uint32_t value)
 
 static uint32_t tk8710BuildIrqCtrl0ForStart(uint8_t workType, const slotCfg_t* slotCfg)
 {
-    uint32_t irqCtrl0Data = 0xFFFFU;
+    uint32_t irqCtrl0Data = TK8710_IRQ_CTRL0_VALID_MASK;
 
     if (slotCfg == NULL) {
         return irqCtrl0Data;
@@ -158,6 +169,62 @@ static uint32_t tk8710BuildIrqCtrl0ForStart(uint8_t workType, const slotCfg_t* s
     }
 
     return irqCtrl0Data;
+}
+
+static int tk8710WriteAndVerifyIrqMask(uint32_t expected, const char* phase)
+{
+    uint32_t actual = TK8710_IRQ_CTRL0_VALID_MASK;
+    int ret = TK8710_ERR;
+    uint8_t attempt;
+
+    expected &= TK8710_IRQ_CTRL0_VALID_MASK;
+    for (attempt = 0U; attempt < 2U; attempt++) {
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             MAC_BASE + offsetof(struct mac, irq_ctrl0),
+                             expected);
+        if (ret != TK8710_OK) {
+            continue;
+        }
+
+        ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                            MAC_BASE + offsetof(struct mac, irq_ctrl0),
+                            &actual);
+        if ((ret == TK8710_OK) &&
+            ((actual & TK8710_IRQ_CTRL0_VALID_MASK) == expected)) {
+            TK8710_LOG_CORE_WARN("IRQ mask %s expected=0x%03X readback=0x%03X",
+                                 phase,
+                                 (unsigned int)expected,
+                                 (unsigned int)(actual & TK8710_IRQ_CTRL0_VALID_MASK));
+            return TK8710_OK;
+        }
+    }
+
+    TK8710_LOG_CORE_ERROR("IRQ mask %s failed expected=0x%03X readback=0x%03X ret=%d",
+                          phase,
+                          (unsigned int)expected,
+                          (unsigned int)(actual & TK8710_IRQ_CTRL0_VALID_MASK),
+                          ret);
+    return (ret == TK8710_OK) ? TK8710_ERR : ret;
+}
+
+static int tk8710ApplyIrqCtrl0ForStart(uint8_t workType,
+                                      const slotCfg_t* slotCfg,
+                                      const char* phase)
+{
+    uint32_t expected = tk8710BuildIrqCtrl0ForStart(workType, slotCfg);
+
+    return tk8710WriteAndVerifyIrqMask(expected, phase);
+}
+
+static void tk8710ArmIrqMaskWatchdog(uint8_t workType, uint8_t workMode)
+{
+    g_irqMaskWatchdogWorkType = workType;
+    g_irqMaskWatchdogWorkMode = workMode;
+    g_irqMaskWatchdogExpected =
+        tk8710BuildIrqCtrl0ForStart(workType, TK8710GetSlotConfig()) &
+        TK8710_IRQ_CTRL0_VALID_MASK;
+    g_irqMaskWatchdogLastCheckMs = TK8710GetTickMs();
+    g_irqMaskWatchdogActive = 1U;
 }
 
 /**
@@ -418,6 +485,19 @@ int TK8710Init(const ChipConfig* initConfig)
     s_irq_ctrl1 irqCtrl1;
     const ChipConfig* cfg = initConfig ? initConfig : &g_defaultChipConfig;
 
+    if (cfg != &g_runtimeChipConfig) {
+        g_runtimeChipConfig = *cfg;
+        if (cfg->rfConfig != NULL) {
+            g_runtimeRfConfig = *(const ChiprfConfig*)cfg->rfConfig;
+            g_runtimeChipConfig.rfConfig = &g_runtimeRfConfig;
+        }
+        if (cfg->spiConfig != NULL) {
+            g_runtimeSpiConfig = *cfg->spiConfig;
+            g_runtimeChipConfig.spiConfig = &g_runtimeSpiConfig;
+        }
+        g_runtimeChipConfigValid = 1U;
+    }
+
     ret = TK8710HardwareResetPulse();
     if (ret != TK8710_OK) {
         return ret;
@@ -579,56 +659,61 @@ int TK8710Init(const ChipConfig* initConfig)
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_17), 0);
     if (ret != TK8710_OK) return ret;
     
-    // AcmCalibParams calibParams;
-    // calibParams.calibCount = 5;
-    // calibParams.snrThreshold = 32;
-    
-    // int calibRet;
-    // int maxRetryCount = 3;
-    // int retryCount = 0;
-    // bool calibSuccess = false;
-    
-    // /* 校准重试逻辑：如果有效校准次数小于目标校准次数，则重新校准 */
-    // while (retryCount < maxRetryCount && !calibSuccess) {
+    /* 初始化默认日志系统（如果尚未初始化） */
+    defaultLogConfig.level = TK8710_LOG_INFO;
+    TK8710LogInit(&defaultLogConfig);
+    AcmCalibParams calibParams;
+    calibParams.calibCount = 100;
+    calibParams.snrThreshold = 28;
 
-    //     ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
-    //     if (ret == TK8710_OK) {
-    //         TK8710_LOG_CORE_INFO("ACM auto-gain get completed\n");
-    //     } else {
-    //         TK8710_LOG_CORE_INFO("ACM auto-gain get failed: ret=%d\n", ret);
-    //     }
+     int calibRet;
+     int maxRetryCount = 3;
+     int retryCount = 0;
+     bool calibSuccess = false;
 
-    //     TK8710_LOG_CORE_INFO("Start ACM calibration %d (target count: %d, SNR threshold: %d)...\n", 
-    //                         retryCount + 1, calibParams.calibCount, calibParams.snrThreshold);
+     /* 校准重试逻辑：如果有效校准次数小于目标校准次数，则重新校准 */
+     while (retryCount < maxRetryCount && !calibSuccess) {
+
+         ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
+         if (ret == TK8710_OK) {
+             TK8710_LOG_CORE_INFO("ACM auto-gain get completed\n");
+         } else {
+             TK8710_LOG_CORE_INFO("ACM auto-gain get failed: ret=%d\n", ret);
+         }
+
+         TK8710_LOG_CORE_INFO("Start ACM calibration %d (target count: %d, SNR threshold: %d)...\n",
+                             retryCount + 1, calibParams.calibCount, calibParams.snrThreshold);
         
-    //     ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE, 
-    //                         &calibParams, &calibRet);
+         ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE,
+                             &calibParams, &calibRet);
         
-    //     if (ret == TK8710_OK) {
-    //         TK8710_LOG_CORE_INFO("ACM calibration %d completed, valid count: %d\n", retryCount + 1, calibRet);
-            
-    //         /* 检查校准是否成功：有效校准次数是否达到目标校准次数 */
-    //         if (calibRet >= calibParams.calibCount) {
-    //             TK8710_LOG_CORE_INFO("ACM calibration succeeded\n");
-    //             calibSuccess = true;
-    //         } else {
-    //             TK8710_LOG_CORE_INFO("ACM calibration target not reached, retry required\n");
-    //             retryCount++;
-    //         }
-    //     } else {
-    //         TK8710_LOG_CORE_INFO("ACM calibration %d failed: ret=%d\n", retryCount + 1, ret);
-    //         retryCount++;
-    //     }
-    // }
-    
-    // /* 检查最终校准结果 */
-    // if (!calibSuccess) {
-    //     TK8710_LOG_CORE_INFO("ACM calibration finally failed after %d retries\n", maxRetryCount);
-    //     return TK8710_ERR;
-    // }
-    //     /* 初始化默认日志系统（如果尚未初始化） */
-    // defaultLogConfig.level = TK8710_LOG_WARN;
-    // TK8710LogInit(&defaultLogConfig);
+         if (ret == TK8710_OK) {
+             TK8710_LOG_CORE_INFO("ACM calibration %d completed, valid count: %d\n", retryCount + 1, calibRet);
+
+             calibSuccess = true;
+
+             /* 检查校准是否成功：有效校准次数是否达到目标校准次数 */
+             if (calibRet >= calibParams.calibCount) {
+                 TK8710_LOG_CORE_INFO("ACM calibration succeeded\n");
+                 calibSuccess = true;
+             } else {
+                 TK8710_LOG_CORE_INFO("ACM calibration target not reached, retry required\n");
+                 retryCount++;
+             }
+         } else {
+             TK8710_LOG_CORE_INFO("ACM calibration %d failed: ret=%d\n", retryCount + 1, ret);
+             retryCount++;
+         }
+     }
+
+     /* 检查最终校准结果 */
+     if (!calibSuccess) {
+         TK8710_LOG_CORE_INFO("ACM calibration finally failed after %d retries\n", maxRetryCount);
+         return TK8710_ERR;
+     }
+         /* 初始化默认日志系统（如果尚未初始化） */
+     defaultLogConfig.level = TK8710_LOG_WARN;
+     TK8710LogInit(&defaultLogConfig);
     
     TK8710_LOG_CORE_INFO("TK8710 initialized successfully");
     return TK8710_OK;
@@ -703,14 +788,10 @@ static int tk8710_start_once(uint8_t workType, uint8_t workMode)
                 }
             }
 
-            /* 配置中断使能 */
-            {
-                s_irq_ctrl0 irqCtrl0;
-                irqCtrl0.data = tk8710BuildIrqCtrl0ForStart(TK8710_MODE_MASTER, slotCfg);
-
-                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, irq_ctrl0), irqCtrl0.data);
-                if (ret != TK8710_OK) return ret;
-            }
+            ret = tk8710ApplyIrqCtrl0ForStart(TK8710_MODE_MASTER,
+                                              slotCfg,
+                                              "pre-trigger");
+            if (ret != TK8710_OK) return ret;
         }
         trig0.data = TK8710_S_TRX_TRIG0_ENCODE(1U);
         ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, trx_trig0), trig0.data);
@@ -759,14 +840,10 @@ static int tk8710_start_once(uint8_t workType, uint8_t workMode)
             //     if (ret != TK8710_OK) return ret;
             // }
             
-            /* 配置中断使能 */
-            {
-                s_irq_ctrl0 irqCtrl0;
-                irqCtrl0.data = tk8710BuildIrqCtrl0ForStart(TK8710_MODE_SLAVE, slotCfg);
-                
-                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, irq_ctrl0), irqCtrl0.data);
-                if (ret != TK8710_OK) return ret;
-            }
+            ret = tk8710ApplyIrqCtrl0ForStart(TK8710_MODE_SLAVE,
+                                              slotCfg,
+                                              "pre-trigger");
+            if (ret != TK8710_OK) return ret;
         }
         trig1.data = TK8710_S_TRX_TRIG1_ENCODE(1U);
         ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, trx_trig1), trig1.data);
@@ -794,14 +871,10 @@ static int tk8710_start_once(uint8_t workType, uint8_t workMode)
                 }
             }
             ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_12), 0x01011000);
-            /* 配置中断使能 - 类似Master模式 */
-            {
-                s_irq_ctrl0 irqCtrl0;
-                irqCtrl0.data = tk8710BuildIrqCtrl0ForStart(TK8710_MODE_LOOPBACK, slotCfg);
-                
-                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, irq_ctrl0), irqCtrl0.data);
-                if (ret != TK8710_OK) return ret;
-            }
+            ret = tk8710ApplyIrqCtrl0ForStart(TK8710_MODE_LOOPBACK,
+                                              slotCfg,
+                                              "pre-trigger");
+            if (ret != TK8710_OK) return ret;
             
         }
         trig0.data = TK8710_S_TRX_TRIG0_ENCODE(1U);
@@ -811,7 +884,16 @@ static int tk8710_start_once(uint8_t workType, uint8_t workMode)
         return TK8710_ERR;
     }
 
-    TK8710_LOG_CORE_INFO("Work started: type=%d, mode=%d", workType, workMode);
+    if (ret != TK8710_OK) {
+        return ret;
+    }
+
+    ret = tk8710ApplyIrqCtrl0ForStart(workType,
+                                      TK8710GetSlotConfig(),
+                                      "post-trigger");
+    if (ret == TK8710_OK) {
+        TK8710_LOG_CORE_INFO("Work started: type=%d, mode=%d", workType, workMode);
+    }
     return ret;
 }
 
@@ -828,6 +910,11 @@ int TK8710Start(uint8_t workType, uint8_t workMode)
     }
 
     ret = tk8710_start_once(workType, workMode);
+    if (ret == TK8710_OK) {
+        tk8710ArmIrqMaskWatchdog(workType, workMode);
+    } else {
+        g_irqMaskWatchdogActive = 0U;
+    }
     if (ret == TK8710_OK && enableSlaveBcnWatchdog != 0U) {
         if (g_slaveBcnWatchdogActive != 0U) {
             TK8710_LOG_CORE_INFO("Slave first-BCN watchdog started, recovery interval=%u ms",
@@ -867,12 +954,95 @@ void TK8710ProcessRuntimeWatchdog(void)
     uint32_t nowMs;
     int ret;
 
+    nowMs = TK8710GetTickMs();
+
+    if ((g_irqMaskWatchdogActive != 0U) &&
+        ((uint32_t)(nowMs - g_irqMaskWatchdogLastCheckMs) >=
+         IRQ_MASK_WATCHDOG_INTERVAL_MS)) {
+        uint32_t actualMask = TK8710_IRQ_CTRL0_VALID_MASK;
+
+        g_irqMaskWatchdogLastCheckMs = nowMs;
+        ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                            MAC_BASE + offsetof(struct mac, irq_ctrl0),
+                            &actualMask);
+        if ((ret == TK8710_OK) &&
+            ((actualMask & TK8710_IRQ_CTRL0_VALID_MASK) !=
+             g_irqMaskWatchdogExpected)) {
+            uint32_t init5Data = 0U;
+            uint32_t triggerData = 0U;
+            uint32_t irqStatus = 0U;
+            uint16_t triggerAddress =
+                (g_irqMaskWatchdogWorkType == TK8710_MODE_SLAVE) ?
+                (uint16_t)(MAC_BASE + offsetof(struct mac, trx_trig1)) :
+                (uint16_t)(MAC_BASE + offsetof(struct mac, trx_trig0));
+
+            (void)TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                                MAC_BASE + offsetof(struct mac, init_5),
+                                &init5Data);
+            (void)TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                                triggerAddress,
+                                &triggerData);
+            (void)TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                                MAC_BASE + offsetof(struct mac, irq_res),
+                                &irqStatus);
+            TK8710_LOG_CORE_ERROR(
+                "Runtime IRQ mask changed expected=0x%03X actual=0x%03X "
+                "init5=0x%08X conti=%u trig=0x%08X irq=0x%08X",
+                (unsigned int)g_irqMaskWatchdogExpected,
+                (unsigned int)(actualMask & TK8710_IRQ_CTRL0_VALID_MASK),
+                (unsigned int)init5Data,
+                (unsigned int)TK8710_S_INIT_5_CONTI_MODE_GET(init5Data),
+                (unsigned int)triggerData,
+                (unsigned int)irqStatus);
+
+            if ((init5Data == 0U) && (triggerData == 0U) &&
+                (g_runtimeChipConfigValid != 0U)) {
+                slotCfg_t slotCfgCopy = *TK8710GetSlotConfig();
+                uint8_t workType = g_irqMaskWatchdogWorkType;
+                uint8_t workMode = g_irqMaskWatchdogWorkMode;
+
+                TK8710_LOG_CORE_ERROR(
+                    "TK8710 runtime register state lost, rebuilding driver state");
+                g_irqMaskWatchdogActive = 0U;
+                ret = TK8710Init(&g_runtimeChipConfig);
+                if (ret == TK8710_OK) {
+                    ret = TK8710SetConfig(TK8710_CFG_TYPE_SLOT_CFG,
+                                          &slotCfgCopy);
+                }
+                if (ret == TK8710_OK) {
+                    ret = TK8710Start(workType, workMode);
+                }
+                if (ret == TK8710_OK) {
+                    TK8710_LOG_CORE_WARN(
+                        "TK8710 runtime driver state rebuild completed");
+                } else {
+                    TK8710_LOG_CORE_ERROR(
+                        "TK8710 runtime driver state rebuild failed: %d", ret);
+                }
+                return;
+            }
+
+            if ((g_irqMaskWatchdogWorkMode == TK8710_WORK_MODE_CONTINUOUS) &&
+                (TK8710_S_INIT_5_CONTI_MODE_GET(init5Data) == 0U)) {
+                init5Data = TK8710_S_INIT_5_CONTI_MODE_SET(init5Data, 1U);
+                ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                                     MAC_BASE + offsetof(struct mac, init_5),
+                                     init5Data);
+                if (ret != TK8710_OK) {
+                    TK8710_LOG_CORE_ERROR("Runtime conti_mode restore failed: %d", ret);
+                }
+            }
+
+            (void)tk8710WriteAndVerifyIrqMask(g_irqMaskWatchdogExpected,
+                                              "runtime-restore");
+        }
+    }
+
     if (g_slaveBcnWatchdogActive == 0U ||
         TK8710GetWorkType() != TK8710_MODE_SLAVE) {
         return;
     }
 
-    nowMs = TK8710GetTickMs();
     if ((uint32_t)(nowMs - g_slaveBcnWatchdogLastRecoveryMs) <
         SLAVE_BCN_WATCHDOG_INTERVAL_MS) {
         return;
@@ -928,6 +1098,9 @@ int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
     slotCfg_t* slotCfg = (slotCfg_t*)TK8710GetSlotConfig();
     s_init_5 init5;
 
+    g_irqMaskWatchdogWorkType = workType;
+    g_irqMaskWatchdogWorkMode = workMode;
+
     ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_5), &init5.data);
     if (ret != TK8710_OK) return ret;
 
@@ -943,7 +1116,6 @@ int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
         uint32_t bcnBits;
         s_init_12 init12;
         s_init_9 init9;
-        s_irq_ctrl0 irqCtrl0;
 
         if (slotCfg == NULL) return TK8710_ERR;
         slotCfg->msMode = TK8710_MODE_MASTER;
@@ -991,15 +1163,12 @@ int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
                              init12.data);
         if (ret != TK8710_OK) return ret;
 
-        irqCtrl0.data = tk8710BuildIrqCtrl0ForStart(TK8710_MODE_MASTER, slotCfg);
-
-        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
-                             MAC_BASE + offsetof(struct mac, irq_ctrl0),
-                             irqCtrl0.data);
+        ret = tk8710ApplyIrqCtrl0ForStart(TK8710_MODE_MASTER,
+                                          slotCfg,
+                                          "fast-prepare");
         if (ret != TK8710_OK) return ret;
     } else if (workType == TK8710_MODE_LOOPBACK) {
         s_init_12 init12;
-        s_irq_ctrl0 irqCtrl0;
 
         if (slotCfg == NULL) return TK8710_ERR;
 
@@ -1014,23 +1183,17 @@ int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
                              init12.data);
         if (ret != TK8710_OK) return ret;
 
-        irqCtrl0.data = tk8710BuildIrqCtrl0ForStart(TK8710_MODE_LOOPBACK, slotCfg);
-
-        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
-                             MAC_BASE + offsetof(struct mac, irq_ctrl0),
-                             irqCtrl0.data);
+        ret = tk8710ApplyIrqCtrl0ForStart(TK8710_MODE_LOOPBACK,
+                                          slotCfg,
+                                          "fast-prepare");
         if (ret != TK8710_OK) return ret;
     } else if (workType == TK8710_MODE_SLAVE) {
-        s_irq_ctrl0 irqCtrl0;
-
         if (slotCfg == NULL) return TK8710_ERR;
         slotCfg->msMode = TK8710_MODE_SLAVE;
 
-        irqCtrl0.data = tk8710BuildIrqCtrl0ForStart(TK8710_MODE_SLAVE, slotCfg);
-
-        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
-                             MAC_BASE + offsetof(struct mac, irq_ctrl0),
-                             irqCtrl0.data);
+        ret = tk8710ApplyIrqCtrl0ForStart(TK8710_MODE_SLAVE,
+                                          slotCfg,
+                                          "fast-prepare");
         if (ret != TK8710_OK) return ret;
     } else {
         TK8710_LOG_CORE_ERROR("Invalid work type for fast start prepare: %d", workType);
@@ -1063,6 +1226,16 @@ int TK8710FastStartTrigger(uint8_t workType)
         return TK8710_ERR;
     }
 
+    if (ret != TK8710_OK) {
+        return ret;
+    }
+
+    ret = tk8710ApplyIrqCtrl0ForStart(workType,
+                                      TK8710GetSlotConfig(),
+                                      "fast-trigger");
+    if (ret == TK8710_OK) {
+        tk8710ArmIrqMaskWatchdog(workType, g_irqMaskWatchdogWorkMode);
+    }
     return ret;
 }
 
@@ -1367,6 +1540,7 @@ int TK8710Reset(uint8_t rstType)
     uint8_t resetConfig = 0;
 
     g_slaveBcnWatchdogActive = 0U;
+    g_irqMaskWatchdogActive = 0U;
     ret = TK8710HardwareResetPulse();
     if (ret != TK8710_OK) {
         return ret;

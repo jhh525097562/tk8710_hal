@@ -84,7 +84,7 @@ SECTIONS
     .bss     : {} > RAM
     .data    : {} > RAM
 	.sysmem  : {} > RAM
-    .tk8710_sdram : {} > SDRAM_TK8710
+    .tk8710_sdram : {} > SDRAM_TK8710, type = NOINIT
 	
 
 /* USER CODE BEGIN (4) */

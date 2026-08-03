@@ -213,6 +213,22 @@ typedef struct {
     uint8_t  rfSel;            /* RF选择 (bit0-7对应RF0-7) */
 } TRM_SweepState;
 
+#define TRM_SWEEP_MAX_RESULT_POINTS 1024U
+
+typedef struct {
+    uint32_t frequencyHz;
+    float noiseDbmHz[8];
+} TRM_SweepResultPoint;
+
+typedef struct {
+    uint32_t generation;
+    uint32_t totalPoints;
+    uint32_t completedPoints;
+    int32_t lastError;
+    uint8_t active;
+    uint8_t complete;
+} TRM_SweepResultInfo;
+
 /* =============================================================================
  * TRM上层回调接口类型定义
  * ============================================================================= */
@@ -278,8 +294,8 @@ typedef struct {
 
 /* ACM校准请求参数 */
 typedef struct {
-    uint8_t  calibCount;        /* 连续校准次数，0使用默认值5 */
-    uint8_t  snrThreshold;      /* SNR门限，0使用默认值32 */
+    uint8_t  calibCount;        /* 连续校准次数，0使用默认值1 */
+    uint8_t  snrThreshold;      /* SNR门限，0使用默认值28 */
     uint32_t restartAdvanceUs;  /* 提前重启时隙时间，单位us */
     uint32_t guardUs;           /* slot3剩余时间保护门限，单位us，0使用默认值 */
 } TRM_AcmCalibRequest;
@@ -292,6 +308,17 @@ typedef struct {
     uint32_t lastElapsedUs;
     uint32_t lastWaitUs;
 } TRM_AcmCalibStatus;
+
+typedef struct {
+    uint32_t generation;
+    uint32_t timestampMs;
+    uint32_t iFactor[TK8710_MAX_ANTENNAS];
+    uint32_t qFactor[TK8710_MAX_ANTENNAS];
+    int32_t lastResult;
+    uint8_t valid;
+    uint8_t validCalibCount;
+    uint8_t validAntennaMask;
+} TRM_AcmCalibResult;
 
 /* =============================================================================
  * 系统初始化与控制API
@@ -365,6 +392,7 @@ uint32_t TRM_GetCurrentFrame(void);
 int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request);
 
 int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status);
+int TRM_GetAcmCalibrationResult(TRM_AcmCalibResult* result);
 
 /* =============================================================================
  * TRM日志系统API
@@ -434,6 +462,14 @@ int TRM_StopFrequencySweep(void);
  * @return TRM_OK成功，其他失败
  */
 int TRM_GetSweepState(TRM_SweepState* sweep_state);
+
+/** Process deferred capture and sweep work outside the Driver IRQ callback. */
+void TRM_ProcessBackground(void);
+
+int TRM_GetSweepResultInfo(TRM_SweepResultInfo* info);
+
+int TRM_ReadSweepResults(uint32_t startIndex, TRM_SweepResultPoint* results,
+                         uint32_t capacity, uint32_t* resultCount);
 
 #ifdef __cplusplus
 }

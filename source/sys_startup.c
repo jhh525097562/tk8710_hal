@@ -84,8 +84,6 @@ extern void exit(int _status);
 
 /* USER CODE BEGIN (3) */
 extern volatile uint32 g_tk8710ResetCause;
-extern volatile uint32 g_tk8710PreCInitSdramMask;
-extern volatile uint32 g_tk8710PreCInitSdram2MMask;
 /* USER CODE END */
 void handlePLLLockFail(void);
 /* Startup Routine */
@@ -105,11 +103,6 @@ void _c_int00(void)
 {    
 /* USER CODE BEGIN (5) */
     uint32 tk8710ResetCauseAtEntry = SYS_EXCEPTION;
-    uint32 tk8710PreCInitSdramMaskAtEntry = 0U;
-    uint32 tk8710PreCInitSdram2MMaskAtEntry = 0U;
-    uint32 tk8710PreCInitIndex;
-    volatile uint16* tk8710PreCInitSdram = (volatile uint16*)0x807F0000U;
-    volatile uint16* tk8710PreCInitSdram2M = (volatile uint16*)0x801F0000U;
 /* USER CODE END */
 
     /* Initialize Core Registers to avoid CCM Error */
@@ -657,33 +650,13 @@ void _c_int00(void)
     /* This function can be configured from the ESM tab of HALCoGen */
     esmInit();
 /* USER CODE BEGIN (74A) */
-    /*
-     * Configure the generated MPU regions before the C runtime clears
-     * .tk8710_sdram.  Region 6 marks 0x80000000 as strongly ordered.
-     */
+    /* Region 6 marks the optional SDRAM window as strongly ordered. */
     _mpuInit_();
-
-    for (tk8710PreCInitIndex = 0U; tk8710PreCInitIndex < 16U;
-         tk8710PreCInitIndex++) {
-        uint16 expected = (uint16)((uint16)1U << tk8710PreCInitIndex);
-
-        tk8710PreCInitSdram[0] = expected;
-        if (tk8710PreCInitSdram[0] == expected) {
-            tk8710PreCInitSdramMaskAtEntry |= (uint32)expected;
-        }
-
-        tk8710PreCInitSdram2M[0] = expected;
-        if (tk8710PreCInitSdram2M[0] == expected) {
-            tk8710PreCInitSdram2MMaskAtEntry |= (uint32)expected;
-        }
-    }
 /* USER CODE END */
     /* initialize copy table */
     __TI_auto_init();
 /* USER CODE BEGIN (75) */
     g_tk8710ResetCause = tk8710ResetCauseAtEntry;
-    g_tk8710PreCInitSdramMask = tk8710PreCInitSdramMaskAtEntry;
-    g_tk8710PreCInitSdram2MMask = tk8710PreCInitSdram2MMaskAtEntry;
 /* USER CODE END */
     
     /* call the application */

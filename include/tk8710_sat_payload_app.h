@@ -2,6 +2,8 @@
 #define TK8710_SAT_PAYLOAD_APP_H
 
 #include <stdint.h>
+#include "driver/tk8710_platform.h"
+#include "trm/trm_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -11,6 +13,7 @@ extern "C" {
 #define SAT_PAYLOAD_SLOT_COUNT      4U
 #define SAT_PAYLOAD_IRQ_COUNT       10U
 #define SAT_PAYLOAD_MAX_DATA_LEN    64U
+#define SAT_PAYLOAD_RF_ANTENNA_COUNT 8U
 #define SAT_PAYLOAD_MODE_NONE       0xFFU
 
 typedef enum {
@@ -88,11 +91,13 @@ typedef struct {
 
 typedef struct {
     uint8_t valid;
+    uint32_t generation;
     uint32_t userId;
     uint8_t rateMode;
     int16_t rssi;
     uint8_t snr;
     int32_t freqOffset;
+    uint32_t frequencyHz;
     uint16_t dataLen;
     uint32_t frameNo;
     uint32_t timestampMs;
@@ -118,16 +123,38 @@ typedef struct {
     uint32_t satelliteBeamMissCount;
     uint32_t irqCounters[SAT_PAYLOAD_IRQ_COUNT];
     uint32_t irqStatus;
+    uint32_t irqMask;
     uint32_t heapUsed;
     uint32_t heapPeak;
     uint32_t heapFailCount;
     uint32_t spiErrorCount;
     uint32_t gpioIrqCount;
+    uint32_t gpioIrqEdgeCount;
+    uint32_t gpioIrqRecoveryCount;
+    uint32_t irqStatusPollCount;
+    uint32_t spiResetCount;
+    uint32_t resetDriveLowCount;
+    uint32_t resetPinLowCount;
+    uint32_t portInitCount;
+    uint32_t spiInitCount;
+    uint32_t resetGioDout;
+    uint32_t resetGioDir;
+    uint32_t gpioDin;
+    uint32_t gpioFlag;
+    uint32_t gpioEnable;
+    uint32_t vimReqMask0;
+    uint8_t gpioIrqLevel;
+    uint8_t resetPinLevel;
+    uint8_t gpioIrqCallbackConfigured;
+    uint8_t sdramAvailable;
     uint8_t acmPending;
     uint8_t acmRunning;
     uint32_t acmCompletedCount;
     int32_t acmLastResult;
+    TRM_AcmCalibResult acmResult;
     SatPayloadLastRx lastRx;
+    TK8710CaptureInfo capture;
+    TRM_SweepResultInfo sweep;
 } SatPayloadTelemetry;
 
 typedef enum {
@@ -142,7 +169,8 @@ typedef enum {
     SAT_PAYLOAD_TC_WRITE_RF_REG,
     SAT_PAYLOAD_TC_SELECT_PAYLOAD,
     SAT_PAYLOAD_TC_SYSTEM_RESET,
-    SAT_PAYLOAD_TC_FIRMWARE_UPGRADE
+    SAT_PAYLOAD_TC_FIRMWARE_UPGRADE,
+    SAT_PAYLOAD_TC_SET_RF_TX_DC
 } SatPayloadTelecommandId;
 
 typedef struct {
@@ -151,10 +179,17 @@ typedef struct {
     uint8_t rfMask;
 } SatPayloadRegisterCommand;
 
+typedef struct {
+    uint8_t antenna;
+    int16_t iDc;
+    int16_t qDc;
+} SatPayloadRfTxDcCommand;
+
 typedef union {
     SatPayloadWorkParams workParams;
     uint8_t workMode;
     SatPayloadRegisterCommand reg;
+    SatPayloadRfTxDcCommand rfTxDc;
 } SatPayloadTelecommandPayload;
 
 typedef struct {
@@ -177,10 +212,31 @@ void SatPayloadApp_Process(void);
 SatPayloadResult SatPayloadApp_SetWorkParams(const SatPayloadWorkParams* params);
 SatPayloadResult SatPayloadApp_SetWorkMode(uint8_t mode);
 SatPayloadResult SatPayloadApp_Stop(void);
+/* Direct TK8710 global-register access; valid in every payload work state. */
+SatPayloadResult SatPayloadApp_ReadRegister(uint16_t address,
+                                            uint32_t* value);
+SatPayloadResult SatPayloadApp_WriteRegister(uint16_t address,
+                                             uint32_t value);
+/* Set one antenna's TX I/Q DC compensation; applies live when HAL is active. */
+SatPayloadResult SatPayloadApp_SetRfTxDc(uint8_t antenna,
+                                        int16_t iDc,
+                                        int16_t qDc);
 SatPayloadResult SatPayloadApp_HandleTelecommand(
     const SatPayloadTelecommand* request,
     SatPayloadTelecommandResponse* response);
 void SatPayloadApp_GetTelemetry(SatPayloadTelemetry* telemetry);
+SatPayloadResult SatPayloadApp_GetAcmCalibrationResult(
+    TRM_AcmCalibResult* result);
+SatPayloadResult SatPayloadApp_GetCaptureInfo(TK8710CaptureInfo* info);
+SatPayloadResult SatPayloadApp_ReadCaptureData(uint32_t generation,
+                                               uint8_t antenna,
+                                               uint32_t offset,
+                                               void* data, uint32_t len);
+SatPayloadResult SatPayloadApp_GetSweepResultInfo(TRM_SweepResultInfo* info);
+SatPayloadResult SatPayloadApp_ReadSweepResults(uint32_t startIndex,
+                                                TRM_SweepResultPoint* results,
+                                                uint32_t capacity,
+                                                uint32_t* resultCount);
 SatPayloadState SatPayloadApp_GetState(void);
 uint8_t SatPayloadApp_GetActiveMode(void);
 const char* SatPayloadApp_StateName(SatPayloadState state);

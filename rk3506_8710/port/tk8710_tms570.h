@@ -27,7 +27,7 @@ extern "C" {
 #define TK8710_TMS570_SDRAM_SIZE       (8UL * 1024UL * 1024UL)
 #define TK8710_TMS570_SDRAM_TEST_SIZE  (64UL * 1024UL)
 #define TK8710_TMS570_SDRAM_TEST_BASE  (TK8710_TMS570_SDRAM_BASE + TK8710_TMS570_SDRAM_SIZE - TK8710_TMS570_SDRAM_TEST_SIZE)
-#define TK8710_TMS570_HEAP_SIZE        (512UL * 1024UL)
+#define TK8710_TMS570_HEAP_SIZE        (8UL * 1024UL)
 
 typedef struct {
     uint32_t heap_size;
@@ -36,6 +36,24 @@ typedef struct {
     uint32_t heap_fail_count;
     uint32_t spi_error_count;
     uint32_t irq_count;
+    uint32_t irq_edge_count;
+    uint32_t irq_level_recovery_count;
+    uint32_t irq_status_poll_count;
+    uint32_t spi_reset_count;
+    uint32_t reset_drive_low_count;
+    uint32_t reset_pin_low_count;
+    uint32_t port_init_count;
+    uint32_t spi_init_count;
+    uint32_t reset_gio_dout;
+    uint32_t reset_gio_dir;
+    uint32_t gio_din;
+    uint32_t gio_flg;
+    uint32_t gio_enaset;
+    uint32_t vim_reqmask0;
+    uint8_t irq_pin_level;
+    uint8_t reset_pin_level;
+    uint8_t irq_callback_configured;
+    uint8_t sdram_available;
 } TK8710Tms570Stats;
 
 typedef struct {
@@ -63,6 +81,7 @@ int TK8710Tms570Init(void);
 void TK8710Tms570PollIrq(void);
 int TK8710Tms570SdramRecoverAtLowClock(void);
 int TK8710Tms570SdramSelfTest(uint32_t base, uint32_t bytes);
+uint8_t TK8710Tms570SdramIsAvailable(void);
 void TK8710Tms570GetStats(TK8710Tms570Stats* stats);
 void TK8710Tms570GetSdramDiag(TK8710Tms570SdramDiag* diag);
 void TK8710Tms570GetEmifDiag(TK8710Tms570EmifDiag* diag);

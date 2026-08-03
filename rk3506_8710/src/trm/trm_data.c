@@ -16,10 +16,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#if defined(PLATFORM_TMS570) && defined(__TI_COMPILER_VERSION__)
-#pragma SET_DATA_SECTION(".tk8710_sdram")
-#endif
-
 /* 外部函数声明 */
 extern void TK8710EnterCritical(void);
 extern void TK8710ExitCritical(void);
