@@ -30,6 +30,14 @@ build/
 dist/
 build_rk3506/
 build_jtool/
+build_pyinstaller/
+
+# Local hardware-test output and scratch data
+remote_logs/
+rk3506_test_logs/
+tmp/
+__pycache__/
+*.pyc
 
 # 工具链/SDK压缩包
 arm-buildroot-linux-gnueabihf_sdk-buildroot.tar.gz

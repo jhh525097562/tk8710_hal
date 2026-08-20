@@ -693,6 +693,24 @@ static void TRM_OnDriverSlotRx(TK8710IrqResult* irqResult)
     } else {
         TRM_LOG_DEBUG("TRM: MD_DATA interrupt but mdDataValid=0, skipping");
     }
+    // static int CalibrateCount = 0; // 默认值
+    // CalibrateCount++;
+    // int Tmp = 400;
+    // // if(CalibrateCount % 10 == 0 && CalibrateCount <= 20000) {
+    // if(CalibrateCount % 10 == 0) {
+    //     TRM_AcmCalibRequest acmRequest = {
+    //         .calibCount = 1,
+    //         .snrThreshold = 28,
+    //         .restartAdvanceUs = Tmp,//mode5-6:200,mode7:212,mode8:
+    //         .guardUs = 1000
+    //     };
+    //     int ret0 = TRM_RequestAcmCalibration(&acmRequest);
+    //     if (ret0 == TRM_OK) {
+    //         printf("TRM ACM calibration request submitted; it will run at last-frame S2 end\n");
+    //     } else {
+    //         printf("TRM ACM calibration request failed: ret=%d\n", ret0);
+    //     }
+    // }
 }
 
 /*==============================================================================

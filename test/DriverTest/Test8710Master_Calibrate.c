@@ -21,6 +21,7 @@
 #include "tk8710_hal.h"
 #include "driver/tk8710_driver_api.h"  /* Driver API接口 */
 #include "driver/tk8710_internal.h"     /* Driver内部函数 */
+#include "driver/tk8710_rf_regs.h"
 #include "driver/tk8710_regs.h"
 
 #include "driver_test_platform.h"
@@ -112,6 +113,58 @@ int LoadTxadcConfig(const char* filename, uint16_t txadc[8][2]) {
         printf("警告: 只读取到%d组txadc配置，期望8组\n", index);
         return -1;
     }
+}
+
+static const TxAdcConfig g_txadc_gain_2a[TK8710_MAX_ANTENNAS] = {
+    {0x0bc9, 0x0830}, {0x0da0, 0x0510}, {0x0b70, 0x0650}, {0x0300, 0x07e0},
+    {0x0e30, 0x0dc0}, {0x0a20, 0x09a0}, {0x0900, 0x0890}, {0x0960, 0x15b0}
+};
+
+static const TxAdcConfig g_txadc_gain_2e[TK8710_MAX_ANTENNAS] = {
+    {0x0500, 0x0350}, {0x05a0, 0x0250}, {0x04c0, 0x0290}, {0x0150, 0x0350},
+    {0x0600, 0x05b0}, {0x0420, 0x0400}, {0x03a0, 0x0390}, {0x03c0, 0x08d0}
+};
+
+static const TxAdcConfig* GetTxadcConfigByGain(uint8_t txgain)
+{
+    if (txgain == 0x2a) {
+        return g_txadc_gain_2a;
+    }
+    if (txgain == 0x2e) {
+        return g_txadc_gain_2e;
+    }
+    return NULL;
+}
+
+static int ApplyTxadcConfig(const TxAdcConfig txadc[TK8710_MAX_ANTENNAS])
+{
+    int ret;
+    uint8_t antenna;
+
+    for (antenna = 0; antenna < TK8710_MAX_ANTENNAS; antenna++) {
+        uint32_t tx_fe_addr = TX_FE_BASE + antenna * 0x1000;
+        s_tx_config_29 tx_config_29;
+
+        ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                            tx_fe_addr + offsetof(struct tx_dac_if, tx_config_29),
+                            &tx_config_29.data);
+        if (ret != TK8710_OK) {
+            printf("读取天线%u的1255直流分量失败: ret=%d\n", antenna, ret);
+            return ret;
+        }
+
+        tx_config_29.b.tx_dci = (uint16_t)txadc[antenna].i;
+        tx_config_29.b.tx_dcq = (uint16_t)txadc[antenna].q;
+        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                             tx_fe_addr + offsetof(struct tx_dac_if, tx_config_29),
+                             tx_config_29.data);
+        if (ret != TK8710_OK) {
+            printf("配置天线%u的1255直流分量失败: ret=%d\n", antenna, ret);
+            return ret;
+        }
+    }
+
+    return TK8710_OK;
 }
 
 /* 下行发送状态跟踪 */
@@ -1147,7 +1200,7 @@ int main(int argc, char* argv[])
         .rftype = TK8710_RF_TYPE_1255_1M,//
         .Freq = 509100000,
         .rxgain = 0x7e,
-        .txgain = 0x2a,
+        .txgain = 0x2e,
         // .txadc = {//C号板
         //     {0x0bc0, 0x04a0}, {0x0a50, 0x0780}, {0x0750, 0x0820}, {0x0bc3, 0x0940},
         //     {0x0e83, 0x05e0}, {0xfbff, 0x0850}, {0x0880, 0x0500}, {0x02a0, 0x06ff}
@@ -1473,24 +1526,51 @@ int main(int argc, char* argv[])
             case 'k':
             case 'K':
             {
-                uint32_t gain1255;
-                printf("请输入1255gain (hex, e.g. 0x2a): ");
+                uint32_t calibration_rxgain;
+                uint32_t calibration_txgain;
+                const TxAdcConfig* calibration_txadc;
+                const TxAdcConfig* default_txadc;
+
+                printf("请输入1255 rxgain (hex, e.g. 0x7e): ");
                 fflush(stdout);
-                if (scanf("%x", &gain1255) != 1 || gain1255 > 0xFF) {
-                    printf("无效的1255gain，范围: 0x00~0xFF\n");
+                if (scanf("%x", &calibration_rxgain) != 1 || calibration_rxgain > 0xFF) {
+                    printf("无效的1255 rxgain，范围: 0x00~0xFF\n");
                     break;
                 }
-                ret = tk8710_rf_write(0xff, 0x8C7e >> 8, gain1255);
-                if (ret == TK8710_OK) {
-                    printf("校准时1255增益设置成功\n");
-                } else {
-                    printf("校准时1255增益设置失败: ret=%d\n", ret);
+
+                printf("请输入1255 txgain (0x2a或0x2e): ");
+                fflush(stdout);
+                if (scanf("%x", &calibration_txgain) != 1 ||
+                    (calibration_txgain != 0x2a && calibration_txgain != 0x2e)) {
+                    printf("无效的1255 txgain，仅支持0x2a或0x2e\n");
+                    break;
                 }
-                printf("执行ACM增益自动获取, 1255gain=0x%02X...\n", (uint8_t)gain1255);
+
+                calibration_txadc = GetTxadcConfigByGain((uint8_t)calibration_txgain);
+                default_txadc = GetTxadcConfigByGain(rfConfig.txgain);
+
+                ret = tk8710_rf_write(0xff, RF_CMD_RX_GAIN >> 8, calibration_rxgain);
+                if (ret != TK8710_OK) {
+                    printf("校准时1255 rxgain设置失败: ret=%d\n", ret);
+                    break;
+                }
+                ret = tk8710_rf_write(0xff, RF_CMD_TX_GAIN >> 8, calibration_txgain);
+                if (ret != TK8710_OK) {
+                    printf("校准时1255 txgain设置失败: ret=%d\n", ret);
+                    goto restore_calibration_rf_config;
+                }
+                ret = ApplyTxadcConfig(calibration_txadc);
+                if (ret != TK8710_OK) {
+                    goto restore_calibration_rf_config;
+                }
+
+                printf("执行ACM增益自动获取, rxgain=0x%02X, txgain=0x%02X...\n",
+                       (uint8_t)calibration_rxgain, (uint8_t)calibration_txgain);
                 AcmCalibParams calibParams;
                 calibParams.calibCount = 100;
                 calibParams.snrThreshold = 5;//20
                 int calibRet;
+                ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
                 ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE,
                                     &calibParams, &calibRet);
                 if (ret == TK8710_OK) {
@@ -1499,11 +1579,20 @@ int main(int argc, char* argv[])
                     printf("ACM校准失败: ret=%d\n", ret);
                 }
 
-                ret = tk8710_rf_write(0xff, 0x8C7e >> 8, Rxgain);
+restore_calibration_rf_config:
+                ret = tk8710_rf_write(0xff, RF_CMD_RX_GAIN >> 8, rfConfig.rxgain);
+                if (ret != TK8710_OK) {
+                    printf("校准后1255 rxgain恢复失败: ret=%d\n", ret);
+                }
+                ret = tk8710_rf_write(0xff, RF_CMD_TX_GAIN >> 8, rfConfig.txgain);
+                if (ret != TK8710_OK) {
+                    printf("校准后1255 txgain恢复失败: ret=%d\n", ret);
+                }
+                ret = ApplyTxadcConfig(default_txadc != NULL ? default_txadc : rfConfig.txadc);
                 if (ret == TK8710_OK) {
-                    printf("校准后1255增益恢复成功\n");
+                    printf("校准后1255默认增益和直流分量恢复完成\n");
                 } else {
-                    printf("校准后1255增益恢复失败: ret=%d\n", ret);
+                    printf("校准后1255直流分量恢复失败: ret=%d\n", ret);
                 }
                 s_init_9 init9;
                 init9.data = 0x1ffff;

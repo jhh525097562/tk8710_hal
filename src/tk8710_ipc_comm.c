@@ -340,7 +340,7 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
                         0,                  // 用户ID（示例）
                         ns_data->payload,         // 数据载荷
                         ns_data->payload_len,     // 数据长度
-                        35,                       // 发射功率
+                        31,                       // 发射功率35
                         ns_data->tdd,             // 帧号
                         ConvertNsRateToTk8710Rate(ns_data->rate),
                         ns_data->tdd == 255 ? TK8710_DATA_TYPE_DED : TK8710_DATA_TYPE_BRD  // tdd=255->DED, tdd=0->BRD

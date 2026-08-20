@@ -39,6 +39,7 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -51,6 +52,9 @@
 #else
 #include <unistd.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <linux/i2c.h>
+#include <linux/i2c-dev.h>
 #define TK8710_CHDIR(path) chdir(path)
 #define TK8710_GETCWD(buf, size) getcwd(buf, size)
 #define TK8710_MKDIR(path) mkdir(path, 0755)
@@ -72,6 +76,332 @@
 
 /* Running flag */
 static volatile int g_running = 1;
+typedef enum {
+    GW_INIT_IDLE = 0,
+    GW_INIT_IN_PROGRESS,
+    GW_INIT_SUCCESS,
+    GW_INIT_FAILED
+} GwInitState;
+
+static volatile GwInitState g_init_state = GW_INIT_IDLE;
+static volatile int g_init_error = 0;
+static volatile int g_fatal_error = 0;
+static uint8_t g_rf_tx_gain = 0x2a;
+static uint32_t g_reg_a064_value = 0x00044003u;
+
+#define TK8710_TX_DC_DIR  "TxDC"
+#define TK8710_TX_DC_FILE TK8710_TX_DC_DIR "/txadc.txt"
+#define TK8710_RF_I2C_ADDR_BASE 0x50u
+#define TK8710_RF_DC_RAM_OFFSET 0x00u
+#define TK8710_I2C_BUS_MAX      31
+#define TK8710_CORRELATION_MAX_TERMINALS 128u
+#define TK8710_CORRELATION_LOG_DIR       "/userdata/8710log"
+#define TK8710_CORRELATION_LOG_FILE      TK8710_CORRELATION_LOG_DIR "/correlation.txt"
+
+typedef struct {
+    uint32_t terminal_id;
+    uint32_t ah_data[16];
+} GwCorrelationTerminal;
+
+static int32_t DecodeAhComponent(uint32_t value)
+{
+    uint32_t raw = value & 0xFFFFFu;
+
+    return (raw & 0x80000u) ? (int32_t)(raw - 0x100000u) : (int32_t)raw;
+}
+
+static int CompareCorrelationTerminal(const void* lhs, const void* rhs)
+{
+    const GwCorrelationTerminal* left = (const GwCorrelationTerminal*)lhs;
+    const GwCorrelationTerminal* right = (const GwCorrelationTerminal*)rhs;
+
+    if (left->terminal_id < right->terminal_id) {
+        return -1;
+    }
+    if (left->terminal_id > right->terminal_id) {
+        return 1;
+    }
+    return 0;
+}
+
+static int CalculateChannelCorrelation(const uint32_t* first_ah, const uint32_t* second_ah,
+                                       double* correlation)
+{
+    double inner_real = 0.0;
+    double inner_imag = 0.0;
+    double first_energy = 0.0;
+    double second_energy = 0.0;
+
+    if (first_ah == NULL || second_ah == NULL || correlation == NULL) {
+        return -1;
+    }
+
+    for (uint8_t antenna = 0; antenna < 8; antenna++) {
+        double first_i = (double)DecodeAhComponent(first_ah[antenna * 2]);
+        double first_q = (double)DecodeAhComponent(first_ah[antenna * 2 + 1]);
+        double second_i = (double)DecodeAhComponent(second_ah[antenna * 2]);
+        double second_q = (double)DecodeAhComponent(second_ah[antenna * 2 + 1]);
+
+        /* (first_i + j*first_q) * conj(second_i + j*second_q) */
+        inner_real += first_i * second_i + first_q * second_q;
+        inner_imag += first_q * second_i - first_i * second_q;
+        first_energy += first_i * first_i + first_q * first_q;
+        second_energy += second_i * second_i + second_q * second_q;
+    }
+
+    if (first_energy == 0.0 || second_energy == 0.0) {
+        return 1;
+    }
+
+    *correlation = hypot(inner_real, inner_imag) / sqrt(first_energy * second_energy);
+    if (*correlation > 1.0) {
+        *correlation = 1.0;
+    }
+    return 0;
+}
+
+static void ProcessChannelCorrelations(const TRM_RxDataList* rx_data_list,
+                                       uint32_t system_frame)
+{
+    GwCorrelationTerminal terminals[TK8710_CORRELATION_MAX_TERMINALS];
+    uint8_t terminal_count = 0;
+    FILE* log_file = NULL;
+
+    if (rx_data_list == NULL ||
+        (rx_data_list->userCount > 0 && rx_data_list->users == NULL)) {
+        printf("Channel correlation skipped: invalid RX data list\n");
+        return;
+    }
+
+    for (uint8_t user_index = 0; user_index < rx_data_list->userCount; user_index++) {
+        const TRM_RxUserData* user = &rx_data_list->users[user_index];
+        uint32_t terminal_id = user->userId >> 8;
+        uint8_t terminal_index;
+
+        for (terminal_index = 0; terminal_index < terminal_count; terminal_index++) {
+            if (terminals[terminal_index].terminal_id == terminal_id) {
+                break;
+            }
+        }
+        if (terminal_index == terminal_count) {
+            if (terminal_count >= TK8710_CORRELATION_MAX_TERMINALS) {
+                printf("Channel correlation terminal limit reached: %u\n",
+                       TK8710_CORRELATION_MAX_TERMINALS);
+                break;
+            }
+            terminals[terminal_count].terminal_id = terminal_id;
+            terminal_count++;
+        }
+        memcpy(terminals[terminal_index].ah_data, user->beam.ahData,
+               sizeof(terminals[terminal_index].ah_data));
+    }
+
+    qsort(terminals, terminal_count, sizeof(terminals[0]), CompareCorrelationTerminal);
+
+    if (TK8710_MKDIR(TK8710_CORRELATION_LOG_DIR) != 0 && errno != EEXIST) {
+        printf("Failed to create %s: %s\n", TK8710_CORRELATION_LOG_DIR, strerror(errno));
+    } else {
+        log_file = fopen(TK8710_CORRELATION_LOG_FILE, "a");
+        if (log_file == NULL) {
+            printf("Failed to open %s: %s\n", TK8710_CORRELATION_LOG_FILE, strerror(errno));
+        }
+    }
+
+    if (log_file == NULL) {
+        return;
+    }
+
+    fprintf(log_file,
+            "=== Channel correlation: super_frame=%u system_frame=%u "
+            "rx_users=%u terminals=%u ===\n",
+            rx_data_list->frameNo, system_frame,
+            rx_data_list->userCount, terminal_count);
+    fprintf(log_file, "%-12s", "terminal_id");
+    for (uint8_t column = 0; column < terminal_count; column++) {
+        fprintf(log_file, "0x%06X    ", terminals[column].terminal_id);
+    }
+    fprintf(log_file, "\n");
+
+    for (uint8_t row = 0; row < terminal_count; row++) {
+        fprintf(log_file, "0x%06X    ", terminals[row].terminal_id);
+        for (uint8_t column = 0; column < terminal_count; column++) {
+            if (column < row) {
+                fprintf(log_file, "%-12s", "");
+            } else if (column == row) {
+                fprintf(log_file, "%-12s", "1.000000");
+            } else {
+                double correlation = 0.0;
+                int result = CalculateChannelCorrelation(terminals[row].ah_data,
+                                                         terminals[column].ah_data,
+                                                         &correlation);
+
+                if (result == 0) {
+                    fprintf(log_file, "%-12.6f", correlation);
+                } else {
+                    fprintf(log_file, "%-12s", "N/A");
+                }
+            }
+        }
+        fprintf(log_file, "\n");
+    }
+    fprintf(log_file, "\n");
+
+    if (ferror(log_file)) {
+        printf("Failed to write channel correlation log: %s\n", strerror(errno));
+    }
+    if (fclose(log_file) != 0) {
+        printf("Failed to close %s: %s\n", TK8710_CORRELATION_LOG_FILE, strerror(errno));
+    }
+}
+
+/**
+ * @brief Read one uint32_t TX DC word from an RF module over I2C.
+ */
+#ifndef _WIN32
+static int ReadRfTxDcWord(int fd, uint8_t slave_addr, uint32_t* value)
+{
+    uint8_t offset = TK8710_RF_DC_RAM_OFFSET;
+    uint8_t data[sizeof(uint32_t)];
+    struct i2c_msg messages[2];
+    struct i2c_rdwr_ioctl_data transfer;
+
+    if (value == NULL) {
+        return -1;
+    }
+
+    messages[0].addr = slave_addr;
+    messages[0].flags = 0;
+    messages[0].len = sizeof(offset);
+    messages[0].buf = &offset;
+    messages[1].addr = slave_addr;
+    messages[1].flags = I2C_M_RD;
+    messages[1].len = sizeof(data);
+    messages[1].buf = data;
+
+    transfer.msgs = messages;
+    transfer.nmsgs = 2;
+    if (ioctl(fd, I2C_RDWR, &transfer) < 0) {
+        return -1;
+    }
+
+    /* RF RAM stores the uint32_t word in little-endian byte order. */
+    *value = (uint32_t)data[0] |
+             ((uint32_t)data[1] << 8) |
+             ((uint32_t)data[2] << 16) |
+             ((uint32_t)data[3] << 24);
+    return 0;
+}
+
+static int OpenRfI2cBus(char* device_path, size_t path_size)
+{
+    int bus;
+
+    for (bus = 0; bus <= TK8710_I2C_BUS_MAX; bus++) {
+        uint32_t value;
+        int antenna;
+        int fd;
+
+        snprintf(device_path, path_size, "/dev/i2c-%d", bus);
+        fd = open(device_path, O_RDWR);
+        if (fd < 0) {
+            continue;
+        }
+
+        for (antenna = 0; antenna < TK8710_MAX_ANTENNAS; antenna++) {
+            if (ReadRfTxDcWord(fd,
+                               (uint8_t)(TK8710_RF_I2C_ADDR_BASE + antenna),
+                               &value) != 0) {
+                break;
+            }
+        }
+
+        if (antenna == TK8710_MAX_ANTENNAS) {
+            return fd;
+        }
+        close(fd);
+    }
+
+    device_path[0] = '\0';
+    return -1;
+}
+#endif
+
+/**
+ * @brief Read eight RF TX DC words over I2C and save I/Q values to txadc.txt.
+ */
+static int SaveTxDcFromRfRam(void)
+{
+#ifdef _WIN32
+    printf("I2C TX DC loading is only supported on RK3506 Linux\n");
+    return -1;
+#else
+    uint32_t tx_dc_data[TK8710_MAX_ANTENNAS];
+    char device_path[32];
+    FILE* file;
+    int fd;
+    int i;
+
+    fd = OpenRfI2cBus(device_path, sizeof(device_path));
+    if (fd < 0) {
+        printf("Failed to find an I2C bus containing RF modules 0x50~0x57\n");
+        return -1;
+    }
+
+    for (i = 0; i < TK8710_MAX_ANTENNAS; i++) {
+        uint8_t slave_addr = (uint8_t)(TK8710_RF_I2C_ADDR_BASE + i);
+
+        if (ReadRfTxDcWord(fd, slave_addr, &tx_dc_data[i]) != 0) {
+            printf("Failed to read RF TX DC: device=%s, slave=0x%02X, offset=0x%02X: %s\n",
+                   device_path, slave_addr, TK8710_RF_DC_RAM_OFFSET, strerror(errno));
+            close(fd);
+            return -1;
+        }
+    }
+    close(fd);
+
+    if (TK8710_MKDIR(TK8710_TX_DC_DIR) != 0 && errno != EEXIST) {
+        printf("Failed to create %s: %s\n", TK8710_TX_DC_DIR, strerror(errno));
+        return -1;
+    }
+
+    file = fopen(TK8710_TX_DC_FILE, "w");
+    if (file == NULL) {
+        printf("Failed to open %s: %s\n", TK8710_TX_DC_FILE, strerror(errno));
+        return -1;
+    }
+
+    for (i = 0; i < TK8710_MAX_ANTENNAS; i++) {
+        uint16_t dc_i = (uint16_t)(tx_dc_data[i] >> 16);
+        uint16_t dc_q = (uint16_t)(tx_dc_data[i] & 0xFFFFu);
+
+        if (dc_i == UINT16_MAX) {
+            printf("RF%d TX DC I is invalid (0xFFFF), using 0x0000\n", i);
+            dc_i = 0;
+        }
+        if (dc_q == UINT16_MAX) {
+            printf("RF%d TX DC Q is invalid (0xFFFF), using 0x0000\n", i);
+            dc_q = 0;
+        }
+
+        if (fprintf(file, "0x%04X, 0x%04X\n", dc_i, dc_q) < 0) {
+            printf("Failed to write %s: %s\n", TK8710_TX_DC_FILE, strerror(errno));
+            fclose(file);
+            return -1;
+        }
+        printf("RF%d TX DC: raw=0x%08X, I=0x%04X, Q=0x%04X\n",
+               i, tx_dc_data[i], dc_i, dc_q);
+    }
+
+    if (fclose(file) != 0) {
+        printf("Failed to close %s: %s\n", TK8710_TX_DC_FILE, strerror(errno));
+        return -1;
+    }
+
+    printf("TX DC values read from %s and saved to %s\n",
+           device_path, TK8710_TX_DC_FILE);
+    return 0;
+#endif
+}
 
 #ifndef _WIN32
 /**
@@ -109,6 +439,7 @@ static uint32_t g_trmRxCount = 0;                 /* TRM接收计数 */
 
 #define DRIVER_IRQ_STALL_TIMEOUT_SEC 120
 #define CONSOLE_POLL_INTERVAL_SEC 10
+#define CONFIG_APPLY_TIMEOUT_TICKS 600  /* 600 * 100 ms = 60 s */
 
 /* 核间通信上下文由 src/tk8710_ipc_comm.c 定义 */
 
@@ -118,6 +449,7 @@ static void OnTrmTxComplete(const TRM_TxCompleteResult* txResult);
 
 /* 配置处理函数声明 */
 static int HandleNsConfig(const NsConfigDown_t* config);
+static int ApplyNsConfig(const NsConfigDown_t* config);
 
 /* HAL是否已初始化标志 */
 static int g_hal_initialized = 0;
@@ -192,6 +524,8 @@ static void PrintUsage(const char* prog_name)
     printf("Usage: %s [options]\n", prog_name);
     printf("Options:\n");
     printf("  --work-dir <dir>, -w <dir> : Set runtime directory for generated files\n");
+    printf("  --rf-gain <gain>, -g <gain>: Set RF TX gain (0x00~0xFF, default: 0x2a)\n");
+    printf("  --reg-a064 <value>          : Set register 0xA064 (default: 0x00045003)\n");
     printf("  --help, -h                 : Show this help\n");
 }
 
@@ -247,6 +581,52 @@ static int NormalizeRuntimeArgs(int* argc, char* argv[], const char** work_dir)
             continue;
         }
 
+        if (strcmp(argv[arg_index], "--rf-gain") == 0 || strcmp(argv[arg_index], "-g") == 0) {
+            char* end = NULL;
+            unsigned long gain;
+
+            if (arg_index + 1 >= *argc) {
+                printf("Error: %s requires a gain value\n", argv[arg_index]);
+                PrintUsage(argv[0]);
+                return -1;
+            }
+
+            errno = 0;
+            gain = strtoul(argv[++arg_index], &end, 0);
+            if (errno != 0 || end == argv[arg_index] || *end != '\0' || gain > 0xFF) {
+                printf("Error: Invalid RF gain '%s' (expected 0x00~0xFF)\n", argv[arg_index]);
+                PrintUsage(argv[0]);
+                return -1;
+            }
+
+            g_rf_tx_gain = (uint8_t)gain;
+            continue;
+        }
+
+        if (strcmp(argv[arg_index], "--reg-a064") == 0) {
+            char* end = NULL;
+            unsigned long value;
+
+            if (arg_index + 1 >= *argc) {
+                printf("Error: %s requires a register value\n", argv[arg_index]);
+                PrintUsage(argv[0]);
+                return -1;
+            }
+
+            errno = 0;
+            value = strtoul(argv[++arg_index], &end, 0);
+            if (errno != 0 || argv[arg_index][0] == '-' || end == argv[arg_index] ||
+                *end != '\0' || value > UINT32_MAX) {
+                printf("Error: Invalid 0xA064 value '%s' (expected 0x00000000~0xFFFFFFFF)\n",
+                       argv[arg_index]);
+                PrintUsage(argv[0]);
+                return -1;
+            }
+
+            g_reg_a064_value = (uint32_t)value;
+            continue;
+        }
+
         printf("Error: Unknown argument %s\n", argv[arg_index]);
         PrintUsage(argv[0]);
         return -1;
@@ -254,6 +634,20 @@ static int NormalizeRuntimeArgs(int* argc, char* argv[], const char** work_dir)
 
     *argc = compact_argc;
     return 0;
+}
+
+static int ConfigureRegA064(void)
+{
+    int ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0xA064u, g_reg_a064_value);
+
+    if (ret != TK8710_OK) {
+        printf("Failed to configure register 0xA064 = 0x%08X: ret=%d\n",
+               g_reg_a064_value, ret);
+        return ret;
+    }
+
+    printf("Register 0xA064 configured: 0x%08X\n", g_reg_a064_value);
+    return TK8710_OK;
 }
 
 static uint8_t ConvertNsRateToTk8710Rate(uint8_t ns_rate) {
@@ -480,7 +874,7 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
     rfConfig.rftype = TK8710_RF_TYPE_1255_1M;
     rfConfig.Freq = start_freq;  /* 从起始频率开始 */
     rfConfig.rxgain = 0x7e;
-    rfConfig.txgain = 0x2a;
+    rfConfig.txgain = g_rf_tx_gain;
     uint16_t txadc_data[][2] = {
         {0x0450, 0x0450}, {0x0a00, 0x1080}, {0x0750, 0x1500}, {0x0400, 0x0b00},
         {0x08a0, 0x07a0}, {0x0990, 0xff00}, {0x0850, 0x08c8}, {0x0950, 0x0a00}
@@ -548,6 +942,10 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
         return -1;
     }
     printf("[扫频] 步骤7: HAL初始化完成\n");
+
+    if (ConfigureRegA064() != TK8710_OK) {
+        return -1;
+    }
     
     /* 8-11. 配置时隙参数 (扫频模式简化配置) */
     slotCfg_t slotCfg;
@@ -650,7 +1048,7 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
  * @param config NS配置数据
  * @return 0成功，负数失败
  */
-static int HandleNsConfig(const NsConfigDown_t* config) {
+static int ApplyNsConfig(const NsConfigDown_t* config) {
     uint8_t network_id;
 
     if (!config) {
@@ -681,13 +1079,21 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         // 1. 清理TRM系统资源
         trmRet = TRM_Deinit();
         if (trmRet != TRM_OK) {
+            printf("TRM deinitialization failed before reconfiguration: %d\n", trmRet);
+            return TK8710_HAL_ERROR_RESET;
+        }
+        g_hal_initialized = 0;
+
+        // 2. 复位TK8710芯片（复位状态机+寄存器）
+        ret = TK8710Reset(TK8710_RST_STATE_MACHINE);
+        if (ret != TK8710_OK) {
+            printf("TK8710 state-machine reset failed before reconfiguration: %d\n", ret);
             return TK8710_HAL_ERROR_RESET;
         }
 
-        // 2. 复位TK8710芯片（复位状态机+寄存器）
-        ret = TK8710Reset(TK8710_RST_STATE_MACHINE);//TK8710_RST_STATE_MACHINE  TK8710_RST_ALL
-        ret = TK8710Reset(TK8710_RST_ALL);//TK8710_RST_STATE_MACHINE  TK8710_RST_ALL
+        ret = TK8710Reset(TK8710_RST_ALL);
         if (ret != TK8710_OK) {
+            printf("TK8710 full reset failed before reconfiguration: %d\n", ret);
             return TK8710_HAL_ERROR_RESET;
         }
 
@@ -713,6 +1119,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         // }
     };
     rfConfig.Freq = config->freq;
+    rfConfig.txgain = g_rf_tx_gain;
     /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
     ChipConfig chipConfig = {
         .bcn_agc     = 32,
@@ -764,8 +1171,13 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         printf("HAL initialization failed: %d\n", halRet);
         return -1;
     }
+    g_hal_initialized = 1;
 
     printf("HAL initialization completed (including RF)\n");
+
+    if (ConfigureRegA064() != TK8710_OK) {
+        return -1;
+    }
 
     // 根据收到的配置重新配置时隙参数
     slotCfg_t slotCfg;
@@ -904,6 +1316,28 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     return 0;
 }
 
+/* IPC接收线程通过此包装函数把配置结果同步给main。 */
+static int HandleNsConfig(const NsConfigDown_t* config)
+{
+    int ret;
+
+    g_init_state = GW_INIT_IN_PROGRESS;
+    g_init_error = 0;
+
+    ret = ApplyNsConfig(config);
+    if (ret != 0) {
+        g_init_error = ret;
+        g_init_state = GW_INIT_FAILED;
+        g_fatal_error = 1;
+        g_running = 0;
+        printf("Fatal: NS configuration failed: %d; requesting program shutdown.\n", ret);
+        return ret;
+    }
+
+    g_init_state = GW_INIT_SUCCESS;
+    return 0;
+}
+
 /*============================================================================
  * TRM回调函数实现
  *============================================================================*/
@@ -914,7 +1348,16 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
  */
 static void OnTrmRxData(const TRM_RxDataList* rxDataList)
 {
-    printf("=== TRM接收数据事件 (超帧号：%u), (系统帧号：%u) ===\n", rxDataList->frameNo, TRM_GetCurrentFrame());
+    static uint8_t max_rx_user_count = 0;
+    uint32_t system_frame;
+
+    if (rxDataList == NULL) {
+        printf("TRM RX callback received a NULL data list\n");
+        return;
+    }
+
+    system_frame = TRM_GetCurrentFrame();
+    printf("=== TRM接收数据事件 (超帧号：%u), (系统帧号：%u) ===\n", rxDataList->frameNo, system_frame);
     printf("时隙: 用户数=%d\n", 
            rxDataList->userCount);
     
@@ -926,6 +1369,10 @@ static void OnTrmRxData(const TRM_RxDataList* rxDataList)
     }
     
     g_trmRxCount += rxDataList->userCount;
+    if (rxDataList->userCount > max_rx_user_count) {
+        max_rx_user_count = rxDataList->userCount;
+        ProcessChannelCorrelations(rxDataList, system_frame);
+    }
     
     // for (uint8_t i = 0; i < rxDataList->userCount; i++) {
     //     TRM_RxUserData* user = &rxDataList->users[i];
@@ -1180,6 +1627,8 @@ int main(int argc, char* argv[])
 {
     char input;
     const char* work_dir = NULL;
+    int exit_code = 0;
+    int ipc_started = 0;
     int arg_ret = NormalizeRuntimeArgs(&argc, argv, &work_dir);
     if (arg_ret != 0) {
         return arg_ret > 0 ? 0 : 1;
@@ -1188,6 +1637,11 @@ int main(int argc, char* argv[])
     if (ConfigureRuntimeDirectory(work_dir) != 0) {
         return 1;
     }
+    printf("RF TX gain: 0x%02X\n", g_rf_tx_gain);
+    printf("Register 0xA064 value: 0x%08X\n", g_reg_a064_value);
+    // if (SaveTxDcFromRfRam() != 0) {
+    //     printf("Warning: failed to refresh %s from RF RAM\n", TK8710_TX_DC_FILE);
+    // }
 
     // Set CPU affinity to core 2
     if (set_cpu_affinity(2) < 0) {
@@ -1228,6 +1682,7 @@ int main(int argc, char* argv[])
         IpcCommCleanup(&g_ipc_ctx);
         return -1;
     }
+    ipc_started = 1;
     printf("核间通信已启动，等待配置消息...\n");
     
     /* 7. 等待配置消息 */
@@ -1251,7 +1706,35 @@ int main(int argc, char* argv[])
         request_count++;
     }
     
+    if (IpcCommIsConfigReceived()) {
+        int wait_ticks = 0;
+
+        /* IPC marks the message received before HandleNsConfig returns. */
+        while (g_init_state != GW_INIT_SUCCESS &&
+               g_init_state != GW_INIT_FAILED &&
+               wait_ticks < CONFIG_APPLY_TIMEOUT_TICKS) {
+            usleep(100000);
+            wait_ticks++;
+        }
+
+        if (g_init_state != GW_INIT_SUCCESS) {
+            if (g_init_state == GW_INIT_FAILED) {
+                printf("Fatal: received NS configuration but applying it failed: %d.\n",
+                       g_init_error);
+            } else {
+                printf("Fatal: timed out waiting for NS configuration to finish.\n");
+                g_init_error = -1;
+                g_init_state = GW_INIT_FAILED;
+                g_fatal_error = 1;
+                g_running = 0;
+            }
+            exit_code = 1;
+            goto shutdown;
+        }
+    }
+
     if (!IpcCommIsConfigReceived()) {
+        g_init_state = GW_INIT_IN_PROGRESS;
         printf("⚠️  已请求10次仍未收到配置消息，使用默认配置继续\n");
         // 使用默认配置进行时隙配置
             /* ========== 使用 HAL API 进行初始化 ========== */
@@ -1270,6 +1753,7 @@ int main(int argc, char* argv[])
             //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
             // }
         };
+        rfConfig.txgain = g_rf_tx_gain;
         
         /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
         ChipConfig chipConfig = {
@@ -1320,10 +1804,21 @@ int main(int argc, char* argv[])
         TK8710HalError halRet = TK8710HalInit(&halConfig);
         if (halRet != TK8710_HAL_OK) {
             printf("HAL initialization failed: %d\n", halRet);
-            return -1;
+            g_init_error = halRet;
+            g_init_state = GW_INIT_FAILED;
+            exit_code = 1;
+            goto shutdown;
         }
+        g_hal_initialized = 1;
 
         printf("HAL initialization completed (including RF)\n");
+
+        if (ConfigureRegA064() != TK8710_OK) {
+            g_init_error = -1;
+            g_init_state = GW_INIT_FAILED;
+            exit_code = 1;
+            goto shutdown;
+        }
         slotCfg_t slotCfg;
         memset(&slotCfg, 0, sizeof(slotCfg_t));
         
@@ -1388,7 +1883,10 @@ int main(int argc, char* argv[])
         TK8710HalError halRet_config = TK8710HalCfg(&slotCfg);
         if (halRet_config != TK8710_HAL_OK) {
             printf("HAL config (slot) failed: %d\n", halRet_config);
-            return -1;
+            g_init_error = halRet_config;
+            g_init_state = GW_INIT_FAILED;
+            exit_code = 1;
+            goto shutdown;
         }
         printf("使用默认配置完成时隙参数配置\n");
 
@@ -1396,10 +1894,14 @@ int main(int argc, char* argv[])
         TK8710HalError halRet_start = TK8710HalStart();
         if (halRet_start != TK8710_HAL_OK) {
             printf("HAL start failed: %d\n", halRet_start);
-            return -1;
+            g_init_error = halRet_start;
+            g_init_state = GW_INIT_FAILED;
+            exit_code = 1;
+            goto shutdown;
         }
         printf("HAL started successfully (Master mode, Continuous work)\n");
-        g_ns_config_started = 0;
+        g_ns_config_started = 1;
+        g_init_state = GW_INIT_SUCCESS;
         if (!TK8710ScanIpcServerIsRunning()) {
             if (TK8710ScanIpcServerStart() == 0) {
                 printf("Web扫频IPC服务已启动: /tmp/data_collect.sock\n");
@@ -1427,6 +1929,7 @@ int main(int argc, char* argv[])
         int read_ret = ReadConsoleCommandWithIrqWatchdog(&input, g_ns_config_started);
         // int read_ret = ReadConsoleCommandWithIrqWatchdog(&input, 0);
         if (read_ret < 0) {
+            exit_code = 1;
             g_running = 0;
             break;
         }
@@ -1506,6 +2009,12 @@ int main(int argc, char* argv[])
         }
     }
     
+shutdown:
+    ; /* A label must precede a statement before the declaration below. */
+    if (g_fatal_error) {
+        exit_code = 1;
+    }
+
     TK8710LogConfig_t defaultLogConfig = {
         .level = TK8710_LOG_ALL,
         .module_mask = TK8710_LOG_MODULE_ALL,
@@ -1516,7 +2025,9 @@ int main(int argc, char* argv[])
     TK8710LogInit(&defaultLogConfig);
     /* 打印最终的中断时间统计报告 */
     printf("\n=== 最终中断处理时间统计报告 ===\n");
-    TK8710PrintIrqTimeStats();
+    if (g_hal_initialized) {
+        TK8710PrintIrqTimeStats();
+    }
 
     /* 清理发送验证器 */
     // TRM_TxValidatorDeinit();
@@ -1526,14 +2037,16 @@ int main(int argc, char* argv[])
 
     /* 停止核间通信 */
     printf("停止核间通信...\n");
-    IpcCommStop(&g_ipc_ctx);
-    IpcCommCleanup(&g_ipc_ctx);
+    if (ipc_started) {
+        IpcCommStop(&g_ipc_ctx);
+        IpcCommCleanup(&g_ipc_ctx);
+    }
     printf("核间通信已停止\n");
 
     TK8710HalReset();
     
     printf("Program ended\n");
-    return 0;
+    return exit_code;
 }
 
 /*============================================================================

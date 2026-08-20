@@ -26,8 +26,8 @@ static const uint32_t g_bcnSlotLen[] = {
 
 /* 卫星和地面站各模式的BCN基础间隔(us)，地面WAN固定使用0 */
 static const uint32_t g_bcnBaseGap[] = {
-    [5] = 0,      [6] = 0,     [7] = 20000, [8] = 30000,
-    [9] = 10000,  [10] = 5000, [11] = 0,    [18] = 0
+    [5] = 0,      [6] = 0,     [7] = 21000, [8] = 32000,
+    [9] = 14000,  [10] = 1000, [11] = 0,    [18] = 0
 };
 
 static const uint32_t g_brdBaseBody[] = {

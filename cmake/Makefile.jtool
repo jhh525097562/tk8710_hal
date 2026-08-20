@@ -56,8 +56,13 @@ LIB_TARGET = $(BUILD_DIR)/libtk8710_hal.a
 API_SMOKE_TEST = $(BUILD_DIR)/test_hal_phy_api.o
 DRIVER_TEST_SRC = $(wildcard test/DriverTest/*.c)
 DRIVER_TEST_EXE = $(patsubst test/DriverTest/%.c,$(BUILD_DIR)/%.exe,$(DRIVER_TEST_SRC))
+RF_CAL_TCP_SERVER_SRC = test/DriverTest/support/rf_cal_tcp_server.c
+RF_CAL_TCP_TEST_SRC = test/DriverTest/support/test_rf_cal_tcp_server.c
+RF_CAL_TCP_TEST_EXE = $(BUILD_DIR)/test_rf_cal_tcp_server.exe
+ACM_GAIN_TEST_SRC = test/DriverTest/test_acm_gain_v2.c
+ACM_GAIN_TEST_EXE = $(BUILD_DIR)/test_acm_gain_v2.exe
 
-.PHONY: all clean lib tests driver_tests copy_dll
+.PHONY: all clean lib tests driver_tests rf_cal_tcp_tests acm_gain_tests copy_dll
 
 all: lib tests
 
@@ -66,6 +71,12 @@ lib: $(LIB_TARGET)
 tests: $(API_SMOKE_TEST)
 
 driver_tests: $(DRIVER_TEST_EXE) copy_dll
+
+rf_cal_tcp_tests: $(RF_CAL_TCP_TEST_EXE)
+	$(RF_CAL_TCP_TEST_EXE)
+
+acm_gain_tests: $(ACM_GAIN_TEST_EXE)
+	$(ACM_GAIN_TEST_EXE)
 
 $(BUILD_DIR):
 	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
@@ -94,6 +105,18 @@ $(API_SMOKE_TEST): test/example/test_hal_phy_api.c | $(BUILD_DIR)
 
 $(BUILD_DIR)/%.exe: test/DriverTest/%.c $(LIB_TARGET) $(JTOOL_LIB) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(INC) -I./test/DriverTest $< $(LIB_TARGET) $(LDFLAGS) -o $@
+
+$(BUILD_DIR)/Test8710RFTxTone.exe: test/DriverTest/Test8710RFTxTone.c $(RF_CAL_TCP_SERVER_SRC) $(LIB_TARGET) $(JTOOL_LIB) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -I./test/DriverTest -I./test/DriverTest/support $< $(RF_CAL_TCP_SERVER_SRC) $(LIB_TARGET) $(LDFLAGS) -lws2_32 -o $@
+
+$(BUILD_DIR)/Test8710RFTest.exe: test/DriverTest/Test8710RFTest.c $(RF_CAL_TCP_SERVER_SRC) $(LIB_TARGET) $(JTOOL_LIB) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -I./test/DriverTest -I./test/DriverTest/support $< $(RF_CAL_TCP_SERVER_SRC) $(LIB_TARGET) $(LDFLAGS) -lws2_32 -o $@
+
+$(RF_CAL_TCP_TEST_EXE): $(RF_CAL_TCP_TEST_SRC) $(RF_CAL_TCP_SERVER_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I./test/DriverTest/support $(RF_CAL_TCP_TEST_SRC) $(RF_CAL_TCP_SERVER_SRC) -lws2_32 -o $@
+
+$(ACM_GAIN_TEST_EXE): $(ACM_GAIN_TEST_SRC) src/driver/tk8710_config.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -O0 -ffunction-sections -fdata-sections $(INC) -I. $< -Wl,--gc-sections -o $@
 
 copy_dll: $(LIB_TARGET)
 	@copy port\jtool\x64\jtool.dll $(BUILD_DIR)\ >nul 2>&1 || echo.

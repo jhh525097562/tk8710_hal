@@ -28,6 +28,10 @@
 #define TK8710_TXADC_CONFIG_PATH "TxDC/txadc.txt"
 #define TK8710_CALI_FACTOR_DIR "CaliFactor"
 #define TK8710_INIT10_RF_READY_VALUE (1U << 2)
+#ifdef PLATFORM_JTOOL
+#define TK8710_JTOOL_PROBE_ADDR 0xC020U
+#define TK8710_JTOOL_PROBE_VALUE 0xF6097E0FU
+#endif
 #ifndef PLATFORM_JTOOL
 #define TK8710_RESET_GPIO_CHIP "gpiochip0"
 #define TK8710_RESET_GPIO_LINE 13U
@@ -102,6 +106,7 @@ static uint8_t g_currentBcnBits = 10;
 static volatile uint32_t g_lastInit10Config = TK8710_INIT10_RF_READY_VALUE;
 static volatile uint8_t g_lastInit10ConfigValid = 0;
 
+#ifdef PLATFORM_RK3506
 static int TK8710RemovePathTree(const char* path)
 {
     if (path == NULL) {
@@ -223,6 +228,7 @@ static int TK8710RemovePathTree(const char* path)
     return (rmdir(path) == 0) ? TK8710_OK : TK8710_ERR;
 #endif
 }
+#endif
 
 static void TK8710RecordInit10Config(uint32_t value)
 {
@@ -508,6 +514,28 @@ int TK8710Init(const ChipConfig* initConfig)
         return resetRet;
     }
     TK8710_LOG_CORE_INFO("TK8710 chip reset completed");
+
+#ifdef PLATFORM_JTOOL
+    {
+        uint32_t probeValue = 0;
+
+        ret = TK8710SpiReadReg(TK8710_JTOOL_PROBE_ADDR, &probeValue, 1);
+        if (ret != 0 || probeValue != TK8710_JTOOL_PROBE_VALUE) {
+            printf("[JTOOL] TK8710 SPI probe failed: reg 0x%04X read=0x%08X, "
+                   "expected=0x%08X, ret=%d\n",
+                   TK8710_JTOOL_PROBE_ADDR,
+                   probeValue,
+                   TK8710_JTOOL_PROBE_VALUE,
+                   ret);
+            printf("[JTOOL] Check TK8710 VDD, RSTN high level, 32MHz clock, "
+                   "common GND, CS/MOSI/MISO wiring\n");
+            return TK8710_ERR;
+        }
+        printf("[JTOOL] TK8710 SPI probe passed: reg 0x%04X=0x%08X\n",
+               TK8710_JTOOL_PROBE_ADDR,
+               probeValue);
+    }
+#endif
     
     /* 初始化默认GPIO中断 */
     TK8710GpioInit(0, TK8710_GPIO_EDGE_RISING, default_gpio_irq_handler, NULL);
@@ -626,12 +654,16 @@ int TK8710Init(const ChipConfig* initConfig)
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_17), 0);
     if (ret != TK8710_OK) return ret;
     
+#ifdef PLATFORM_RK3506
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0xa064, 0x00045003);
+    if (ret != TK8710_OK) return ret;
+
     /* 初始化默认日志系统（如果尚未初始化） */
     defaultLogConfig.level = TK8710_LOG_INFO;
     TK8710LogInit(&defaultLogConfig);
     AcmCalibParams calibParams;
     calibParams.calibCount = 100;
-    calibParams.snrThreshold = 28;
+    calibParams.snrThreshold = 24;
 
     int calibRet;
     int maxRetryCount = 3;
@@ -646,17 +678,19 @@ int TK8710Init(const ChipConfig* initConfig)
             TK8710_LOG_CORE_INFO("Removed %s before ACM calibration", TK8710_CALI_FACTOR_DIR);
         }
 
+        ret = tk8710_rf_write(0xff, 0x8C7e >> 8, 0xfe);
+
         ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_AUTO_GAIN, TK8710_DBG_OPT_GET, NULL, NULL);
         if (ret == TK8710_OK) {
             TK8710_LOG_CORE_INFO("ACM增益自动获取完成\n");
         } else {
-            TK8710_LOG_CORE_INFO("ACM增益自动获取失败: ret=%d\n", ret);
+            TK8710_LOG_CORE_ERROR("ACM增益自动获取失败: ret=%d\n", ret);
         }
 
         TK8710_LOG_CORE_INFO("开始第%d次ACM校准 (目标校准次数: %d, SNR门限: %d)...\n",
                             retryCount + 1, calibParams.calibCount, calibParams.snrThreshold);
 
-        ret = tk8710_rf_write(0xff, 0x8C7e >> 8, 0x9e);
+        // ret = tk8710_rf_write(0xff, 0x8C7e >> 8, 0xBe);
 
         ret = TK8710DebugCtrl(TK8710_DBG_TYPE_ACM_CALIBRATE, TK8710_DBG_OPT_EXE,
                             &calibParams, &calibRet);
@@ -672,21 +706,22 @@ int TK8710Init(const ChipConfig* initConfig)
                 TK8710_LOG_CORE_INFO("ACM校准成功\n");
                 calibSuccess = true;
             } else {
-                TK8710_LOG_CORE_INFO("ACM校准未达到目标次数，需要重新校准\n");
+                TK8710_LOG_CORE_ERROR("ACM校准未达到目标次数，需要重新校准\n");
                 retryCount++;
             }
         } else {
-            TK8710_LOG_CORE_INFO("第%d次ACM校准失败: ret=%d\n", retryCount + 1, ret);
+            TK8710_LOG_CORE_ERROR("第%d次ACM校准失败: ret=%d\n", retryCount + 1, ret);
             retryCount++;
         }
     }
     
     /* 检查最终校准结果 */
     if (!calibSuccess) {
-        TK8710_LOG_CORE_INFO("ACM校准最终失败：已重试%d次，仍未达到目标校准次数\n", maxRetryCount);
+        TK8710_LOG_CORE_ERROR("ACM校准最终失败：已重试%d次，仍未达到目标校准次数\n", maxRetryCount);
         return TK8710_ERR;
     }
-        /* 初始化默认日志系统（如果尚未初始化） */
+#endif
+    /* 初始化默认日志系统（如果尚未初始化） */
     defaultLogConfig.level = TK8710_LOG_WARN;
     TK8710LogInit(&defaultLogConfig);
     

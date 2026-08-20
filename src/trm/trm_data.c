@@ -856,7 +856,7 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
     } else if (userCount > 1) {
         fixedPower = 34;
     }
-
+    fixedPower = 34;  /* 测试使用，后续可根据实际情况调整 */
     for (uint8_t i = 0; i < userCount; i++) {
         PendingTxUser* user = &pendingUsers[i];
         user->finalPower = fixedPower;  /* 统一设置固定功率 */
@@ -935,7 +935,7 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
         if (txUserIndex >= 128) txUserIndex = 0;
     }
     
-    TRM_LOG_INFO("TRM: Sent %u/%u users with fixed power=%u", sentCount, userCount, fixedPower);
+    TRM_LOG_INFO("TRM: Sent %u/%u users with fixed power=%u, systemFrame=%u", sentCount, userCount, fixedPower, TRM_GetCurrentFrame());
     return sentCount;
 }
 
@@ -990,8 +990,6 @@ int TRM_ProcessTxSlot(uint8_t slotIndex, uint8_t maxUserCount, TK8710IrqResult* 
     TK8710ExitCritical();
     
     uint32_t totalRemaining = TRM_GetTotalQueueCount();
-    TRM_LOG_DEBUG("TRM: ProcessTxSlot completed - sentCount=%d, totalRemaining=%u, multiRate=%s", 
-                 sentCount, totalRemaining, isMultiRate ? "true" : "false");
     
     /* 调用发送完成回调 */
     if (resultCount > 0) {

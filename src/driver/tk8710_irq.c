@@ -80,6 +80,29 @@ static TK8710UserInfoBuffer g_userInfoTxBuffers[128] = {0}; /* 发送用户波�
 /* ANoise获取计数器 */
 static uint32_t g_aNoiseGetCount = 0;
 
+#define TK8710_AH_COMPONENT_MASK 0xFFFFFU
+
+static uint64_t _tk8710_unpack_ah40(const uint8_t* data)
+{
+    return ((uint64_t)data[0] << 32) |
+           ((uint64_t)data[1] << 24) |
+           ((uint64_t)data[2] << 16) |
+           ((uint64_t)data[3] << 8) |
+           (uint64_t)data[4];
+}
+
+static void _tk8710_pack_ah40(uint8_t* data, uint32_t iData, uint32_t qData)
+{
+    uint64_t ah40 = ((uint64_t)(iData & TK8710_AH_COMPONENT_MASK) << 20) |
+                    (uint64_t)(qData & TK8710_AH_COMPONENT_MASK);
+
+    data[0] = (uint8_t)(ah40 >> 32);
+    data[1] = (uint8_t)(ah40 >> 24);
+    data[2] = (uint8_t)(ah40 >> 16);
+    data[3] = (uint8_t)(ah40 >> 8);
+    data[4] = (uint8_t)ah40;
+}
+
 static int TK8710PadTxUserData(TK8710TxBuffer* txBuffer, uint8_t userIndex, uint16_t expectedLen)
 {
     uint16_t oldLen;
@@ -885,10 +908,10 @@ static void tk8710_handle_rx_bcn(void)
         g_slaveBcnTrackingActive = 1;
         g_slaveBcnReceivedInFrame = 1;
         g_slaveBcnMissFrameCount = 0;
-        if (tk8710_set_slave_conti_scan(0) != TK8710_OK) {
-            /* 保持未知状态，使下一次RX_BCN继续尝试写寄存器 */
-            g_slaveContiScanState = 0xFF;
-        }
+        // if (tk8710_set_slave_conti_scan(0) != TK8710_OK) {
+        //    /* 保持未知状态，使下一次RX_BCN继续尝试写寄存器 */
+        //    g_slaveContiScanState = 0xFF;
+        // }
     }
     
     /* 读取BCN频偏和BCN bits */
@@ -1040,7 +1063,7 @@ static void tk8710_md_ud_get_user_info(void)
             /* 获取所有8天线的AH数据 */
             for (int ant = 0; ant < 8; ant++) {
                 /* 直接按字节顺序获取AH数据，不做调整 */
-                uint64_t ah40 = *((uint64_t*)&rxBuf[i*40 + ant*5]);
+                uint64_t ah40 = _tk8710_unpack_ah40(&rxBuf[i*40 + ant*5]);
                 
                 /* 保存每个天线的AH数据到userInfoBuffer */
                 g_userInfoRxBuffers[i].ahData[ant*2] = (uint32_t)((ah40 >> 20) & 0xFFFFF);   /* I: 20bit */
@@ -1397,7 +1420,7 @@ static void tk8710_s0_bcn_rotation_process(void)
         
         if (ant == currentAntenna) {
             /* 当前天线：启用BCN发送 */
-            config28.b.sc_bcn = 0x60;
+            config28.b.sc_bcn = 0x60;//0x60
             TK8710_LOG_IRQ_DEBUG("Enabling BCN on antenna %d", ant);
         } else {
             /* 其他天线：禁用BCN发送 */
@@ -1862,6 +1885,11 @@ static void tk8710_handle_slot2(void)
     /* S2中断在所有Slave时隙配置中均开启，以此作为每帧BCN丢失统计边界 */
     if (TK8710GetWorkType() == TK8710_MODE_SLAVE && g_slaveBcnTrackingActive) {
         if (g_slaveBcnReceivedInFrame) {
+            if (tk8710_set_slave_conti_scan(0) != TK8710_OK) {
+                /* 保持未知状态，使下一次RX_BCN继续尝试写寄存器 */
+                g_slaveContiScanState = 0xFF;
+            }
+            TK8710_LOG_IRQ_INFO("Slave RX_BCN , disable conti_scan");
             g_slaveBcnReceivedInFrame = 0;
             g_slaveBcnMissFrameCount = 0;
         } else if (g_slaveBcnMissFrameCount < SLAVE_BCN_MISS_FRAME_THRESHOLD) {
@@ -1874,7 +1902,7 @@ static void tk8710_handle_slot2(void)
                     g_slaveBcnMissFrameCount--;
                     g_slaveContiScanState = 0xFF;
                 } else {
-                    TK8710StartSlaveBcnWatchdog();
+                    // TK8710StartSlaveBcnWatchdog();
                 }
             }
         }
@@ -1926,12 +1954,13 @@ static void tk8710_handle_slot3(void)
     int ret;
     
     TK8710_LOG_IRQ_DEBUG("S3 slot interrupt handled (count: %u)", g_irqCounters[TK8710_IRQ_S3]);
-
-    ret = TK8710CheckAndRestoreInit10();
-    if (ret != TK8710_OK) {
-        TK8710_LOG_IRQ_ERROR("S3 init_10 check/restore failed: %d", ret);
+    if(g_irqCounters[TK8710_IRQ_S3] % 100 == 0) {
+        ret = TK8710CheckAndRestoreInit10();
+        if (ret != TK8710_OK) {
+            TK8710_LOG_IRQ_ERROR("S3 init_10 check/restore failed: %d", ret);
+        }
     }
-    
+
     ret = TK8710AdvanceRateAfterS3();
     if (ret != TK8710_OK) {
         TK8710_LOG_IRQ_ERROR("S3 rate advance failed: %d", ret);
@@ -2171,8 +2200,7 @@ static void tk8710_s1_manual_tx_process(void)
                     uint32_t qData = g_userInfoRxBuffers[userIndex].ahData[ant*2 + 1]; /* Q路数据 */
                     
                     /* 组合成40bit数据 */
-                    uint64_t ah40 = ((uint64_t)iData << 20) | qData;
-                    memcpy(&spiBuffer[writeLen*40 + ant*5], &ah40, 5);
+                    _tk8710_pack_ah40(&spiBuffer[writeLen*40 + ant*5], iData, qData);
                 }
                 TK8710_LOG_IRQ_DEBUG("Manual TX test user[%d] AH configured (from userInfo)", userIndex);
             } else {
@@ -2183,10 +2211,7 @@ static void tk8710_s1_manual_tx_process(void)
                     uint32_t qData = g_userInfoTxBuffers[userIndex].ahData[ant*2 + 1]; /* Q路数据 */
                     
                     /* 组合成40bit数据 */
-                    uint64_t ah40 = ((uint64_t)iData << 20) | qData;
-                    
-                    /* 直接按字节顺序发送AH数据，不做调整 */
-                    memcpy(&spiBuffer[writeLen*40 + ant*5], &ah40, 5);  /* 直接复制5字节 */
+                    _tk8710_pack_ah40(&spiBuffer[writeLen*40 + ant*5], iData, qData);
                 }
                 TK8710_LOG_IRQ_DEBUG("Manual TX user[%d] AH configured (antenna 0: I=%u, Q=%u)", 
                                    userIndex, g_userInfoTxBuffers[userIndex].ahData[0], 
@@ -2240,6 +2265,13 @@ static void tk8710_s1_manual_tx_process(void)
             TK8710_LOG_IRQ_DEBUG("Manual TX user[%d]: pilot power=%u", i, (uint32_t)pilotPower);
             writeLen++;
         }
+
+        /* Clear unused data-user slots so stale pilot power is not retained by TK8710. */
+        uint8_t remainingUserCount = actualMaxUsers - validUserCount;
+        memset(&spiBuffer[writeLen * 5], 0, remainingUserCount * 5);
+        writeLen += remainingUserCount;
+        TK8710_LOG_IRQ_DEBUG("Manual TX cleared pilot power for %d unused users",
+                            remainingUserCount);
         
         if (writeLen > 0) {
             ret = TK8710SpiSetInfo(TK8710_GET_INFO_PILOT_POW, spiBuffer, writeLen * 5);
@@ -2257,7 +2289,8 @@ static void tk8710_s1_manual_tx_process(void)
     {
         /* 使用8根天线的默认Anoise数据 */
         static uint16_t fixed_anoises[8] = {
-            40U, 32U, 41U, 34U, 40U, 37U, 39U, 34U
+            // 40U, 32U, 41U, 34U, 40U, 37U, 39U, 34U
+            40U, 40U, 40U, 40U, 40U, 40U, 40U, 40U
         };
         
         for (uint8_t i = 0; i < 8; i++) {

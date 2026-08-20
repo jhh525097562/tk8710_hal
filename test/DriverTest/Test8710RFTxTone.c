@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <errno.h>
 #include "hal_api.h"   /* HAL API接口 */
 #include "tk8710_hal.h"
 #include "driver/tk8710_driver_api.h"  /* Driver API接口 */
@@ -24,6 +25,7 @@
 #include "driver/tk8710_regs.h"
 
 #include "driver_test_platform.h"
+#include "support/rf_cal_tcp_server.h"
 
 /*============================================================================
  * 全局变量和配置
@@ -78,6 +80,54 @@ static uint32_t __attribute__((unused)) g_irqCount = 0;                  /* 中�
 
 /* 丢包统计变量 */
 static uint32_t g_packetCount = 0;               /* 当前统计周期内的包计数 */
+
+static int rf_cal_read_register(uint16_t addr, uint32_t* value, void* userData)
+{
+    (void)userData;
+    return TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, addr, value);
+}
+
+static int rf_cal_write_register(uint16_t addr, uint32_t value, void* userData)
+{
+    (void)userData;
+    return TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, addr, value);
+}
+
+static int parse_u32_argument(const char* text, uint32_t* value)
+{
+    char* end;
+    unsigned long long parsed;
+
+    if (text == NULL || value == NULL || text[0] == '\0' || text[0] == '-') {
+        return -1;
+    }
+
+    errno = 0;
+    parsed = strtoull(text, &end, 0);
+    if (errno != 0 || end == text || *end != '\0' || parsed > UINT32_MAX) {
+        return -1;
+    }
+
+    *value = (uint32_t)parsed;
+    return 0;
+}
+
+static void print_usage(const char* program)
+{
+    printf("Usage: %s [mode frequency tx_gain] [--tcp] [--bind IP] [--port PORT]\n",
+           program);
+    printf("  mode:      5, 6, 7, 8, 9, 10, 11 or 18 (default: 6)\n");
+    printf("  frequency: RF frequency in Hz (default: 509100000)\n");
+    printf("  tx_gain:   TX gain in decimal or hex (default: 42 / 0x2A)\n");
+    printf("  --tcp:     Run the Windows TCP register server instead of console mode\n");
+    printf("  --bind:    Listen IPv4 address (default: %s)\n", RF_CAL_DEFAULT_BIND_IP);
+    printf("  --port:    Listen TCP port (default: %u)\n", RF_CAL_DEFAULT_PORT);
+    printf("\nExamples:\n");
+    printf("  %s 6 509100000 42\n", program);
+    printf("  %s 6 509100000 42 --tcp\n", program);
+    printf("  %s 6 509100000 42 --tcp --bind 192.168.1.100 --port 12879\n",
+           program);
+}
 static uint32_t g_packetLostCount = 0;           /* 当前统计周期内的丢包计数 */
 static uint32_t g_totalPacketCount = 0;         /* 总包计数 */
 static uint32_t g_totalPacketLostCount = 0;     /* 总丢包计数 */
@@ -916,41 +966,84 @@ int main(int argc, char* argv[])
     int caseNum = 11;  /* 默认case序号 */
     uint32_t testFreq = 509100000;
     uint32_t Txgain = 0x2a;
-    /* 检查命令行参数 */
-    if (argc > 1) {
-        if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-            printf("Usage: %s [mode] [class] [case] [--help|-h]\n", argv[0]);
-            printf("  mode: Test mode (5,6,7,8,9,10,11,18), default: 6\n");
-            printf("    Mode 5:  s0=40*256, s1=0, s2=0, s3=135072\n");
-            printf("    Mode 6:  s0=46*256, s1=0, s2=0, s3=69536\n");
-            printf("    Mode 7:  s0=113*256, s1=0, s2=0, s3=36768\n");
-            printf("    Mode 8:  s0=146*256, s1=0, s2=0, s3=20384\n");
-            printf("    Mode 9:  s0=64*256, s1=0, s2=0, s3=12192\n");
-            printf("    Mode 10: s0=19*256, s1=0, s2=0, s3=8096\n");
-            printf("    Mode 11: s0=256, s1=0, s2=0, s3=6084\n");
-            printf("    Mode 18: s0=256, s1=0, s2=0, s3=6084\n");
-            printf("  class: Simulation data class number (1,3,etc), default: 3\n");
-            printf("  case:  Simulation data case number (11,17,etc), default: 11\n");
-            printf("  --help, -h: Show this help\n");
-            printf("\nExamples:\n");
-            printf("  %s 6 3 11    # Use mode 6, class 3, case 11\n", argv[0]);
-            printf("  %s 6 1 17    # Use mode 6, class 1, case 17\n", argv[0]);
-            printf("  %s 6         # Use mode 6, default class 3, case 11\n", argv[0]);
+    uint8_t tcpMode = 0;
+    const char* tcpBindIp = RF_CAL_DEFAULT_BIND_IP;
+    uint16_t tcpPort = RF_CAL_DEFAULT_PORT;
+    uint32_t positionalValues[3] = {0};
+    uint8_t positionalCount = 0;
+
+    for (int argIndex = 1; argIndex < argc; argIndex++) {
+        if (strcmp(argv[argIndex], "--help") == 0 ||
+            strcmp(argv[argIndex], "-h") == 0) {
+            print_usage(argv[0]);
             return 0;
         }
-        
-        testMode = atoi(argv[1]);
-        if (testMode < 5 || testMode > 18 || (testMode > 11 && testMode < 18)) {
-            printf("Error: Invalid mode %d. Supported modes: 5,6,7,8,9,10,11,18\n", testMode);
+        if (strcmp(argv[argIndex], "--tcp") == 0) {
+            tcpMode = 1;
+            continue;
+        }
+        if (strcmp(argv[argIndex], "--bind") == 0) {
+            if (++argIndex >= argc) {
+                printf("Error: --bind requires an IPv4 address\n");
+                return 1;
+            }
+            tcpBindIp = argv[argIndex];
+            tcpMode = 1;
+            continue;
+        }
+        if (strcmp(argv[argIndex], "--port") == 0) {
+            uint32_t parsedPort;
+            if (++argIndex >= argc ||
+                parse_u32_argument(argv[argIndex], &parsedPort) != 0 ||
+                parsedPort == 0 || parsedPort > UINT16_MAX) {
+                printf("Error: --port requires a value in range 1~65535\n");
+                return 1;
+            }
+            tcpPort = (uint16_t)parsedPort;
+            tcpMode = 1;
+            continue;
+        }
+        if (argv[argIndex][0] == '-') {
+            printf("Error: unknown option: %s\n", argv[argIndex]);
             return 1;
         }
-        
-        testFreq = atoi(argv[2]);
-        printf("Using test mode: %d, freq: %u\n", testMode, testFreq);
-
-        Txgain = atoi(argv[3]);
-        printf("Using test mode: %d, Txgain: %u\n", testMode, Txgain);
+        if (positionalCount >= 3 ||
+            parse_u32_argument(argv[argIndex], &positionalValues[positionalCount]) != 0) {
+            printf("Error: invalid positional argument: %s\n", argv[argIndex]);
+            return 1;
+        }
+        positionalCount++;
     }
+
+    if (positionalCount != 0 && positionalCount != 3) {
+        printf("Error: mode, frequency and tx_gain must be provided together\n");
+        print_usage(argv[0]);
+        return 1;
+    }
+    if (positionalCount == 3) {
+        testMode = (int)positionalValues[0];
+        testFreq = positionalValues[1];
+        Txgain = positionalValues[2];
+    }
+    if ((testMode < 5 || testMode > 11) && testMode != 18) {
+        printf("Error: invalid mode %d. Supported modes: 5,6,7,8,9,10,11,18\n",
+               testMode);
+        return 1;
+    }
+    if (testFreq == 0 || Txgain > UINT8_MAX) {
+        printf("Error: frequency must be non-zero and tx_gain must be <= 255\n");
+        return 1;
+    }
+
+#ifndef _WIN32
+    if (tcpMode) {
+        printf("Error: RF calibration TCP mode is only supported on Windows\n");
+        return 1;
+    }
+#endif
+
+    printf("Using test mode=%d, frequency=%u Hz, TX gain=%u\n",
+           testMode, testFreq, Txgain);
     
 #ifdef _WIN32
     /* 设置控制台编码为UTF-8 */
@@ -1066,7 +1159,7 @@ int main(int argc, char* argv[])
     printf("配置单Tone信号...\n");
     TxToneConfig txToneConfig = {
         .freq = 335544,    /* Tone频点:  */
-        .gain = 0x40            /* Tone增益: 20 */
+        .gain = 0x0            /* Tone增益: 20 */
     };
     
     ret = TK8710DebugCtrl(TK8710_DBG_TYPE_TX_TONE, TK8710_DBG_OPT_SET, 
@@ -1187,7 +1280,24 @@ int main(int argc, char* argv[])
     // printf("\nSystem initialization completed, starting runtime...\n");
     // printf("Enter 'h' for help information\n\n");
     
-    /* 8. 主循环 - 等待中断并进行中断处理 */
+    /* 8. TCP模式与控制台模式均在主线程串行访问JTOOL/SPI */
+#ifdef _WIN32
+    if (tcpMode) {
+        RfCalTcpServerConfig tcpConfig = {
+            .bindIp = tcpBindIp,
+            .port = tcpPort,
+            .readReg = rf_cal_read_register,
+            .writeReg = rf_cal_write_register,
+            .userData = NULL,
+            .running = &g_running
+        };
+
+        ret = RfCalTcpServerRun(&tcpConfig);
+        if (ret != 0) {
+            printf("RF calibration TCP server failed: %d\n", ret);
+        }
+    } else
+#endif
     while (g_running) {
         printf("TK8710> ");
         

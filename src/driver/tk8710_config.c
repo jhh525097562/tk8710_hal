@@ -98,13 +98,13 @@ static uint16_t g_acm_again1[16] = {16,16,16,16,16,16,16,16,16,16,16,16,16,16,16
 /**
  * @brief 触发ACM校准
  */
-static void tk8710_acm_trig(void)
+static int tk8710_acm_trig(void)
 {
     s_acm_ctrl acm_ctrl;
     acm_ctrl.data = 0;
     acm_ctrl.b.acm_trig = 1;
-    TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 
-        MAC_BASE + offsetof(struct mac, acm_ctrl), acm_ctrl.data);
+    return TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                          MAC_BASE + offsetof(struct mac, acm_ctrl), acm_ctrl.data);
 }
 
 /* 前向声明 */
@@ -124,6 +124,61 @@ static void test_rf_freq_regs(void);
  * ACM校准内部函数
  *============================================================================*/
 
+static int tk8710_save_acm_gain(void)
+{
+    FILE* outputFile;
+    const char* filename = "CaliFactor/gain.txt";
+    time_t rawtime;
+    struct tm* timeinfo;
+    int i;
+
+#ifdef _WIN32
+    _mkdir("CaliFactor");
+#else
+    mkdir("CaliFactor", 0755);
+#endif
+
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    if (timeinfo == NULL) {
+        TK8710_LOG_CONFIG_ERROR("Failed to get local time for ACM gain file\n");
+        return TK8710_ERR;
+    }
+
+    outputFile = fopen(filename, "a");
+    if (outputFile == NULL) {
+        TK8710_LOG_CONFIG_ERROR("Failed to open ACM gain file: %s\n", filename);
+        return TK8710_ERR;
+    }
+
+    if (fprintf(outputFile, "\n=== %04d-%02d-%02d %02d:%02d:%02d ===\n",
+                timeinfo->tm_year + 1900, timeinfo->tm_mon + 1, timeinfo->tm_mday,
+                timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec) < 0 ||
+        fprintf(outputFile, "index,dgain0,dgain1,again0,again1\n") < 0) {
+        fclose(outputFile);
+        TK8710_LOG_CONFIG_ERROR("Failed to write ACM gain header: %s\n", filename);
+        return TK8710_ERR;
+    }
+
+    for (i = 0; i < 16; i++) {
+        if (fprintf(outputFile, "%d,%u,%u,%u,%u\n", i,
+                    g_acm_dgain0[i], g_acm_dgain1[i],
+                    g_acm_again0[i], g_acm_again1[i]) < 0) {
+            fclose(outputFile);
+            TK8710_LOG_CONFIG_ERROR("Failed to write ACM gain data: %s\n", filename);
+            return TK8710_ERR;
+        }
+    }
+
+    if (fclose(outputFile) != 0) {
+        TK8710_LOG_CONFIG_ERROR("Failed to close ACM gain file: %s\n", filename);
+        return TK8710_ERR;
+    }
+
+    TK8710_LOG_CONFIG_INFO("ACM gain results saved: %s\n", filename);
+    return TK8710_OK;
+}
+
 /**
  * @brief ACM校准步骤1: 自动获取校准增益
  * @return 0-成功, 非0-失败
@@ -134,7 +189,7 @@ static int tk8710_acm_get_gain(void)
     int i, j, i1, i2;
     int SumSNR_0[32], SumSNR_1[32], TmpSNR[32], MaxSNR[32];
     int SNR_THE = 32;
-    int GainStep = 4;
+    int GainStep = 2;
     uint32_t regVal;
     s_irq_ctrl0 irqCtrl0;
     
@@ -283,7 +338,7 @@ static int tk8710_acm_get_gain(void)
             if (SumSNR_1[i1+8*2] > SumSNR_0[i1+8*2] && SumSNR_1[i1+8*2] > MaxSNR[i1+8*2] + 4) {
                 if (i1 == 0) {
                     g_acm_again1[0] = g_acm_again1[1] = g_acm_again1[3] = g_acm_again1[5] = (GainStep*i);
-                    g_acm_again1[7] = g_acm_again1[9] = g_acm_again1[11] = g_acm_again1[13] = g_acm_again1[15] = (GainStep*i);
+                    g_acm_again1[7] = g_acm_again1[9] = g_acm_again1[11] = g_acm_again1[13] = (GainStep*i);
                 } else {
                     g_acm_again1[i1*2] = (GainStep*i);
                 }
@@ -294,7 +349,7 @@ static int tk8710_acm_get_gain(void)
             if (SumSNR_1[i1+8*3] > SumSNR_0[i1+8*3] && SumSNR_1[i1+8*3] > MaxSNR[i1+8*3] + 4) {
                 if (i1 == 0) {
                     g_acm_dgain1[0] = g_acm_dgain1[1] = g_acm_dgain1[3] = g_acm_dgain1[5] = (GainStep*i);
-                    g_acm_dgain1[7] = g_acm_dgain1[9] = g_acm_dgain1[11] = g_acm_dgain1[13] = g_acm_dgain1[15] = (GainStep*i);
+                    g_acm_dgain1[7] = g_acm_dgain1[9] = g_acm_dgain1[11] = g_acm_dgain1[13] = (GainStep*i);
                 } else {
                     g_acm_dgain1[i1*2] = (GainStep*i);
                 }
@@ -327,6 +382,10 @@ static int tk8710_acm_get_gain(void)
         g_acm_again0[i] = Tmp0;
         g_acm_dgain1[i] = Tmp1;
         g_acm_again1[i] = Tmp1;
+        // g_acm_dgain0[i] = 6;
+        // g_acm_again0[i] = 6;
+        // g_acm_dgain1[i] = 6;
+        // g_acm_again1[i] = 6;
         TK8710_LOG_CONFIG_INFO("i = %d,Tmp0 = %d,Tmp1 = %d\n",i,Tmp0,Tmp1);
     }
     
@@ -355,6 +414,9 @@ static int tk8710_acm_get_gain(void)
     ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
         MAC_BASE + offsetof(struct mac, irq_ctrl0), irqCtrl0.data);
     if (ret != TK8710_OK) return ret;
+
+    ret = tk8710_save_acm_gain();
+    if (ret != TK8710_OK) return ret;
     
     return TK8710_OK;
 }
@@ -373,6 +435,8 @@ static int tk8710_acm_get_snr(int* TmpSNR, uint8_t snrThreshold)
     uint32_t value_tmp5, value_tmp6, value_tmp7, value_tmp8;
     int8_t SNR_tx0[8], SNR_rx0[8], SNR_tx1[8], SNR_rx1[8];
     int i;
+    int ret;
+    int timed_out = 0;
     int SNRNum = 0;
     
     /* 等待ACM中断 (bit9)，添加100ms超时机制 */
@@ -385,12 +449,14 @@ static int tk8710_acm_get_snr(int* TmpSNR, uint8_t snrThreshold)
     long timeout_ms = 100; /* 100ms超时 */
 #endif
 
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        MAC_BASE + offsetof(struct mac, irq_res), &irq_res.data);
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        MAC_BASE + offsetof(struct mac, irq_res), &irq_res.data);
+    if (ret != TK8710_OK) return -1;
     while ((irq_res.b.irq_type & (1 << TK8710_IRQ_ACM)) == 0) {
 #ifdef _WIN32
         DWORD current_time = GetTickCount();
         if ((current_time - start_time) >= timeout) {
+            timed_out = 1;
             TK8710_LOG_WARN(TK8710_LOG_MODULE_CONFIG, "ACM中断等待超时(100ms)，自动退出");
             break;
         }
@@ -399,40 +465,52 @@ static int tk8710_acm_get_snr(int* TmpSNR, uint8_t snrThreshold)
         long elapsed_ms = (current_time.tv_sec - start_time.tv_sec) * 1000 + 
                          (current_time.tv_usec - start_time.tv_usec) / 1000;
         if (elapsed_ms >= timeout_ms) {
+            timed_out = 1;
             TK8710_LOG_WARN(TK8710_LOG_MODULE_CONFIG, "ACM中断等待超时(100ms)，自动退出");
             break;
         }
 #endif
-        TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-            MAC_BASE + offsetof(struct mac, irq_res), &irq_res.data);
+        ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                            MAC_BASE + offsetof(struct mac, irq_res), &irq_res.data);
+        if (ret != TK8710_OK) return -1;
     }
+    if (timed_out != 0) return -1;
     
     /* 清除ACM中断 */
     irq_ctrl1.data = 0;
     irq_ctrl1.b.acm_irq_clr = 1;
-    TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
-        MAC_BASE + offsetof(struct mac, irq_ctrl1), irq_ctrl1.data);
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                         MAC_BASE + offsetof(struct mac, irq_ctrl1), irq_ctrl1.data);
+    if (ret != TK8710_OK) return -1;
     
     // /* 延时30ms */
     // TK8710DelayMs(30);
     
     /* 读取acm_obv17~24获取SNR值 */
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        ACM_BASE + offsetof(struct acm, acm_obv18), &value_tmp1);
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        ACM_BASE + offsetof(struct acm, acm_obv17), &value_tmp2);
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        ACM_BASE + offsetof(struct acm, acm_obv20), &value_tmp3);
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        ACM_BASE + offsetof(struct acm, acm_obv19), &value_tmp4);
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        ACM_BASE + offsetof(struct acm, acm_obv22), &value_tmp5);
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        ACM_BASE + offsetof(struct acm, acm_obv21), &value_tmp6);
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        ACM_BASE + offsetof(struct acm, acm_obv24), &value_tmp7);
-    TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-        ACM_BASE + offsetof(struct acm, acm_obv23), &value_tmp8);
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        ACM_BASE + offsetof(struct acm, acm_obv18), &value_tmp1);
+    if (ret != TK8710_OK) return -1;
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        ACM_BASE + offsetof(struct acm, acm_obv17), &value_tmp2);
+    if (ret != TK8710_OK) return -1;
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        ACM_BASE + offsetof(struct acm, acm_obv20), &value_tmp3);
+    if (ret != TK8710_OK) return -1;
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        ACM_BASE + offsetof(struct acm, acm_obv19), &value_tmp4);
+    if (ret != TK8710_OK) return -1;
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        ACM_BASE + offsetof(struct acm, acm_obv22), &value_tmp5);
+    if (ret != TK8710_OK) return -1;
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        ACM_BASE + offsetof(struct acm, acm_obv21), &value_tmp6);
+    if (ret != TK8710_OK) return -1;
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        ACM_BASE + offsetof(struct acm, acm_obv24), &value_tmp7);
+    if (ret != TK8710_OK) return -1;
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        ACM_BASE + offsetof(struct acm, acm_obv23), &value_tmp8);
+    if (ret != TK8710_OK) return -1;
     
     /* 解析SNR值到各个天线 */
     for (i = 0; i < 4; i++) {

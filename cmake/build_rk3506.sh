@@ -1,8 +1,90 @@
 #!/bin/bash
+
+print_usage() {
+    echo "Usage: $0 [all|TARGET ...]"
+    echo "       $0 --list"
+    echo ""
+    echo "No target or 'all' builds every program."
+    echo "One or more target names build only those programs and their common library."
+}
+
+list_targets() {
+    {
+        find test/DriverTest -maxdepth 1 -name "*.c" ! -name "TestJtool*.c" \
+            -type f -exec basename {} .c \;
+        for target in test8710main_3506 TestTRMmain tk8710_gw tk8710_gw_slave tk8710_gw_sat tk8710_gw_ground; do
+            if [ -f "test/example/${target}.c" ]; then
+                echo "${target}"
+            fi
+        done
+    } | sort -u
+}
+
+is_known_target() {
+    case "$1" in
+        TestJtool*) return 1 ;;
+    esac
+
+    if [ -f "test/DriverTest/$1.c" ]; then
+        return 0
+    fi
+
+    case "$1" in
+        test8710main_3506|TestTRMmain|tk8710_gw|tk8710_gw_slave|tk8710_gw_sat|tk8710_gw_ground)
+            [ -f "test/example/$1.c" ]
+            return $?
+            ;;
+    esac
+
+    return 1
+}
+
+BUILD_ALL=0
+REQUESTED_TARGETS=""
+
+if [ $# -eq 0 ]; then
+    BUILD_ALL=1
+elif [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    print_usage
+    exit 0
+elif [ "$1" = "--list" ]; then
+    list_targets
+    exit 0
+else
+    for target in "$@"; do
+        if [ "$target" = "all" ]; then
+            BUILD_ALL=1
+            continue
+        fi
+        if ! is_known_target "$target"; then
+            echo "Error: unknown build target '$target'"
+            echo "Available targets:"
+            list_targets
+            exit 2
+        fi
+        REQUESTED_TARGETS="${REQUESTED_TARGETS} ${target}"
+    done
+fi
+
+should_build() {
+    if [ "$BUILD_ALL" -eq 1 ]; then
+        return 0
+    fi
+
+    case " ${REQUESTED_TARGETS} " in
+        *" $1 "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 # 完整编译脚本 - 编译所有可编译的模块
 
 echo "TK8710 RK3506 完整编译脚本"
 echo "=========================="
+if [ "$BUILD_ALL" -eq 1 ]; then
+    echo "Build targets: all"
+else
+    echo "Build targets:${REQUESTED_TARGETS}"
+fi
 
 # 检查交叉编译器
 if ! command -v arm-buildroot-linux-gnueabihf-gcc &> /dev/null; then
@@ -321,12 +403,15 @@ else
 fi
 
 # 编译并链接每个测试程序
-test_files=$(find test/DriverTest -name "*.c" -type f)
+test_files=$(find test/DriverTest -name "*.c" ! -name "TestJtool*.c" -type f)
 test_count=$(echo "$test_files" | wc -l)
 echo "发现 $test_count 个测试C文件"
 
 for file in $test_files; do
     basename_file=$(basename "$file" .c)
+    if ! should_build "$basename_file"; then
+        continue
+    fi
     echo ""
     echo "编译并链接 $file..."
     
@@ -360,7 +445,7 @@ echo ""
 echo "创建示例程序..."
 
 # 创建 test8710main_3506
-if [ -f "test/example/test8710main_3506.c" ]; then
+if [ -f "test/example/test8710main_3506.c" ] && should_build "test8710main_3506"; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
         test/example/test8710main_3506.c \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
@@ -375,12 +460,12 @@ if [ -f "test/example/test8710main_3506.c" ]; then
     else
         echo "❌ test8710main_3506 创建失败"
     fi
-else
+elif should_build "test8710main_3506"; then
     echo "⚠️  test8710main_3506 源文件不存在"
 fi
 
 # 创建 TestTRMmain
-if [ -f "test/example/TestTRMmain.c" ]; then
+if [ -f "test/example/TestTRMmain.c" ] && should_build "TestTRMmain"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -410,12 +495,12 @@ if [ -f "test/example/TestTRMmain.c" ]; then
     else
         echo "❌ TestTRMmain 创建失败"
     fi
-else
+elif should_build "TestTRMmain"; then
     echo "⚠️  TestTRMmain 源文件不存在"
 fi
 
 # 创建 tk8710_gw
-if [ -f "test/example/tk8710_gw.c" ]; then
+if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -445,12 +530,12 @@ if [ -f "test/example/tk8710_gw.c" ]; then
     else
         echo "❌ tk8710_gw 创建失败"
     fi
-else
+elif should_build "tk8710_gw"; then
     echo "⚠️  tk8710_gw 源文件不存在"
 fi
 
 # 创建 tk8710_gw_slave
-if [ -f "test/example/tk8710_gw_slave.c" ]; then
+if [ -f "test/example/tk8710_gw_slave.c" ] && should_build "tk8710_gw_slave"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -480,12 +565,12 @@ if [ -f "test/example/tk8710_gw_slave.c" ]; then
     else
         echo "❌ tk8710_gw_slave 创建失败"
     fi
-else
+elif should_build "tk8710_gw_slave"; then
     echo "⚠️  tk8710_gw_slave 源文件不存在"
 fi
 
 # 创建 tk8710_gw_sat
-if [ -f "test/example/tk8710_gw_sat.c" ]; then
+if [ -f "test/example/tk8710_gw_sat.c" ] && should_build "tk8710_gw_sat"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -515,13 +600,13 @@ if [ -f "test/example/tk8710_gw_sat.c" ]; then
     else
         echo "❌ tk8710_gw_sat 创建失败"
     fi
-else
+elif should_build "tk8710_gw_sat"; then
     echo "⚠️  tk8710_gw_sat 源文件不存在"
 fi
 
 
 # 创建 tk8710_gw_ground
-if [ -f "test/example/tk8710_gw_ground.c" ]; then
+if [ -f "test/example/tk8710_gw_ground.c" ] && should_build "tk8710_gw_ground"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -551,7 +636,7 @@ if [ -f "test/example/tk8710_gw_ground.c" ]; then
     else
         echo "❌ tk8710_gw_ground 创建失败"
     fi
-else
+elif should_build "tk8710_gw_ground"; then
     echo "⚠️  tk8710_gw_ground 源文件不存在"
 fi
 
