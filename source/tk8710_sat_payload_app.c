@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "data_transfer.h"
 #include "hal_api.h"
 #include "tk8710_tms570.h"
 #include "tk8710_hal.h"
@@ -34,6 +35,9 @@
 #define SAT_PAYLOAD_DEFAULT_SWEEP_POINTS          8U
 #define SAT_PAYLOAD_DEFAULT_SWEEP_MODE            1U
 #define SAT_PAYLOAD_TX_FE_ANTENNA_STRIDE       0x1000U
+#define SAT_PAYLOAD_CAPTURE_STORE_CHUNK_BYTES     1024U
+#define SAT_PAYLOAD_STORE_MAX_RETRIES                3U
+#define SAT_PAYLOAD_SWEEP_STORE_POINTS               8U
 
 typedef struct {
     SatPayloadState state;
@@ -49,6 +53,16 @@ typedef struct {
     uint32_t lastCalibrationS0Count;
     uint32_t lastModeCAcmRequestMs;
     uint32_t lastCaptureGeneration;
+    uint32_t captureStoreGeneration;
+    uint32_t captureStoreBytesPerAntenna;
+    uint32_t captureStoreOffset;
+    uint32_t lastSweepStoredGeneration;
+    uint32_t sweepStoreGeneration;
+    uint8_t captureStorePending;
+    uint8_t captureStoreAntenna;
+    uint8_t captureStoreRateMode;
+    uint8_t captureStoreRetryCount;
+    uint8_t sweepStoreRetryCount;
     int32_t lastResult;
     SatPayloadLastRx lastRx;
     SatPayloadTelemetry telemetry;
@@ -345,6 +359,7 @@ static SatPayloadResult SatPayloadBuildSlotConfig(SatPayloadWorkParams* params,
 static void SatPayloadOnRxData(const TRM_RxDataList* rxDataList)
 {
     const TRM_RxUserData* user;
+    DataTransferFirstUserInfo transferInfo;
     int64_t frequencyHz;
     uint32_t logUserCount;
     uint32_t i;
@@ -388,6 +403,22 @@ static void SatPayloadOnRxData(const TRM_RxDataList* rxDataList)
     g_satPayload.lastRx.frameNo = rxDataList->frameNo;
     g_satPayload.lastRx.timestampMs = TK8710GetTickMs();
     TK8710ExitCritical();
+
+    (void)memset(&transferInfo, 0, sizeof(transferInfo));
+    transferInfo.rateMode = user->rateMode;
+    transferInfo.rssi = user->rssi;
+    transferInfo.snr = user->snr;
+    transferInfo.dataLen = user->dataLen;
+    transferInfo.frameNo = rxDataList->frameNo;
+    transferInfo.userId = user->userId;
+    transferInfo.freqOffset = user->freq;
+    transferInfo.frequencyHz = g_satPayload.lastRx.frequencyHz;
+    transferInfo.pilotPower = user->beam.pilotPower;
+    (void)memcpy(transferInfo.ahData, user->beam.ahData,
+                 sizeof(transferInfo.ahData));
+    if (DataTransfer_AppendFirstUserInfo(&transferInfo) != 0) {
+        TRM_LOG_WARN("SAT APP failed to store first valid RX user");
+    }
 
     TRM_LOG_INFO("SAT APP first valid RX: gen=%lu user=0x%08lX freq=%luHz rssi=%d snr=%u",
                  (unsigned long)g_satPayload.lastRx.generation,
@@ -458,9 +489,143 @@ static void SatPayloadOnTxComplete(const TRM_TxCompleteResult* txResult)
     }
 }
 
+static void SatPayloadBeginCaptureStore(const TK8710CaptureInfo* info)
+{
+    if ((info == NULL) || (info->bytesPerAntenna == 0U) ||
+        (info->validAntennaMask != 0xFFU)) {
+        TRM_LOG_WARN("SAT APP capture generation %lu not stored: bytes=%lu mask=0x%02X",
+                     (unsigned long)((info != NULL) ? info->generation : 0U),
+                     (unsigned long)((info != NULL) ? info->bytesPerAntenna : 0U),
+                     (unsigned int)((info != NULL) ? info->validAntennaMask : 0U));
+        return;
+    }
+    g_satPayload.captureStoreGeneration = info->generation;
+    g_satPayload.captureStoreBytesPerAntenna = info->bytesPerAntenna;
+    g_satPayload.captureStoreOffset = 0U;
+    g_satPayload.captureStoreAntenna = 0U;
+    g_satPayload.captureStoreRateMode = info->rateMode;
+    g_satPayload.captureStoreRetryCount = 0U;
+    g_satPayload.captureStorePending = 1U;
+}
+
+static void SatPayloadProcessCaptureStore(void)
+{
+    uint8_t data[SAT_PAYLOAD_CAPTURE_STORE_CHUNK_BYTES];
+    DataTransferCaptureChunk chunk;
+    uint32_t remaining;
+    uint16_t length;
+    int readResult;
+    int appendResult;
+
+    if (g_satPayload.captureStorePending == 0U) {
+        return;
+    }
+    remaining = g_satPayload.captureStoreBytesPerAntenna -
+                g_satPayload.captureStoreOffset;
+    length = (uint16_t)((remaining > sizeof(data)) ? sizeof(data) : remaining);
+    readResult = TK8710CaptureReadAntenna(
+        g_satPayload.captureStoreGeneration,
+        g_satPayload.captureStoreAntenna,
+        g_satPayload.captureStoreOffset, data, length);
+    if (readResult == 0) {
+        (void)memset(&chunk, 0, sizeof(chunk));
+        chunk.rateMode = g_satPayload.captureStoreRateMode;
+        chunk.antenna = g_satPayload.captureStoreAntenna;
+        chunk.generation = g_satPayload.captureStoreGeneration;
+        chunk.bytesPerAntenna = g_satPayload.captureStoreBytesPerAntenna;
+        chunk.offset = g_satPayload.captureStoreOffset;
+        chunk.data = data;
+        chunk.length = length;
+        appendResult = DataTransfer_AppendCaptureRawData(&chunk);
+    } else {
+        appendResult = -1;
+    }
+    if (appendResult != 0) {
+        g_satPayload.captureStoreRetryCount++;
+        if (g_satPayload.captureStoreRetryCount >=
+            SAT_PAYLOAD_STORE_MAX_RETRIES) {
+            TRM_LOG_ERROR("SAT APP capture store failed: gen=%lu ant=%u offset=%lu read=%d",
+                          (unsigned long)g_satPayload.captureStoreGeneration,
+                          (unsigned int)g_satPayload.captureStoreAntenna,
+                          (unsigned long)g_satPayload.captureStoreOffset,
+                          readResult);
+            g_satPayload.captureStorePending = 0U;
+            g_satPayload.lastResult = SAT_PAYLOAD_ERR_DRIVER;
+        }
+        return;
+    }
+
+    g_satPayload.captureStoreRetryCount = 0U;
+    g_satPayload.captureStoreOffset += length;
+    if (g_satPayload.captureStoreOffset >=
+        g_satPayload.captureStoreBytesPerAntenna) {
+        g_satPayload.captureStoreOffset = 0U;
+        g_satPayload.captureStoreAntenna++;
+        if (g_satPayload.captureStoreAntenna >= 8U) {
+            g_satPayload.captureStorePending = 0U;
+            TRM_LOG_INFO("SAT APP capture stored: gen=%lu bytesPerAntenna=%lu",
+                         (unsigned long)g_satPayload.captureStoreGeneration,
+                         (unsigned long)g_satPayload.captureStoreBytesPerAntenna);
+        }
+    }
+}
+
+static int SatPayloadStoreSweepRound(const TRM_SweepResultInfo* info)
+{
+    TRM_SweepState state;
+    TRM_SweepResultPoint sourcePoints[SAT_PAYLOAD_SWEEP_STORE_POINTS];
+    DataTransferSweepPoint transferPoints[SAT_PAYLOAD_SWEEP_STORE_POINTS];
+    DataTransferSweepChunk chunk;
+    uint32_t startIndex = 0U;
+    uint32_t resultCount;
+    uint32_t point;
+    uint32_t antenna;
+
+    if ((info == NULL) || (info->complete == 0U) ||
+        (info->completedPoints != info->totalPoints) ||
+        (TRM_GetSweepState(&state) != TRM_OK)) {
+        return -1;
+    }
+    while (startIndex < info->completedPoints) {
+        if (TRM_ReadSweepResults(startIndex, sourcePoints,
+                                 SAT_PAYLOAD_SWEEP_STORE_POINTS,
+                                 &resultCount) != TRM_OK ||
+            (resultCount == 0U)) {
+            return -1;
+        }
+        for (point = 0U; point < resultCount; point++) {
+            transferPoints[point].frequencyHz =
+                sourcePoints[point].frequencyHz;
+            for (antenna = 0U;
+                 antenna < DATA_TRANSFER_SWEEP_ANTENNA_COUNT;
+                 antenna++) {
+                transferPoints[point].noiseDbmHz[antenna] =
+                    sourcePoints[point].noiseDbmHz[antenna];
+            }
+        }
+        (void)memset(&chunk, 0, sizeof(chunk));
+        chunk.sweepMode = state.sweep_mode;
+        chunk.rateMode = state.rate_mode;
+        chunk.generation = info->generation;
+        chunk.startFrequencyHz = state.start_freq;
+        chunk.endFrequencyHz = state.end_freq;
+        chunk.stepFrequencyHz = state.step_freq;
+        chunk.totalPoints = info->totalPoints;
+        chunk.startIndex = startIndex;
+        chunk.points = transferPoints;
+        chunk.pointCount = (uint16_t)resultCount;
+        if (DataTransfer_AppendSweepBackgroundNoise(&chunk) != 0) {
+            return -1;
+        }
+        startIndex += resultCount;
+    }
+    return 0;
+}
+
 static SatPayloadResult SatPayloadStopHal(void)
 {
     (void)TK8710CaptureCancel();
+    g_satPayload.captureStorePending = 0U;
     if (g_satPayload.halActive == 0U) {
         return SAT_PAYLOAD_OK;
     }
@@ -757,6 +922,7 @@ void SatPayloadApp_Process(void)
 {
     uint32_t now = TK8710GetTickMs();
     TK8710CaptureInfo captureInfo;
+    TRM_SweepResultInfo sweepInfo;
 
     TRM_ProcessBackground();
 
@@ -804,13 +970,44 @@ void SatPayloadApp_Process(void)
         if (captureInfo.generation != g_satPayload.lastCaptureGeneration) {
             g_satPayload.lastCaptureGeneration = captureInfo.generation;
             g_satPayload.lastResult = SAT_PAYLOAD_OK;
+            SatPayloadBeginCaptureStore(&captureInfo);
         }
+        SatPayloadProcessCaptureStore();
         if ((captureInfo.state == TK8710_CAPTURE_STATE_READY) ||
             (captureInfo.state == TK8710_CAPTURE_STATE_ERROR) ||
             (captureInfo.state == TK8710_CAPTURE_STATE_IDLE)) {
-            if (TK8710CaptureRequest(
-                    g_satPayload.activeParams.rates[0].rateMode) != 0) {
+            if ((g_satPayload.captureStorePending == 0U) &&
+                (TK8710CaptureRequest(
+                     g_satPayload.activeParams.rates[0].rateMode) != 0)) {
                 g_satPayload.lastResult = SAT_PAYLOAD_ERR_DRIVER;
+            }
+        }
+    }
+
+    if ((g_satPayload.state == SAT_PAYLOAD_STATE_SWEEP) &&
+        (TRM_GetSweepResultInfo(&sweepInfo) == TRM_OK) &&
+        (sweepInfo.complete != 0U) &&
+        (sweepInfo.generation != g_satPayload.lastSweepStoredGeneration)) {
+        if (g_satPayload.sweepStoreGeneration != sweepInfo.generation) {
+            g_satPayload.sweepStoreGeneration = sweepInfo.generation;
+            g_satPayload.sweepStoreRetryCount = 0U;
+        }
+        if (SatPayloadStoreSweepRound(&sweepInfo) == 0) {
+            g_satPayload.lastSweepStoredGeneration = sweepInfo.generation;
+            g_satPayload.sweepStoreRetryCount = 0U;
+            TRM_LOG_INFO("SAT APP sweep stored: gen=%lu points=%lu",
+                         (unsigned long)sweepInfo.generation,
+                         (unsigned long)sweepInfo.completedPoints);
+        } else {
+            g_satPayload.sweepStoreRetryCount++;
+            if (g_satPayload.sweepStoreRetryCount >=
+                SAT_PAYLOAD_STORE_MAX_RETRIES) {
+                g_satPayload.lastSweepStoredGeneration =
+                    sweepInfo.generation;
+                g_satPayload.lastResult = SAT_PAYLOAD_ERR_DRIVER;
+                TRM_LOG_ERROR("SAT APP sweep store failed: gen=%lu points=%lu",
+                              (unsigned long)sweepInfo.generation,
+                              (unsigned long)sweepInfo.completedPoints);
             }
         }
     }
@@ -828,6 +1025,12 @@ SatPayloadResult SatPayloadApp_SetWorkParams(const SatPayloadWorkParams* params)
     if (result == SAT_PAYLOAD_OK) {
         g_satPayload.pendingParams = *params;
         g_satPayload.pendingValid = 1U;
+        TRM_LOG_INFO("SAT APP work params accepted: freq=%lu rate=%u rfMask=0x%02X",
+                     (unsigned long)params->centerFreqHz,
+                     (unsigned int)params->rates[0].rateMode,
+                     (unsigned int)params->rfMask);
+    } else {
+        TRM_LOG_WARN("SAT APP work params rejected: result=%d", result);
     }
     g_satPayload.lastResult = result;
     return result;
@@ -837,6 +1040,15 @@ SatPayloadResult SatPayloadApp_SetWorkMode(uint8_t mode)
 {
     SatPayloadResult result = SatPayloadStartModeWithRollback(mode);
     g_satPayload.lastResult = result;
+    if (result == SAT_PAYLOAD_OK) {
+        TRM_LOG_INFO("SAT APP mode started: mode=%u state=%u",
+                     (unsigned int)mode,
+                     (unsigned int)g_satPayload.state);
+    } else {
+        TRM_LOG_ERROR("SAT APP mode start failed: mode=%u result=%d state=%u",
+                      (unsigned int)mode, result,
+                      (unsigned int)g_satPayload.state);
+    }
     SatPayloadUpdateTelemetry();
     return result;
 }
@@ -852,6 +1064,11 @@ SatPayloadResult SatPayloadApp_Stop(void)
         g_satPayload.state = SAT_PAYLOAD_STATE_FAULT;
     }
     g_satPayload.lastResult = result;
+    if (result == SAT_PAYLOAD_OK) {
+        TRM_LOG_INFO("SAT APP stopped and returned to control-ready");
+    } else {
+        TRM_LOG_ERROR("SAT APP stop failed: result=%d", result);
+    }
     SatPayloadUpdateTelemetry();
     return result;
 }

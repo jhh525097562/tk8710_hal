@@ -709,8 +709,8 @@ int TK8710GetAcmCalibrationFactors(AcmCalibrationFactors* calFactors)
     if (ret != TK8710_OK) return ret;
     calFactors->channels[7].q_factor = regVal;
     /* 打印校准因子 */
-//    TK8710_LOG_CONFIG_INFO("=== ACM calibration factors ===\n");
-    TK8710_LOG_CONFIG_WARN("=== ACM calibration factors ===\n");
+   TK8710_LOG_CONFIG_INFO("=== ACM calibration factors ===\n");
+    // TK8710_LOG_CONFIG_WARN("=== ACM calibration factors ===\n");
     for (i = 0; i < TK8710_MAX_ANTENNAS; i++) {
         /* 解析18位校准因子：使用补码转换 */
         uint32_t i_factor = calFactors->channels[i].i_factor & 0x3FFFF;  // 18位掩码
@@ -727,10 +727,10 @@ int TK8710GetAcmCalibrationFactors(AcmCalibrationFactors* calFactors)
         int32_t q_signed = (int32_t)(q_factor << 14) >> 14;  // 符号位扩展到32位
         q_float = (float)q_signed / 32768.0f;
         
-//        TK8710_LOG_CONFIG_INFO("Channel%d: I=0x%08X (%.3f), Q=0x%08X (%.3f)\n",
-//                            i, i_factor, i_float, q_factor, q_float);
-        TK8710_LOG_CONFIG_WARN("Channel%d: I=0x%08X (%.3f), Q=0x%08X (%.3f)\n",
-                            i, i_factor, i_float, q_factor, q_float);
+       TK8710_LOG_CONFIG_INFO("Channel%d: I=0x%08X (%.3f), Q=0x%08X (%.3f)\n",
+                           i, i_factor, i_float, q_factor, q_float);
+        // TK8710_LOG_CONFIG_WARN("Channel%d: I=0x%08X (%.3f), Q=0x%08X (%.3f)\n",
+        //                     i, i_factor, i_float, q_factor, q_float);
     }
     
     /* 保存校准因子到文件 - TXT格式 */

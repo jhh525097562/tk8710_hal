@@ -660,10 +660,14 @@ int TK8710Init(const ChipConfig* initConfig)
     if (ret != TK8710_OK) return ret;
     
     /* 初始化默认日志系统（如果尚未初始化） */
+#if defined(PLATFORM_TMS570)
+    defaultLogConfig.level = TK8710_LOG_WARN;
+#else
     defaultLogConfig.level = TK8710_LOG_INFO;
+#endif
     TK8710LogInit(&defaultLogConfig);
     AcmCalibParams calibParams;
-    calibParams.calibCount = 100;
+    calibParams.calibCount = 20;
     calibParams.snrThreshold = 28;
 
      int calibRet;
@@ -706,14 +710,14 @@ int TK8710Init(const ChipConfig* initConfig)
          }
      }
 
-     /* 检查最终校准结果 */
-     if (!calibSuccess) {
-         TK8710_LOG_CORE_INFO("ACM calibration finally failed after %d retries\n", maxRetryCount);
-         return TK8710_ERR;
-     }
-         /* 初始化默认日志系统（如果尚未初始化） */
-     defaultLogConfig.level = TK8710_LOG_WARN;
-     TK8710LogInit(&defaultLogConfig);
+    /* 检查最终校准结果 */
+    if (!calibSuccess) {
+        TK8710_LOG_CORE_INFO("ACM calibration finally failed after %d retries\n", maxRetryCount);
+        return TK8710_ERR;
+    }
+    /* 初始化默认日志系统（如果尚未初始化） */
+    defaultLogConfig.level = TK8710_LOG_WARN;
+    TK8710LogInit(&defaultLogConfig);
     
     TK8710_LOG_CORE_INFO("TK8710 initialized successfully");
     return TK8710_OK;

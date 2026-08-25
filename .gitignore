@@ -24,6 +24,15 @@ cmake/build_rk3506/
 .sisyphus/
 opencode.json
 tmp/
+.diagnostics/
+.ti_appdata_codex/
+combined/
+bootloader/Debug/
+tms570_modify_0811/
+tms570_modify_0811.rar
+source/sys_link_old.cmd
+tools/spi2_dma_*_rx.bin
+tools/spi2_dma_*_tx.bin
 
 # Nested repository metadata
 rk3506_8710/.git/

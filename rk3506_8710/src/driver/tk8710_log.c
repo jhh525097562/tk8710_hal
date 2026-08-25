@@ -16,6 +16,9 @@
 #endif
 #include <stdlib.h>
 #include <errno.h>
+#if defined(PLATFORM_TMS570)
+#include "data_transfer.h"
+#endif
 
 #if TK8710_PLATFORM_HAS_FILE_IO
 #ifdef _WIN32
@@ -141,13 +144,24 @@ static void TK8710_UNUSED default_log_output(TK8710LogLevel level, TK8710LogModu
     offset += vsnprintf(buffer + offset, sizeof(buffer) - offset, fmt, args);
     
     /* 添加换行符 */
-    if (offset >= 0 && (size_t)offset < sizeof(buffer) - 1U) {
+    if (offset < 0) {
+        buffer[0] = '\0';
+    } else if ((size_t)offset < sizeof(buffer) - 1U) {
         buffer[offset] = '\n';
         buffer[offset + 1] = '\0';
+    } else {
+        buffer[sizeof(buffer) - 2U] = '\n';
+        buffer[sizeof(buffer) - 1U] = '\0';
     }
 #if defined(PLATFORM_TMS570)
+    size_t length;
+
     sanitize_ascii(buffer);
-    TK8710PortLogWrite(buffer, strlen(buffer));
+    length = strlen(buffer);
+    if ((level == TK8710_LOG_ERROR) || (level == TK8710_LOG_WARN)) {
+        (void)DataTransfer_AppendRuntimeLog(buffer, (uint16_t)length);
+    }
+    TK8710PortLogWrite(buffer, length);
 #else
     /* 输出到标准输出 */
     sanitize_ascii(buffer);

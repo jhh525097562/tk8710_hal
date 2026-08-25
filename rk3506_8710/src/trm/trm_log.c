@@ -17,6 +17,9 @@
 #include <unistd.h>
 #endif
 #include <errno.h>
+#if defined(PLATFORM_TMS570)
+#include "data_transfer.h"
+#endif
 
 #if TK8710_PLATFORM_HAS_FILE_IO
 #ifdef _WIN32
@@ -383,12 +386,23 @@ void TRM_LogOutput(TRMLogLevel level, const char* tag,
     va_end(args);
     
     /* 添加换行符 */
-    if (offset < (int)sizeof(buffer) - 1) {
+    if (offset < 0) {
+        buffer[0] = '\0';
+    } else if (offset < (int)sizeof(buffer) - 1) {
         buffer[offset] = '\n';
         buffer[offset + 1] = '\0';
+    } else {
+        buffer[sizeof(buffer) - 2U] = '\n';
+        buffer[sizeof(buffer) - 1U] = '\0';
     }
     
     /* 输出日志 */
+#if defined(PLATFORM_TMS570)
+    trm_sanitize_ascii(buffer);
+    if ((level == TRM_LOG_ERROR) || (level == TRM_LOG_WARN)) {
+        (void)DataTransfer_AppendRuntimeLog(buffer, (uint16_t)strlen(buffer));
+    }
+#endif
     if (g_trmLogCallback) {
         /* 使用用户回调 */
         va_start(args, fmt);
@@ -396,7 +410,6 @@ void TRM_LogOutput(TRMLogLevel level, const char* tag,
         va_end(args);
     } else {
 #if defined(PLATFORM_TMS570)
-        trm_sanitize_ascii(buffer);
         TK8710PortLogWrite(buffer, strlen(buffer));
 #else
         /* 默认输出到标准输出 */

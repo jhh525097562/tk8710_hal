@@ -837,9 +837,11 @@ static int trm_sat_forward_to_beam(uint32_t beamAddr, const uint8_t* data, uint1
 
 static void trm_sat_flush_cache(uint8_t maxUserCount)
 {
+    static uint16_t lastDeferredCacheCount = 0xFFFFU;
     uint8_t sent = 0;
 
     if (g_satCtx.cacheCount == 0) {
+        lastDeferredCacheCount = 0xFFFFU;
         // TRM_LOG_INFO("TRM SAT: uplink cache flush skipped empty");
         return;
     }
@@ -859,10 +861,14 @@ static void trm_sat_flush_cache(uint8_t maxUserCount)
         }
 
         if (trm_sat_get_best_gs(&gsAddr, NULL) != TRM_OK) {
-            TRM_LOG_WARN("TRM SAT: uplink cache flush deferred, no ground-station beam cache=%u/%u",
-                         g_satCtx.cacheCount, g_satCtx.uplinkCacheMax);
+            if (lastDeferredCacheCount != g_satCtx.cacheCount) {
+                TRM_LOG_WARN("TRM SAT: uplink cache flush deferred, no ground-station beam cache=%u/%u",
+                             g_satCtx.cacheCount, g_satCtx.uplinkCacheMax);
+                lastDeferredCacheCount = g_satCtx.cacheCount;
+            }
             return;
         }
+        lastDeferredCacheCount = 0xFFFFU;
 
         ret = trm_sat_forward_to_beam(gsAddr, item.data, item.len, item.txPower,
                                       item.targetRateMode);

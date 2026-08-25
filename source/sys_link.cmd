@@ -45,6 +45,7 @@
 /* Linker Settings                                                            */
 
 --retain="*(.intvecs)"
+--retain="*(.app_status)"
 
 /* USER CODE BEGIN (1) */
 /* USER CODE END */
@@ -54,8 +55,9 @@
 
 MEMORY
 {
-    VECTORS (X)  : origin=0x00000000 length=0x00000020
-    FLASH0  (RX) : origin=0x00000020 length=0x0017FFE0
+    APPSTATUS (R) : origin=0x00020000 length=0x00000020
+    VECTORS   (X) : origin=0x00020020 length=0x00000020
+    FLASH0   (RX) : origin=0x00020040 length=0x0015FFC0
     FLASH1  (RX) : origin=0x00180000 length=0x00180000
     STACKS  (RW) : origin=0x08000000 length=0x00001500
     RAM     (RW) : origin=0x08001500 length=0x0003EB00
@@ -75,6 +77,7 @@ MEMORY
 
 SECTIONS
 {
+    .app_status : {} > APPSTATUS
     .intvecs : {} > VECTORS
     .text    : {} > FLASH0 | FLASH1
     .const   : {} > FLASH0 | FLASH1

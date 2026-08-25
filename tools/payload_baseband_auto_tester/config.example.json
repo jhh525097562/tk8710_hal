@@ -1,0 +1,57 @@
+{
+  "spi": {
+    "spi1_sn": "9a85a46b0453",
+    "spi2_sn": "9a85B9a50453",
+    "bridge_exe": "bridge/jtool_spi_bridge.exe",
+    "spi2_max_frames": 4096,
+    "spi2_idle_timeout_ms": 2000
+  },
+  "serial": {
+    "baudrate": 115200,
+    "preferred_terminal": "COM14",
+    "tms570_port": "",
+    "terminal_ports": [],
+    "probe_timeout_s": 15.0,
+    "join_timeout_s": 60.0
+  },
+  "mqtt": {
+    "host": "47.92.195.235",
+    "port": 41883,
+    "username": "admin",
+    "password": "",
+    "uplink_topic": "uplink/huangjh/test",
+    "downlink_topic": "downlink/huangjh/test",
+    "response_topic": ""
+  },
+  "gateway": {
+    "gw_id": "0599999999999999",
+    "freq_major": 2,
+    "freq_minor": 2,
+    "nwk_num": 1,
+    "tdd_num": 1,
+    "slot_cfg_num": 2,
+    "uplink_len": 30,
+    "downlink_len": 30,
+    "description": "载荷软件3.6自动测试网关"
+  },
+  "test": {
+    "frequency_hz": 477800000,
+    "user_frequency_tolerance_hz": 125000,
+    "rf_mask": 255,
+    "slot_config": 0,
+    "tx_power": 26,
+    "ack_port": 2,
+    "ack_payload": "1122334411223344",
+    "attempts": 3,
+    "acm_timeout_s": 180,
+    "sweep_timeout_s": 180,
+    "capture_timeout_s": 180,
+    "gateway_wait_s": 20,
+    "preexisting_archive_limit_bytes": 65536,
+    "rf13_duration_s": 86400,
+    "rf13_send_interval_s": 600,
+    "rf13_health_interval_s": 300,
+    "report_template": "../../docs/载荷基带软件测试报告_v0.1.md",
+    "selected_cases": ["RF-01", "RF-02", "RF-03", "RF-04", "RF-05", "RF-06", "RF-07", "RF-08", "RF-09", "RF-10", "RF-11", "RF-12", "RF-13"]
+  }
+}

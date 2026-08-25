@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+bridge/*.exe
+bridge/*.dll
+results/

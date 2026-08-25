@@ -2302,6 +2302,13 @@ static void tk8710_s1_manual_tx_process(void)
             writeLen++;
         }
         
+        /* Clear unused data-user slots so stale pilot power is not retained by TK8710. */
+        uint8_t remainingUserCount = actualMaxUsers - validUserCount;
+        memset(&spiBuffer[writeLen * 5], 0, remainingUserCount * 5);
+        writeLen += remainingUserCount;
+        TK8710_LOG_IRQ_DEBUG("Manual TX cleared pilot power for %d unused users",
+                            remainingUserCount);
+
         if (writeLen > 0) {
             ret = TK8710SpiSetInfo(TK8710_GET_INFO_PILOT_POW, spiBuffer, writeLen * 5);
             if (ret != 0) {
