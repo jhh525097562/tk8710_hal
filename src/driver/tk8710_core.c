@@ -662,7 +662,7 @@ int TK8710Init(const ChipConfig* initConfig)
     defaultLogConfig.level = TK8710_LOG_INFO;
     TK8710LogInit(&defaultLogConfig);
     AcmCalibParams calibParams;
-    calibParams.calibCount = 100;
+    calibParams.calibCount = 20;
     calibParams.snrThreshold = 24;
 
     int calibRet;

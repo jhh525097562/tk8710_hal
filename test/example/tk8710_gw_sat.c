@@ -476,7 +476,7 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
     rfConfig.rftype = TK8710_RF_TYPE_1255_1M;
     rfConfig.Freq = start_freq;  /* 从起始频率开始 */
     rfConfig.rxgain = 0x7e;
-    rfConfig.txgain = 0x2a;
+    rfConfig.txgain = 0x2e;
     uint16_t txadc_data[][2] = {
         {0x0450, 0x0450}, {0x0a00, 0x1080}, {0x0750, 0x1500}, {0x0400, 0x0b00},
         {0x08a0, 0x07a0}, {0x0990, 0xff00}, {0x0850, 0x08c8}, {0x0950, 0x0a00}
@@ -706,7 +706,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
         .rftype = TK8710_RF_TYPE_1255_1M,
         .Freq = 503100000,
         .rxgain = 0x7e,
-        .txgain = 0x2a
+        .txgain = 0x2e
         // .txadc = {//D号板
         //     {0x0350, 0x0490}, {0x0150, 0x0500}, {0x0450, 0x0490}, {0x0190, 0x0850},
         //     {0x0500, 0x0300}, {0xfe50, 0x0200}, {0x0190, 0x0550}, {0x03c0, 0x0400}
@@ -1299,7 +1299,7 @@ int main(int argc, char* argv[])
             .rftype = TK8710_RF_TYPE_1255_1M,
             .Freq = 483800000,
             .rxgain = 0x7e,
-            .txgain = 0x2a,
+            .txgain = 0x2e,
             // .txadc = {//C号板
             //     {0x0bc0, 0x04a0}, {0x0a50, 0x0780}, {0x0750, 0x0820}, {0x0bc3, 0x0940},
             //     {0x0e83, 0x05e0}, {0xfbff, 0x0850}, {0x0880, 0x0500}, {0x02a0, 0x06ff}

@@ -33,6 +33,61 @@
 /* 运行标志 */
 static volatile int g_running = 1;
 
+
+void read_register(void)
+{
+    uint32_t addr, value;
+    int ret;
+
+    printf("\n=== 读取寄存器 ===\n");
+    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+
+    if (scanf("%x", &addr) != 1) {
+        printf("无效的地址格式\n");
+        return;
+    }
+
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, addr, &value);
+    if (ret == TK8710_OK) {
+        printf("寄存器 0x%08X = 0x%08X (%u)\n", addr, value, value);
+    } else {
+        printf("读取失败: 错误码=%d\n", ret);
+    }
+    printf("==================\n\n");
+}
+
+/**
+ * @brief 写入寄存器
+ */
+void write_register(void)
+{
+    uint32_t addr, value;
+    int ret;
+
+    printf("\n=== 写入寄存器 ===\n");
+    printf("输入寄存器地址 (十六进制，如 0xc030): ");
+
+    if (scanf("%x", &addr) != 1) {
+        printf("无效的地址格式\n");
+        return;
+    }
+
+    printf("输入写入值 (十六进制，如 0x8): ");
+
+    if (scanf("%x", &value) != 1) {
+        printf("无效的值格式\n");
+        return;
+    }
+
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, addr, value);
+    if (ret == TK8710_OK) {
+        printf("写入成功: 0x%08X = 0x%08X (%u)\n", addr, value, value);
+    } else {
+        printf("写入失败: 错误码=%d\n", ret);
+    }
+    printf("==================\n\n");
+}
+
 #ifndef _WIN32
 /**
  * @brief Linux信号处理函数
@@ -1408,6 +1463,16 @@ int main(int argc, char* argv[])
             case 'h':
             case 'H':
                 show_help();
+                break;
+
+            case 'r':
+            case 'R':
+                read_register();
+                break;
+
+            case 'w':
+            case 'W':
+                write_register();
                 break;
 
             case 's':
