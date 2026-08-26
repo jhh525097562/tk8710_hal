@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include "tk8710_hal.h"
 #include "hal_api.h"   /* HAL API接口 */
 #include "driver/tk8710_driver_api.h"
@@ -88,6 +89,8 @@ static volatile int g_init_error = 0;
 static volatile int g_fatal_error = 0;
 static uint8_t g_rf_tx_gain = 0x2a;
 static uint32_t g_reg_a064_value = 0x00044003u;
+static TK8710LogLevel g_driver_log_level = TK8710_LOG_WARN;
+static TRMLogLevel g_trm_log_level = TRM_LOG_WARN;
 
 #define TK8710_TX_DC_DIR  "TxDC"
 #define TK8710_TX_DC_FILE TK8710_TX_DC_DIR "/txadc.txt"
@@ -519,6 +522,60 @@ void write_register(void)
 /* 扫频功能已移至TRM层，现在使用TRM_SweepState结构体 */
 
 /* NS速率索引到TK8710速率模式转换函数 */
+static int StringEqualsIgnoreCase(const char* left, const char* right)
+{
+    if (left == NULL || right == NULL) {
+        return 0;
+    }
+
+    while (*left != '\0' && *right != '\0') {
+        if (tolower((unsigned char)*left) != tolower((unsigned char)*right)) {
+            return 0;
+        }
+        left++;
+        right++;
+    }
+
+    return *left == '\0' && *right == '\0';
+}
+
+static int ParseDriverLogLevel(const char* text, TK8710LogLevel* level)
+{
+    if (StringEqualsIgnoreCase(text, "none"))  *level = TK8710_LOG_NONE;
+    else if (StringEqualsIgnoreCase(text, "error")) *level = TK8710_LOG_ERROR;
+    else if (StringEqualsIgnoreCase(text, "warn"))  *level = TK8710_LOG_WARN;
+    else if (StringEqualsIgnoreCase(text, "info"))  *level = TK8710_LOG_INFO;
+    else if (StringEqualsIgnoreCase(text, "debug")) *level = TK8710_LOG_DEBUG;
+    else if (StringEqualsIgnoreCase(text, "trace")) *level = TK8710_LOG_TRACE;
+    else if (StringEqualsIgnoreCase(text, "all"))   *level = TK8710_LOG_ALL;
+    else return -1;
+    return 0;
+}
+
+static int ParseTrmLogLevel(const char* text, TRMLogLevel* level)
+{
+    if (StringEqualsIgnoreCase(text, "none"))  *level = TRM_LOG_NONE;
+    else if (StringEqualsIgnoreCase(text, "error")) *level = TRM_LOG_ERROR;
+    else if (StringEqualsIgnoreCase(text, "warn"))  *level = TRM_LOG_WARN;
+    else if (StringEqualsIgnoreCase(text, "info"))  *level = TRM_LOG_INFO;
+    else if (StringEqualsIgnoreCase(text, "debug")) *level = TRM_LOG_DEBUG;
+    else if (StringEqualsIgnoreCase(text, "trace")) *level = TRM_LOG_TRACE;
+    else return -1;
+    return 0;
+}
+
+static const char* DriverLogLevelName(TK8710LogLevel level)
+{
+    static const char* names[] = {"none", "error", "warn", "info", "debug", "trace", "all"};
+    return (level >= TK8710_LOG_NONE && level <= TK8710_LOG_ALL) ? names[level] : "unknown";
+}
+
+static void ApplyRuntimeLogLevels(void)
+{
+    TK8710LogConfig(g_driver_log_level, TK8710_LOG_MODULE_ALL, 1);
+    TRM_LogConfig(g_trm_log_level, 1);
+}
+
 static void PrintUsage(const char* prog_name)
 {
     printf("Usage: %s [options]\n", prog_name);
@@ -526,6 +583,8 @@ static void PrintUsage(const char* prog_name)
     printf("  --work-dir <dir>, -w <dir> : Set runtime directory for generated files\n");
     printf("  --rf-gain <gain>, -g <gain>: Set RF TX gain (0x00~0xFF, default: 0x2a)\n");
     printf("  --reg-a064 <value>          : Set register 0xA064 (default: 0x00045003)\n");
+    printf("  --driver-log-level <level>  : Driver log: none|error|warn|info|debug|trace|all\n");
+    printf("  --trm-log-level <level>     : TRM log: none|error|warn|info|debug|trace\n");
     printf("  --help, -h                 : Show this help\n");
 }
 
@@ -624,6 +683,27 @@ static int NormalizeRuntimeArgs(int* argc, char* argv[], const char** work_dir)
             }
 
             g_reg_a064_value = (uint32_t)value;
+            continue;
+        }
+
+        if (strcmp(argv[arg_index], "--driver-log-level") == 0) {
+            if (arg_index + 1 >= *argc ||
+                ParseDriverLogLevel(argv[++arg_index], &g_driver_log_level) != 0) {
+                printf("Error: --driver-log-level expects "
+                       "none|error|warn|info|debug|trace|all\n");
+                PrintUsage(argv[0]);
+                return -1;
+            }
+            continue;
+        }
+
+        if (strcmp(argv[arg_index], "--trm-log-level") == 0) {
+            if (arg_index + 1 >= *argc ||
+                ParseTrmLogLevel(argv[++arg_index], &g_trm_log_level) != 0) {
+                printf("Error: --trm-log-level expects none|error|warn|info|debug|trace\n");
+                PrintUsage(argv[0]);
+                return -1;
+            }
             continue;
         }
 
@@ -937,6 +1017,7 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
     /* 7. 调用 TK8710HalInit 完成初始化 */
     printf("[扫频] 步骤7: 调用 TK8710HalInit...\n");
     TK8710HalError halRet = TK8710HalInit(&halConfig);
+    ApplyRuntimeLogLevels();
     if (halRet != TK8710_HAL_OK) {
         printf("[扫频] HAL初始化失败: %d\n", halRet);
         return -1;
@@ -1167,6 +1248,7 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     /* 5. 调用 TK8710HalInit 完成芯片、RF、日志、TRM初始化 */
     printf("Initializing HAL (chip + RF + log + TRM)...\n");
     TK8710HalError halRet = TK8710HalInit(&halConfig);
+    ApplyRuntimeLogLevels();
     if (halRet != TK8710_HAL_OK) {
         printf("HAL initialization failed: %d\n", halRet);
         return -1;
@@ -1639,6 +1721,8 @@ int main(int argc, char* argv[])
     }
     printf("RF TX gain: 0x%02X\n", g_rf_tx_gain);
     printf("Register 0xA064 value: 0x%08X\n", g_reg_a064_value);
+    printf("Driver log level: %s\n", DriverLogLevelName(g_driver_log_level));
+    printf("TRM log level: %s\n", TRM_LogGetLevelName(g_trm_log_level));
     // if (SaveTxDcFromRfRam() != 0) {
     //     printf("Warning: failed to refresh %s from RF RAM\n", TK8710_TX_DC_FILE);
     // }
@@ -1802,6 +1886,7 @@ int main(int argc, char* argv[])
         /* 5. 调用 TK8710HalInit 完成芯片、RF、日志、TRM初始化 */
         printf("Initializing HAL (chip + RF + log + TRM)...\n");
         TK8710HalError halRet = TK8710HalInit(&halConfig);
+        ApplyRuntimeLogLevels();
         if (halRet != TK8710_HAL_OK) {
             printf("HAL initialization failed: %d\n", halRet);
             g_init_error = halRet;
@@ -1916,6 +2001,18 @@ int main(int argc, char* argv[])
     
     /* 8. 主循环 - 等待中断并进行中断处理 */
     while (g_running) {
+        if (TRM_IsShutdownRequested()) {
+            uint32_t failure_count = TRM_GetAcmConsecutiveFailureCount();
+
+            fprintf(stderr,
+                    "FATAL: ACM calibration failed %u consecutive times; "
+                    "stopping gateway safely.\n",
+                    failure_count);
+            g_fatal_error = 1;
+            exit_code = 1;
+            g_running = 0;
+            break;
+        }
 #ifdef _WIN32
         printf("TK8710> ");
         input = _getch();

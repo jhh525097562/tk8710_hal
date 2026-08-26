@@ -366,6 +366,17 @@ int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request);
 
 int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status);
 
+/**
+ * @brief 查询是否因连续ACM校准失败请求退出程序
+ * @return 1=请求退出，0=继续运行
+ */
+uint8_t TRM_IsShutdownRequested(void);
+
+/**
+ * @brief 获取ACM连续校准失败次数
+ */
+uint32_t TRM_GetAcmConsecutiveFailureCount(void);
+
 /* =============================================================================
  * TRM日志系统API
  * =============================================================================

@@ -71,6 +71,18 @@ static volatile uint32_t g_sweepCaptureFreq = 0;
 #define TRM_ACM_CALIB_TIME_BUDGET_US      28000
 #define TRM_ACM_PHASE_MARGIN_WARN_US      150
 
+/* 周期校准间隔（分钟），设置为0时禁用周期校准。 */
+#ifndef TRM_ACM_PERIODIC_INTERVAL_MINUTES
+#define TRM_ACM_PERIODIC_INTERVAL_MINUTES 30
+#endif
+#define TRM_ACM_PERIODIC_CALIB_COUNT      1U
+#define TRM_ACM_PERIODIC_SNR_THRESHOLD    24U
+#define TRM_ACM_PERIODIC_RESTART_ADVANCE_US 400U
+#define TRM_ACM_PERIODIC_GUARD_US         1000U
+#ifndef TRM_ACM_MAX_CONSECUTIVE_FAILURES
+#define TRM_ACM_MAX_CONSECUTIVE_FAILURES  20U
+#endif
+
 typedef struct {
     volatile uint8_t pending;
     volatile uint8_t running;
@@ -96,6 +108,9 @@ static volatile uint32_t g_acmS0PeriodBeforeUs = 0;
 static volatile uint32_t g_acmS0FirstExpectedPeriodUs = 0;
 static volatile uint32_t g_acmS0CountBefore = 0;
 static volatile uint64_t g_acmFastStartEndUs = 0;
+static uint64_t g_acmPeriodicLastRequestUs = 0;
+static volatile uint32_t g_acmConsecutiveFailureCount = 0;
+static volatile uint8_t g_acmShutdownRequested = 0;
 
 /* 内部函数声明 */
 TrmContext* TRM_GetContext(void);
@@ -118,6 +133,8 @@ static int TRM_ConfigSweepCapture(void);
 static void TRM_ProcessSweepCaptureInRx(void);
 static void TRM_UpdateSweepFrequencyAfterCapture(void);
 static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult);
+static void TRM_TryRequestPeriodicAcmCalibration(void);
+static void TRM_RecordAcmCalibrationOutcome(int calibResult);
 static uint32_t TRM_GetSlotConfigTimeUs(const SlotConfig* slotConfig);
 static uint32_t TRM_GetAcmSlot3WindowUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult);
 static uint32_t TRM_GetAcmFramePeriodUs(const slotCfg_t* slotCfg, const TK8710IrqResult* irqResult);
@@ -199,6 +216,18 @@ int TRM_Init(const TRM_InitConfig* config)
 
     /* 初始化卫星物联网角色状态 */
     TRM_SatelliteInit(&g_trmCtx.config);
+
+    g_acmConsecutiveFailureCount = 0;
+    g_acmShutdownRequested = 0;
+
+#if TRM_ACM_PERIODIC_INTERVAL_MINUTES > 0
+    g_acmPeriodicLastRequestUs = TK8710GetTimeUs();
+    TRM_LOG_INFO("TRM: Periodic ACM calibration enabled, interval=%u minutes",
+                 TRM_ACM_PERIODIC_INTERVAL_MINUTES);
+#else
+    g_acmPeriodicLastRequestUs = 0;
+    TRM_LOG_INFO("TRM: Periodic ACM calibration disabled");
+#endif
     
     g_trmCtx.state = TRM_STATE_INIT;
     TRM_LOG_INFO("TRM系统初始化完成，状态: INIT");
@@ -234,6 +263,7 @@ int TRM_Deinit(void)
     TRM_LOG_INFO("发送队列清理完成");
 
     TRM_SatelliteDeinit();
+    g_acmPeriodicLastRequestUs = 0;
     
     g_trmCtx.state = TRM_STATE_UNINIT;
     TRM_LOG_INFO("TRM系统清理完成，状态: UNINIT");
@@ -351,6 +381,16 @@ int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status)
     status->lastWaitUs = g_acmCalibState.lastWaitUs;
 
     return TRM_OK;
+}
+
+uint8_t TRM_IsShutdownRequested(void)
+{
+    return g_acmShutdownRequested;
+}
+
+uint32_t TRM_GetAcmConsecutiveFailureCount(void)
+{
+    return g_acmConsecutiveFailureCount;
 }
 
 
@@ -584,6 +624,7 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
             break;
         case TK8710_IRQ_S2:
             slotType = 2; slotIndex = 2;  /* S2时隙 */
+            TRM_TryRequestPeriodicAcmCalibration();
             if (TRM_TryRunAcmCalibrationAtS2(irqResult) == TRM_OK) {
                 return;
             }
@@ -693,24 +734,45 @@ static void TRM_OnDriverSlotRx(TK8710IrqResult* irqResult)
     } else {
         TRM_LOG_DEBUG("TRM: MD_DATA interrupt but mdDataValid=0, skipping");
     }
-    // static int CalibrateCount = 0; // 默认值
-    // CalibrateCount++;
-    // int Tmp = 400;
-    // // if(CalibrateCount % 10 == 0 && CalibrateCount <= 20000) {
-    // if(CalibrateCount % 10 == 0) {
-    //     TRM_AcmCalibRequest acmRequest = {
-    //         .calibCount = 1,
-    //         .snrThreshold = 28,
-    //         .restartAdvanceUs = Tmp,//mode5-6:200,mode7:212,mode8:
-    //         .guardUs = 1000
-    //     };
-    //     int ret0 = TRM_RequestAcmCalibration(&acmRequest);
-    //     if (ret0 == TRM_OK) {
-    //         printf("TRM ACM calibration request submitted; it will run at last-frame S2 end\n");
-    //     } else {
-    //         printf("TRM ACM calibration request failed: ret=%d\n", ret0);
-    //     }
-    // }
+}
+
+static void TRM_TryRequestPeriodicAcmCalibration(void)
+{
+#if TRM_ACM_PERIODIC_INTERVAL_MINUTES > 0
+    const uint64_t intervalUs =
+        (uint64_t)TRM_ACM_PERIODIC_INTERVAL_MINUTES * 60ULL * 1000000ULL;
+    uint64_t nowUs = TK8710GetTimeUs();
+
+    if (g_acmShutdownRequested) {
+        return;
+    }
+
+    if (g_acmPeriodicLastRequestUs == 0) {
+        g_acmPeriodicLastRequestUs = nowUs;
+        return;
+    }
+
+    if (nowUs - g_acmPeriodicLastRequestUs < intervalUs ||
+        g_acmCalibState.pending || g_acmCalibState.running) {
+        return;
+    }
+
+    TRM_AcmCalibRequest acmRequest = {
+        .calibCount = TRM_ACM_PERIODIC_CALIB_COUNT,
+        .snrThreshold = TRM_ACM_PERIODIC_SNR_THRESHOLD,
+        .restartAdvanceUs = TRM_ACM_PERIODIC_RESTART_ADVANCE_US,
+        .guardUs = TRM_ACM_PERIODIC_GUARD_US
+    };
+    int ret = TRM_RequestAcmCalibration(&acmRequest);
+
+    if (ret == TRM_OK) {
+        g_acmPeriodicLastRequestUs = nowUs;
+        TRM_LOG_INFO("TRM: Periodic ACM calibration requested, interval=%u minutes",
+                     TRM_ACM_PERIODIC_INTERVAL_MINUTES);
+    } else {
+        TRM_LOG_WARN("TRM: Periodic ACM calibration request failed: ret=%d", ret);
+    }
+#endif
 }
 
 /*==============================================================================
@@ -1022,6 +1084,38 @@ static uint32_t TRM_WaitUntilUs(uint64_t targetUs)
     return (uint32_t)(nowUs - targetUs);
 }
 
+static void TRM_RecordAcmCalibrationOutcome(int calibResult)
+{
+    if (calibResult > 0) {
+        if (g_acmConsecutiveFailureCount > 0) {
+            TRM_LOG_INFO("TRM: ACM calibration recovered, consecutive failures reset from %u",
+                         g_acmConsecutiveFailureCount);
+        }
+        g_acmConsecutiveFailureCount = 0;
+        return;
+    }
+
+#if TRM_ACM_MAX_CONSECUTIVE_FAILURES > 0
+    if (g_acmConsecutiveFailureCount < UINT32_MAX) {
+        g_acmConsecutiveFailureCount++;
+    }
+
+    TRM_LOG_WARN("TRM: ACM calibration failed, consecutive failures=%u/%u, result=%d",
+                 g_acmConsecutiveFailureCount,
+                 TRM_ACM_MAX_CONSECUTIVE_FAILURES,
+                 calibResult);
+
+    if (g_acmConsecutiveFailureCount >= TRM_ACM_MAX_CONSECUTIVE_FAILURES) {
+        g_acmShutdownRequested = 1;
+        TRM_LOG_ERROR("TRM: FATAL: ACM calibration failed %u consecutive times, "
+                      "requesting process shutdown",
+                      g_acmConsecutiveFailureCount);
+    }
+#else
+    (void)calibResult;
+#endif
+}
+
 static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
 {
     const slotCfg_t* slotCfg;
@@ -1178,7 +1272,13 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     TK8710ClearIrqStatus(1 << TK8710_IRQ_ACM);
     TK8710ClearIrqStatus(1 << TK8710_IRQ_ACM);
 
+    TK8710SetAcmCalibrationLogContext(TK8710_ACM_LOG_SOURCE_PERIODIC,
+                                      0, 0, 0,
+                                      request.calibCount,
+                                      request.snrThreshold);
     calibRet = TK8710Ctrl(TK8710_CTRL_TYPE_ACM_CALIBRATE_ONLY, &acmParam);
+    TK8710SetAcmCalibrationLogContext(TK8710_ACM_LOG_SOURCE_MANUAL,
+                                      0, 0, 0, 0, 0);
     endUs = TK8710GetTimeUs();
     irqAfterCalib = TK8710GetIrqStatus();
     slot3AfterCalibUs = TRM_ReadAcmSlot3LenUs();
@@ -1188,6 +1288,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     elapsedUs = (uint32_t)(endUs - calibStartUs);
     g_acmCalibState.lastElapsedUs = elapsedUs;
     g_acmCalibState.lastResult = calibRet;
+    TRM_RecordAcmCalibrationOutcome(calibRet);
     restartSlot3EndUs = slot3EndUs;
 
     if (calibRet < 0) {
@@ -1197,9 +1298,14 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     }
 
     if (calibRet == 0) {
-        retryNextSuperFrame = 1;
-        TRM_LOG_WARN("TRM: ACM calibration has no valid result, will keep slot timing and "
-                     "retry at next superframe: elapsed=%u us", elapsedUs);
+        if (!g_acmShutdownRequested) {
+            retryNextSuperFrame = 1;
+            TRM_LOG_WARN("TRM: ACM calibration has no valid result, will keep slot timing and "
+                         "retry at next superframe: elapsed=%u us", elapsedUs);
+        } else {
+            TRM_LOG_ERROR("TRM: ACM calibration retry stopped after %u consecutive failures",
+                          g_acmConsecutiveFailureCount);
+        }
     }
 
     ret = TRM_RefreshAcmSlotConfig(&slotCfgBeforeAcm);

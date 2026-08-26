@@ -15,11 +15,11 @@
 #include <stddef.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
 #ifdef _WIN32
 #include <direct.h>
 #include <windows.h>
 #else
-#include <sys/stat.h>
 #include <unistd.h>
 #include <sys/time.h>
 #endif
@@ -90,6 +90,42 @@ static uint16_t g_acm_dgain0[16] = {16,16,16,16,16,16,16,16,16,16,16,16,16,16,16
 static uint16_t g_acm_dgain1[16] = {16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,0};
 static uint16_t g_acm_again0[16] = {16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,0};
 static uint16_t g_acm_again1[16] = {16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,0};
+
+#define TK8710_ACM_FACTOR_FILE_COUNT      2
+#define TK8710_ACM_FACTOR_FILE_MAX_BYTES  (5ULL * 1024ULL * 1024ULL)
+#define TK8710_ACM_FACTOR_RECORD_MAX_BYTES 2048
+
+static int g_acmFactorFileIndex = -1;
+
+typedef struct {
+    TK8710AcmLogSource source;
+    uint32_t initSequence;
+    uint32_t sampleSequence;
+    uint8_t attempt;
+    uint8_t maxAttempts;
+    uint8_t calibCount;
+    uint8_t snrThreshold;
+} TK8710AcmLogContext;
+
+static TK8710AcmLogContext g_acmLogContext = {
+    .source = TK8710_ACM_LOG_SOURCE_MANUAL
+};
+
+void TK8710SetAcmCalibrationLogContext(TK8710AcmLogSource source,
+                                       uint32_t initSequence,
+                                       uint8_t attempt,
+                                       uint8_t maxAttempts,
+                                       uint8_t calibCount,
+                                       uint8_t snrThreshold)
+{
+    g_acmLogContext.source = source;
+    g_acmLogContext.initSequence = initSequence;
+    g_acmLogContext.sampleSequence = 0;
+    g_acmLogContext.attempt = attempt;
+    g_acmLogContext.maxAttempts = maxAttempts;
+    g_acmLogContext.calibCount = calibCount;
+    g_acmLogContext.snrThreshold = snrThreshold;
+}
 
 /*============================================================================
  * ACM校准内部辅助函数
@@ -692,6 +728,146 @@ static int tk8710_acm_calibrate(uint8_t calibCount, uint8_t snrThreshold)
  * @param calFactors 输出校准因子结构体指针
  * @return 0-成功, 1-失败
  */
+static int tk8710_save_acm_factors(const AcmCalibrationFactors* calFactors)
+{
+    static const char* filenames[TK8710_ACM_FACTOR_FILE_COUNT] = {
+        "CaliFactor/CaliFactor0.txt",
+        "CaliFactor/CaliFactor1.txt"
+    };
+    struct stat fileStats[TK8710_ACM_FACTOR_FILE_COUNT];
+    uint64_t currentSize = 0;
+    char record[TK8710_ACM_FACTOR_RECORD_MAX_BYTES];
+    size_t recordLength = 0;
+    time_t rawtime;
+    struct tm* timeinfo;
+    FILE* outputFile;
+    const char* openMode = "a";
+    int fileExists[TK8710_ACM_FACTOR_FILE_COUNT];
+    int written;
+    int i;
+
+#ifdef _WIN32
+    _mkdir("CaliFactor");
+#else
+    mkdir("CaliFactor", 0755);
+#endif
+
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    if (timeinfo == NULL) {
+        TK8710_LOG_CONFIG_ERROR("Failed to get local time for ACM factor file\n");
+        return TK8710_ERR;
+    }
+
+    g_acmLogContext.sampleSequence++;
+
+    if (g_acmLogContext.source == TK8710_ACM_LOG_SOURCE_INIT) {
+        written = snprintf(record, sizeof(record),
+                           "\n=== %04d-%02d-%02d %02d:%02d:%02d | "
+                           "INIT seq=%u retry=%u/%u sample=%u count=%u snr=%u ===\n",
+                           timeinfo->tm_year + 1900, timeinfo->tm_mon + 1,
+                           timeinfo->tm_mday, timeinfo->tm_hour,
+                           timeinfo->tm_min, timeinfo->tm_sec,
+                           (unsigned int)g_acmLogContext.initSequence,
+                           (unsigned int)g_acmLogContext.attempt,
+                           (unsigned int)g_acmLogContext.maxAttempts,
+                           (unsigned int)g_acmLogContext.sampleSequence,
+                           (unsigned int)g_acmLogContext.calibCount,
+                           (unsigned int)g_acmLogContext.snrThreshold);
+    } else if (g_acmLogContext.source == TK8710_ACM_LOG_SOURCE_PERIODIC) {
+        written = snprintf(record, sizeof(record),
+                           "\n=== %04d-%02d-%02d %02d:%02d:%02d | PERIODIC ===\n",
+                           timeinfo->tm_year + 1900, timeinfo->tm_mon + 1,
+                           timeinfo->tm_mday, timeinfo->tm_hour,
+                           timeinfo->tm_min, timeinfo->tm_sec);
+    } else {
+        written = snprintf(record, sizeof(record),
+                           "\n=== %04d-%02d-%02d %02d:%02d:%02d | MANUAL ===\n",
+                           timeinfo->tm_year + 1900, timeinfo->tm_mon + 1,
+                           timeinfo->tm_mday, timeinfo->tm_hour,
+                           timeinfo->tm_min, timeinfo->tm_sec);
+    }
+    if (written < 0 || (size_t)written >= sizeof(record)) {
+        TK8710_LOG_CONFIG_ERROR("Failed to format ACM factor header\n");
+        return TK8710_ERR;
+    }
+    recordLength = (size_t)written;
+
+    written = snprintf(record + recordLength, sizeof(record) - recordLength,
+                       "ACM校准因子数据:\n");
+    if (written < 0 || (size_t)written >= sizeof(record) - recordLength) {
+        TK8710_LOG_CONFIG_ERROR("Failed to format ACM factor title\n");
+        return TK8710_ERR;
+    }
+    recordLength += (size_t)written;
+
+    for (i = 0; i < TK8710_MAX_ANTENNAS; i++) {
+        uint32_t i_factor = calFactors->channels[i].i_factor & 0x3FFFF;
+        uint32_t q_factor = calFactors->channels[i].q_factor & 0x3FFFF;
+
+        written = snprintf(record + recordLength, sizeof(record) - recordLength,
+                           "通道[%d]: I_factor=0x%05X, Q_factor=0x%05X\n",
+                           i, i_factor, q_factor);
+        if (written < 0 || (size_t)written >= sizeof(record) - recordLength) {
+            TK8710_LOG_CONFIG_ERROR("ACM factor record exceeds buffer size\n");
+            return TK8710_ERR;
+        }
+        recordLength += (size_t)written;
+    }
+
+    for (i = 0; i < TK8710_ACM_FACTOR_FILE_COUNT; i++) {
+        fileExists[i] = (stat(filenames[i], &fileStats[i]) == 0);
+    }
+
+    if (g_acmFactorFileIndex < 0) {
+        if (fileExists[0] && fileExists[1]) {
+            g_acmFactorFileIndex =
+                (fileStats[1].st_mtime > fileStats[0].st_mtime) ? 1 : 0;
+        } else if (fileExists[1]) {
+            g_acmFactorFileIndex = 1;
+        } else {
+            g_acmFactorFileIndex = 0;
+        }
+    }
+
+    if (fileExists[g_acmFactorFileIndex]) {
+        currentSize = (uint64_t)fileStats[g_acmFactorFileIndex].st_size;
+    }
+
+    if (currentSize + recordLength > TK8710_ACM_FACTOR_FILE_MAX_BYTES) {
+        g_acmFactorFileIndex = (g_acmFactorFileIndex + 1) % TK8710_ACM_FACTOR_FILE_COUNT;
+        openMode = "w";
+        currentSize = 0;
+        TK8710_LOG_CONFIG_INFO("ACM factor file reached 5 MiB, rotate to: %s\n",
+                               filenames[g_acmFactorFileIndex]);
+    }
+
+    outputFile = fopen(filenames[g_acmFactorFileIndex], openMode);
+    if (outputFile == NULL) {
+        TK8710_LOG_CONFIG_ERROR("Failed to open ACM factor file: %s\n",
+                                filenames[g_acmFactorFileIndex]);
+        return TK8710_ERR;
+    }
+
+    if (fwrite(record, 1, recordLength, outputFile) != recordLength) {
+        fclose(outputFile);
+        TK8710_LOG_CONFIG_ERROR("Failed to write ACM factor file: %s\n",
+                                filenames[g_acmFactorFileIndex]);
+        return TK8710_ERR;
+    }
+
+    if (fclose(outputFile) != 0) {
+        TK8710_LOG_CONFIG_ERROR("Failed to close ACM factor file: %s\n",
+                                filenames[g_acmFactorFileIndex]);
+        return TK8710_ERR;
+    }
+
+    TK8710_LOG_CONFIG_INFO("ACM factor record saved: %s, size=%u bytes\n",
+                           filenames[g_acmFactorFileIndex],
+                           (unsigned int)(currentSize + recordLength));
+    return TK8710_OK;
+}
+
 int TK8710GetAcmCalibrationFactors(AcmCalibrationFactors* calFactors)
 {
     int ret;
@@ -788,50 +964,8 @@ int TK8710GetAcmCalibrationFactors(AcmCalibrationFactors* calFactors)
                             i, i_factor, i_float, q_factor, q_float);
     }
     
-    /* 保存校准因子到文件 - TXT格式 */
-    {
-        FILE* outputFile;
-        char filename[256];
-        time_t rawtime;
-        struct tm* timeinfo;
-        
-        /* 创建CaliFactor目录 */
-        #ifdef _WIN32
-            _mkdir("CaliFactor");
-        #else
-            mkdir("CaliFactor", 0755);
-        #endif
-        
-        /* 获取当前时间用于记录 */
-        time(&rawtime);
-        timeinfo = localtime(&rawtime);
-        
-        /* 使用固定文件名，以文本追加模式打开 */
-        snprintf(filename, sizeof(filename), "CaliFactor/CaliFactor.txt");
-        outputFile = fopen(filename, "a");  // "a"模式：追加文本写入
-        if (outputFile == NULL) {
-            TK8710_LOG_CONFIG_ERROR("打开校准因子文件%s失败\n", filename);
-            return TK8710_ERR;
-        }
-        
-        /* 写入时间戳 */
-        fprintf(outputFile, "\n=== %04d-%02d-%02d %02d:%02d:%02d ===\n",
-                timeinfo->tm_year + 1900, timeinfo->tm_mon + 1, timeinfo->tm_mday,
-                timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-        
-        /* 写入校准因子数据为文本格式 */
-        fprintf(outputFile, "ACM校准因子数据:\n");
-        for (int i = 0; i < TK8710_MAX_ANTENNAS; i++) {
-            /* 获取原始校准因子 */
-            uint32_t i_factor = calFactors->channels[i].i_factor & 0x3FFFF;  // 18位掩码
-            uint32_t q_factor = calFactors->channels[i].q_factor & 0x3FFFF;  // 18位掩码
-            
-            fprintf(outputFile, "通道[%d]: I_factor=0x%05X, Q_factor=0x%05X\n",
-                    i, i_factor, q_factor);
-        }
-        
-        fclose(outputFile);
-        TK8710_LOG_CONFIG_INFO("ACM校准因子TXT格式追加保存完成，文件: %s\n", filename);
+    if (tk8710_save_acm_factors(calFactors) != TK8710_OK) {
+        return TK8710_ERR;
     }
     
     return TK8710_OK;
@@ -1236,8 +1370,14 @@ int TK8710Ctrl(TK8710CtrlType type, const void* params)
                 return TK8710_ERR;
             }
             int ret;
-            ret = tk8710_rf_write(0xff, 0x8C7e >> 8, 0x9e);
+            ret = tk8710_rf_write(0xff, 0x8C7e >> 8, 0xfe);
+            TK8710SetAcmCalibrationLogContext(TK8710_ACM_LOG_SOURCE_PERIODIC,
+                                               0, 0, 0,
+                                               acmParam->calibCount,
+                                               acmParam->snrThreshold);
             ret =  tk8710_acm_calibrate(acmParam->calibCount, acmParam->snrThreshold);
+            TK8710SetAcmCalibrationLogContext(TK8710_ACM_LOG_SOURCE_MANUAL,
+                                               0, 0, 0, 0, 0);
             tk8710_rf_write(0xff, 0x8C7e >> 8, 0x7e);
             TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_9), 0x1ffff);
             return ret;

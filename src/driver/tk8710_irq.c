@@ -1022,10 +1022,13 @@ static void tk8710_md_ud_get_user_info(void)
     uint8_t maxUsers;
     uint8_t dataUserNum;
     uint8_t i;
+    uint8_t rateMode;
+    uint32_t aNoiseLogInterval = 1000;
     
     /* 获取当前配置 */
     const slotCfg_t* slotCfg = TK8710GetSlotConfig();
     RateModeParams rateParams;
+    rateMode = slotCfg->rateModes[g_irqResult.currentRateIndex];
     
     /* 根据速率模式获取最大用户数 */
     if (TK8710GetRateModeParams(slotCfg->rateModes[g_irqResult.currentRateIndex], &rateParams) == TK8710_OK) {
@@ -1102,9 +1105,30 @@ static void tk8710_md_ud_get_user_info(void)
         /* 增加计数器 */
         g_aNoiseGetCount++;
         
-        /* 每10次打印一次ANoise值 */
-        if (g_aNoiseGetCount % 10 == 0) {
-            TK8710_LOG_IRQ_INFO("ANoise values (count=%lu): ANT0=%lu, ANT1=%lu, ANT2=%lu, ANT3=%lu, ANT4=%lu, ANT5=%lu, ANT6=%lu, ANT7=%lu", 
+        switch (rateMode) {
+            case TK8710_RATE_MODE_5:
+            case TK8710_RATE_MODE_6:
+                aNoiseLogInterval = 500;
+                break;
+            case TK8710_RATE_MODE_7:
+            case TK8710_RATE_MODE_8:
+                aNoiseLogInterval = 1000;
+                break;
+            case TK8710_RATE_MODE_9:
+            case TK8710_RATE_MODE_10:
+                aNoiseLogInterval = 2000;
+                break;
+            case TK8710_RATE_MODE_11:
+            case TK8710_RATE_MODE_18:
+                aNoiseLogInterval = 3000;
+                break;
+            default:
+                break;
+        }
+
+        if ((g_aNoiseGetCount % aNoiseLogInterval) == 0) {
+            TK8710_LOG_IRQ_WARN("ANoise values (mode=%u, count=%lu): ANT0=%lu, ANT1=%lu, ANT2=%lu, ANT3=%lu, ANT4=%lu, ANT5=%lu, ANT6=%lu, ANT7=%lu",
+                               rateMode,
                                g_aNoiseGetCount,
                                g_irqResult.ANoiseInfo[0], g_irqResult.ANoiseInfo[1], 
                                g_irqResult.ANoiseInfo[2], g_irqResult.ANoiseInfo[3],

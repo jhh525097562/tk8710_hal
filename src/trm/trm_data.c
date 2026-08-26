@@ -856,7 +856,7 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
     } else if (userCount > 1) {
         fixedPower = 34;
     }
-    fixedPower = 34;  /* 测试使用，后续可根据实际情况调整 */
+    fixedPower = 60;  /* 测试使用，后续可根据实际情况调整 */
     for (uint8_t i = 0; i < userCount; i++) {
         PendingTxUser* user = &pendingUsers[i];
         user->finalPower = fixedPower;  /* 统一设置固定功率 */

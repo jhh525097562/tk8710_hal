@@ -58,6 +58,19 @@ int TK8710GetConfig(TK8710ConfigType type, void* params);
  * @return 0-成功, 非0-失败(ACM时表示异常天线位)
  */
 int TK8710Ctrl(TK8710CtrlType type, const void* params);
+
+typedef enum {
+    TK8710_ACM_LOG_SOURCE_MANUAL = 0,
+    TK8710_ACM_LOG_SOURCE_INIT,
+    TK8710_ACM_LOG_SOURCE_PERIODIC
+} TK8710AcmLogSource;
+
+void TK8710SetAcmCalibrationLogContext(TK8710AcmLogSource source,
+                                       uint32_t initSequence,
+                                       uint8_t attempt,
+                                       uint8_t maxAttempts,
+                                       uint8_t calibCount,
+                                       uint8_t snrThreshold);
 int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode);
 int TK8710FastStartTrigger(uint8_t workType);
 

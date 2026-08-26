@@ -21,7 +21,7 @@ TK8710HalError TK8710HalInit(const TK8710HalInitCfg* cfg)
     }
 
     TK8710PhyLogConfig(TK8710_LOG_WARN, 0xFFFFFFFFu, 1);
-    TRM_LogConfig(TRM_LOG_INFO, 1);//TRM_LOG_INFO
+    TRM_LogConfig(TRM_LOG_WARN, 1);
 
     if (TRM_PhyInit(chipConfig, &trmConfig) != TRM_OK) {
         return TK8710_HAL_ERROR_INIT;
