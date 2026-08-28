@@ -34,7 +34,7 @@ extern uint32_t g_trmMaxFrameCount;
 #define TX_DATA_MAX_LEN 520       /* 最大发送数据长度 */
 #define BEAM_RELEASE_QUEUE_SIZE 2048  /* 波束RAM释放队列大小 */
 #define MAX_PENDING_USERS 128      /* 最大待发送用户数量 */
-
+#define TRM_DEFAULT_BROADCAST_TX_POWER 31U
 
 /* 发送数据项 */
 typedef struct {
@@ -359,7 +359,8 @@ int TRM_ManageBroadcast(void)
         
         /* 使用默认广播参数 */
         uint8_t brdIndex = 0;  /* 默认广播索引 */
-        uint8_t txPower = 35;  /* 默认发送功率 */
+        uint8_t txPower = g_broadcastData.valid ?
+            g_broadcastData.power : TRM_DEFAULT_BROADCAST_TX_POWER;
         uint8_t beamType = TK8710_DATA_TYPE_BRD;  /* 广播波束类型 */
         
         TRM_LOG_DEBUG("TRM发送自主广播 - 索引=%d, 计数器=%d, 超帧位置=%u", 
@@ -856,7 +857,7 @@ static uint8_t TRM_SendCollectedUsers(PendingTxUser* pendingUsers, uint8_t userC
     } else if (userCount > 1) {
         fixedPower = 34;
     }
-    fixedPower = 60;  /* 测试使用，后续可根据实际情况调整 */
+    fixedPower = 34;  /* 测试使用，后续可根据实际情况调整 */
     for (uint8_t i = 0; i < userCount; i++) {
         PendingTxUser* user = &pendingUsers[i];
         user->finalPower = fixedPower;  /* 统一设置固定功率 */
