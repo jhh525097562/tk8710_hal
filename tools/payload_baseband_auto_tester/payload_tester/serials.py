@@ -52,9 +52,39 @@ class SerialEndpoint:
 
     def write(self, command: str) -> None:
         self.open()
+        if self.baudrate >= 500000:
+            self._wait_rx_quiet(quiet_s=0.05, max_wait_s=2.0)
         self.line_sink(self.port, "tx", command)
-        self.serial.write((command + "\r\n").encode("ascii"))
+        payload = (command + "\r\n").encode("ascii")
+        if self.baudrate >= 500000:
+            # 570控制台轮询SCILIN接收。1 Mbps下一次写完整命令只需约
+            # 0.1 ms，容易与阻塞式INFO日志输出重叠并造成RX溢出。
+            for byte in payload:
+                self.serial.write(bytes((byte,)))
+                if hasattr(self.serial, "flush"): self.serial.flush()
+                time.sleep(0.001)
+        else:
+            self.serial.write(payload)
         if hasattr(self.serial, "flush"): self.serial.flush()
+
+    def _wait_rx_quiet(self, quiet_s: float, max_wait_s: float) -> None:
+        deadline = time.monotonic() + max_wait_s
+        quiet_since = time.monotonic()
+        pending = bytearray()
+        while time.monotonic() < deadline:
+            waiting = getattr(self.serial, "in_waiting", 0)
+            raw = self.serial.read(max(1, min(4096, waiting)))
+            if raw:
+                pending.extend(raw if isinstance(raw, bytes) else raw.encode())
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since >= quiet_s:
+                break
+            else:
+                time.sleep(0.005)
+        if pending:
+            text = pending.decode("utf-8", "replace")
+            for line in text.replace("\r", "\n").split("\n"):
+                if line.strip(): self.line_sink(self.port, "rx", line.strip())
 
     def collect(self, duration: float, markers: Iterable[str] = (),
                 any_markers: Iterable[str] = ()) -> str:
@@ -97,11 +127,13 @@ class DiscoveredPorts:
 
 
 class PortDiscovery:
-    def __init__(self, baudrate: int = 115200,
+    def __init__(self, tms570_baudrate: int = 1000000,
+                 terminal_baudrate: int = 115200,
                  endpoint_factory: Callable[..., SerialEndpoint] = SerialEndpoint,
                  line_sink: Optional[Callable[[str, str, str], None]] = None,
                  probe_timeout_s: float = 15.0):
-        self.baudrate = baudrate
+        self.tms570_baudrate = tms570_baudrate
+        self.terminal_baudrate = terminal_baudrate
         self.endpoint_factory = endpoint_factory
         self.line_sink = line_sink
         self.probe_timeout_s = probe_timeout_s
@@ -113,12 +145,15 @@ class PortDiscovery:
 
     def discover(self, ports: Optional[List[str]] = None, preferred_terminal: str = "COM14") -> DiscoveredPorts:
         candidates = ports or self.available_ports()
-        endpoints = {p: self.endpoint_factory(p, self.baudrate, self.line_sink) for p in candidates}
         result = DiscoveredPorts()
+        tms_endpoints = {
+            p: self.endpoint_factory(p, self.tms570_baudrate, self.line_sink)
+            for p in candidates
+        }
         try:
             # 先识别570，绝不在这个阶段发送AT+RST。
             for port in candidates:
-                endpoint = endpoints[port]
+                endpoint = tms_endpoints[port]
                 passive = endpoint.collect(0.4)
                 if any(marker in passive for marker in TMS570_BANNERS):
                     result.tms570 = port; break
@@ -126,13 +161,21 @@ class PortDiscovery:
                 if ("FPGA_TM rxFrames=" in reply and "FPGA_PARAM mode=" in reply and
                         ("DT head=" in reply or "dmaRxSum=" in reply)):
                     result.tms570 = port; break
-            for port in candidates:
-                if port == result.tms570: continue
-                reply = endpoints[port].command("AT+RST", 5.0)
+        finally:
+            for endpoint in tms_endpoints.values(): endpoint.close()
+
+        terminal_candidates = [p for p in candidates if p != result.tms570]
+        terminal_endpoints = {
+            p: self.endpoint_factory(p, self.terminal_baudrate, self.line_sink)
+            for p in terminal_candidates
+        }
+        try:
+            for port in terminal_candidates:
+                reply = terminal_endpoints[port].command("AT+RST", 5.0)
                 if any(marker in reply for marker in TERMINAL_BANNERS): result.terminals.append(port)
                 else: result.unknown.append(port)
         finally:
-            for endpoint in endpoints.values(): endpoint.close()
+            for endpoint in terminal_endpoints.values(): endpoint.close()
         if preferred_terminal in result.terminals:
             result.terminals.remove(preferred_terminal)
             result.terminals.insert(0, preferred_terminal)

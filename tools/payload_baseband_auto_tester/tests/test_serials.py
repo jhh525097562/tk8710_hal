@@ -5,7 +5,11 @@ from payload_tester.serials import PortDiscovery, Tms570Console, natural_port_ke
 
 class FakeEndpoint:
     replies = {}
-    def __init__(self, port, baudrate, line_sink=None): self.port = port
+    opened = []
+    def __init__(self, port, baudrate, line_sink=None):
+        self.port = port
+        self.baudrate = baudrate
+        self.opened.append((port, baudrate))
     def collect(self, duration, markers=()): return self.replies.get((self.port, "passive"), "")
     def command(self, command, timeout=3, markers=(), any_markers=()): return self.replies.get((self.port, command), "")
     def close(self): pass
@@ -16,14 +20,18 @@ class SerialTests(unittest.TestCase):
         self.assertEqual(sorted(["COM14", "COM3", "COM10"], key=natural_port_key), ["COM3", "COM10", "COM14"])
 
     def test_discovery_separates_570_before_reset(self):
+        FakeEndpoint.opened = []
         FakeEndpoint.replies = {
             ("COM3", "AT+FPGATM"): "FPGA_TM rxFrames=1\nFPGA_PARAM mode=3\nDT head=0",
             ("COM14", "AT+FPGATM"): "AT_PARAM_ERROR",
             ("COM14", "AT+RST"): "MAC AT CMD!",
         }
-        found = PortDiscovery(endpoint_factory=FakeEndpoint).discover(["COM14", "COM3"], "COM14")
+        found = PortDiscovery(1000000, 115200, endpoint_factory=FakeEndpoint).discover(
+            ["COM14", "COM3"], "COM14")
         self.assertEqual(found.tms570, "COM3")
         self.assertEqual(found.terminals, ["COM14"])
+        self.assertIn(("COM3", 1000000), FakeEndpoint.opened)
+        self.assertIn(("COM14", 115200), FakeEndpoint.opened)
 
     def test_fpga_tm_retries_lost_uart_command(self):
         class Endpoint:

@@ -18,7 +18,8 @@ class SpiConfig:
 
 @dataclass
 class SerialConfig:
-    baudrate: int = 115200
+    tms570_baudrate: int = 1000000
+    terminal_baudrate: int = 115200
     preferred_terminal: str = "COM14"
     tms570_port: str = ""
     terminal_ports: List[str] = field(default_factory=list)
@@ -102,6 +103,12 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     if path:
         with Path(path).open("r", encoding="utf-8") as stream:
             raw = json.load(stream)
+        serial_values = raw.get("serial")
+        if isinstance(serial_values, dict) and "baudrate" in serial_values:
+            # 兼容旧配置：旧版只有一个公共波特率字段。
+            legacy_baudrate = serial_values.pop("baudrate")
+            serial_values.setdefault("tms570_baudrate", legacy_baudrate)
+            serial_values.setdefault("terminal_baudrate", legacy_baudrate)
         _merge_dataclass(config, raw)
     config.mqtt.password = os.getenv("PAYLOAD_TEST_MQTT_PASSWORD", config.mqtt.password)
     return config

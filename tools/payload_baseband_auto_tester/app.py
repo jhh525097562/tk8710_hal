@@ -14,7 +14,16 @@ from payload_tester.runner import PayloadTestRunner
 ROOT = Path(__file__).resolve().parent
 
 
+def _configure_console_output() -> None:
+    # Windows GBK控制台无法编码串口乱码解码产生的U+FFFD。日志文件仍保留
+    # UTF-8原文，命令行显示使用替换策略，不能让显示异常中止硬件预检。
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
+
 def main() -> int:
+    _configure_console_output()
     parser = argparse.ArgumentParser(description="载荷基带软件3.6自动测试工具")
     parser.add_argument("--config", help="JSON配置文件")
     parser.add_argument("--run-all", action="store_true", help="命令行运行配置中的全部用例")

@@ -4,12 +4,13 @@
 
 ## 硬件连接
 
-| 接口 | 用途 | 固定标识 |
-|---|---|---|
-| JTool SPI1 | 遥控、144字节遥测 | `9a85a46b0453`，SPI mode 0 |
-| JTool SPI2 | 512字节数传 | `9a85B9a50453`，SPI mode 2 |
-| TMS570 SCI/LIN串口 | `RC OK/ERR`、`AT+TM`、`AT+FPGATM` | 115200 8N1，自动识别 |
-| 业务终端串口 | 入网、ACK业务 | 115200 8N1，COM14优先 |
+
+| 接口               | 用途                              | 固定标识                   |
+| ------------------ | --------------------------------- | -------------------------- |
+| JTool SPI1         | 遥控、144字节遥测                 | `9a85a46b0453`，SPI mode 0 |
+| JTool SPI2         | 512字节数传                       | `9a85B9a50453`，SPI mode 2 |
+| TMS570 SCI/LIN串口 | `RC OK/ERR`、`AT+TM`、`AT+FPGATM` | 1000000 8N1，自动识别      |
+| 业务终端串口       | 入网、ACK业务                     | 115200 8N1，COM14优先      |
 
 JTool只能作为SPI master。使用PC接收SPI2数传时，TMS570固件必须启用`DATA_TRANSFER_SPI2_SLAVE_TEST`。正式的“TMS570 SPI2 master”路径不能由当前JTool DLL模拟slave或被动抓取。
 
@@ -58,9 +59,9 @@ MQTT密码不会写入配置文件或测试报告。可在GUI临时输入，或�
 
 工具严格按以下顺序扫描，避免误把570当终端复位：
 
-1. 被动匹配`Satellite payload control ready`等570启动打印。
-2. 发送`AT+FPGATM`，同时匹配`FPGA_TM`、`FPGA_PARAM`和`DT head`确认570。
-3. 排除570串口后，才向剩余端口发送`AT+RST`。
+1. 按`tms570_baudrate`（当前默认1000000）被动匹配`Satellite payload control ready`等570启动打印。
+2. 按570波特率发送`AT+FPGATM`，同时匹配`FPGA_TM`、`FPGA_PARAM`和`DT head`确认570。
+3. 排除570串口后，按`terminal_baudrate`（默认115200）向剩余端口发送`AT+RST`。
 4. 匹配`MAC AT CMD!`或`TurMass`确认业务终端。
 
 GUI允许覆盖自动结果。配置中填写`tms570_port`或`terminal_ports`后，将直接使用人工配置，不再主动扫描和复位端口。

@@ -95,7 +95,8 @@ class TesterGui:
         self.status.set("正在识别串口…")
         def work() -> None:
             try:
-                found = PortDiscovery(self.config.serial.baudrate,
+                found = PortDiscovery(self.config.serial.tms570_baudrate,
+                                      self.config.serial.terminal_baudrate,
                                       line_sink=lambda p, d, l: self.messages.put((f"serial_{p}", f"{d} {l}"))).discover(
                                           preferred_terminal=self.config.serial.preferred_terminal)
                 self.root.after(0, lambda: self._show_ports(found.tms570, found.terminals, found.unknown))

@@ -7,7 +7,8 @@
     "spi2_idle_timeout_ms": 2000
   },
   "serial": {
-    "baudrate": 115200,
+    "tms570_baudrate": 1000000,
+    "terminal_baudrate": 115200,
     "preferred_terminal": "COM14",
     "tms570_port": "",
     "terminal_ports": [],

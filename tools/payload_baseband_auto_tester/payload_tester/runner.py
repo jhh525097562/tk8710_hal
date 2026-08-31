@@ -76,7 +76,8 @@ class PayloadTestRunner:
         if self.simulate:
             self.hardware.discovered = {"simulation": True, "tms570": "SIM570", "terminals": ["SIMTERM"]}
             return
-        discovery = PortDiscovery(self.config.serial.baudrate,
+        discovery = PortDiscovery(self.config.serial.tms570_baudrate,
+                                  self.config.serial.terminal_baudrate,
                                   line_sink=self.logger.serial_sink if self.logger else None,
                                   probe_timeout_s=self.config.serial.probe_timeout_s)
         if self.config.serial.tms570_port or self.config.serial.terminal_ports:
@@ -89,12 +90,12 @@ class PayloadTestRunner:
         self.hardware.discovered = {"tms570": tms_port, "terminals": terminal_ports, "unknown": unknown}
         self._log("preflight", f"串口识别: 570={tms_port or '未找到'} terminals={terminal_ports} unknown={unknown}")
         if tms_port:
-            self.hardware.tms570 = Tms570Console(SerialEndpoint(tms_port, self.config.serial.baudrate,
+            self.hardware.tms570 = Tms570Console(SerialEndpoint(tms_port, self.config.serial.tms570_baudrate,
                                                                 self.logger.serial_sink if self.logger else None))
             baseline = self.hardware.tms570.fpga_tm()
             self._log("preflight", "570串口AT+FPGATM正常", snapshot=baseline)
         for port in terminal_ports:
-            console = TerminalConsole(SerialEndpoint(port, self.config.serial.baudrate,
+            console = TerminalConsole(SerialEndpoint(port, self.config.serial.terminal_baudrate,
                                                       self.logger.serial_sink if self.logger else None))
             self.hardware.terminals.append(console)
             try: self.hardware.dev_euis.append(console.dev_eui())
