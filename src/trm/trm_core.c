@@ -73,7 +73,7 @@ static volatile uint32_t g_sweepCaptureFreq = 0;
 
 /* 周期校准间隔（分钟），设置为0时禁用周期校准。 */
 #ifndef TRM_ACM_PERIODIC_INTERVAL_MINUTES
-#define TRM_ACM_PERIODIC_INTERVAL_MINUTES 30
+#define TRM_ACM_PERIODIC_INTERVAL_MINUTES 60
 #endif
 #define TRM_ACM_PERIODIC_CALIB_COUNT      1U
 #define TRM_ACM_PERIODIC_SNR_THRESHOLD    24U

@@ -153,6 +153,14 @@ int TK8710ReleaseRxData(uint8_t userIndex);
  */
 void TK8710RegisterCallbacks(const TK8710DriverCallbacks* callbacks);
 
+/**
+ * @brief 获取ANoise检测到的异常射频通道状态
+ * @param channelMask 异常通道位图，bit0-bit7对应RF0-RF7
+ * @param channelCount 异常通道数量
+ * @return 0-成功，其他值-参数错误
+ */
+int TK8710GetAbnormalRfChannelStatus(uint8_t* channelMask, uint8_t* channelCount);
+
 /* ============================================================================
  * 中断处理API
  * ============================================================================

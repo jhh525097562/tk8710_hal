@@ -79,6 +79,13 @@ static TK8710UserInfoBuffer g_userInfoTxBuffers[128] = {0}; /* 发送用户波�
 
 /* ANoise获取计数器 */
 static uint32_t g_aNoiseGetCount = 0;
+static uint32_t g_lastANoise[TK8710_MAX_ANTENNAS] = {0};
+static uint8_t g_aNoiseSameCount[TK8710_MAX_ANTENNAS] = {0};
+static uint8_t g_aNoiseInitialized[TK8710_MAX_ANTENNAS] = {0};
+static volatile uint8_t g_abnormalRfChannelMask = 0;
+static volatile uint8_t g_abnormalRfChannelCount = 0;
+
+#define TK8710_ANOISE_ABNORMAL_THRESHOLD 15U
 
 #define TK8710_AH_COMPONENT_MASK 0xFFFFFU
 
@@ -101,6 +108,107 @@ static void _tk8710_pack_ah40(uint8_t* data, uint32_t iData, uint32_t qData)
     data[2] = (uint8_t)(ah40 >> 16);
     data[3] = (uint8_t)(ah40 >> 8);
     data[4] = (uint8_t)ah40;
+}
+
+static void _tk8710_reset_anoise_detection(void)
+{
+    memset(g_lastANoise, 0, sizeof(g_lastANoise));
+    memset(g_aNoiseSameCount, 0, sizeof(g_aNoiseSameCount));
+    memset(g_aNoiseInitialized, 0, sizeof(g_aNoiseInitialized));
+    g_abnormalRfChannelMask = 0;
+    g_abnormalRfChannelCount = 0;
+}
+
+static int _tk8710_disable_abnormal_rf_channel(uint8_t channel, uint32_t aNoise)
+{
+    s_init_9 init9;
+    slotCfg_t* slotCfg;
+    uint8_t channelMask = (uint8_t)(1U << channel);
+    int ret;
+
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        MAC_BASE + offsetof(struct mac, init_9), &init9.data);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_IRQ_ERROR("Failed to read init_9 for abnormal RF channel[%u]: %d",
+                            channel, ret);
+        return ret;
+    }
+
+    init9.b.ant_en &= (uint8_t)~channelMask;
+    init9.b.rf_sel &= (uint8_t)~channelMask;
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                         MAC_BASE + offsetof(struct mac, init_9), init9.data);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_IRQ_ERROR("Failed to disable abnormal RF channel[%u]: %d",
+                            channel, ret);
+        return ret;
+    }
+
+    slotCfg = (slotCfg_t*)TK8710GetSlotConfig();
+    if (slotCfg != NULL) {
+        slotCfg->antEn = init9.b.ant_en;
+        slotCfg->rfSel = init9.b.rf_sel;
+    }
+
+    if ((g_abnormalRfChannelMask & channelMask) == 0) {
+        g_abnormalRfChannelMask |= channelMask;
+        g_abnormalRfChannelCount++;
+    }
+
+    TK8710_LOG_IRQ_ERROR(
+        "RF channel[%u] disabled: ANoise=%lu unchanged for %u samples, ant_en=0x%02X, rf_sel=0x%02X",
+        channel, aNoise, TK8710_ANOISE_ABNORMAL_THRESHOLD,
+        init9.b.ant_en, init9.b.rf_sel);
+    return TK8710_OK;
+}
+
+int TK8710GetAbnormalRfChannelStatus(uint8_t* channelMask, uint8_t* channelCount)
+{
+    if (channelMask == NULL || channelCount == NULL) {
+        return TK8710_ERR_PARAM;
+    }
+
+    *channelMask = g_abnormalRfChannelMask;
+    *channelCount = g_abnormalRfChannelCount;
+    return TK8710_OK;
+}
+
+static void _tk8710_check_anoise_channels(void)
+{
+    const slotCfg_t* slotCfg = TK8710GetSlotConfig();
+
+    if (slotCfg == NULL) {
+        return;
+    }
+
+    for (uint8_t channel = 0; channel < TK8710_MAX_ANTENNAS; channel++) {
+        uint8_t channelMask = (uint8_t)(1U << channel);
+        uint32_t currentANoise = g_irqResult.ANoiseInfo[channel];
+
+        if ((slotCfg->antEn & channelMask) == 0 ||
+            (slotCfg->rfSel & channelMask) == 0) {
+            g_aNoiseInitialized[channel] = 0;
+            g_aNoiseSameCount[channel] = 0;
+            continue;
+        }
+
+        if (!g_aNoiseInitialized[channel] || g_lastANoise[channel] != currentANoise) {
+            g_lastANoise[channel] = currentANoise;
+            g_aNoiseSameCount[channel] = 1;
+            g_aNoiseInitialized[channel] = 1;
+            continue;
+        }
+
+        if (g_aNoiseSameCount[channel] < TK8710_ANOISE_ABNORMAL_THRESHOLD) {
+            g_aNoiseSameCount[channel]++;
+        }
+
+        if (g_aNoiseSameCount[channel] == TK8710_ANOISE_ABNORMAL_THRESHOLD &&
+            _tk8710_disable_abnormal_rf_channel(channel, currentANoise) == TK8710_OK) {
+            g_aNoiseInitialized[channel] = 0;
+            g_aNoiseSameCount[channel] = 0;
+        }
+    }
 }
 
 static int TK8710PadTxUserData(TK8710TxBuffer* txBuffer, uint8_t userIndex, uint16_t expectedLen)
@@ -253,6 +361,7 @@ void TK8710RegisterCallbacks(const TK8710DriverCallbacks* callbacks)
     memset(&g_irqResult, 0, sizeof(TK8710IrqResult));
     g_currentRateIndex = 0;
     g_bcnRotationCount = 0;
+    _tk8710_reset_anoise_detection();
     tk8710_reset_slave_bcn_tracking();
 }
 
@@ -1101,6 +1210,8 @@ static void tk8710_md_ud_get_user_info(void)
             g_irqResult.ANoiseInfo[i] = (aNoiseData[i*4] << 24) | (aNoiseData[i*4 + 1] << 16) | 
                                      (aNoiseData[i*4 + 2] << 8) | aNoiseData[i*4 + 3];
         }
+
+        _tk8710_check_anoise_channels();
         
         /* 增加计数器 */
         g_aNoiseGetCount++;

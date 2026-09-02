@@ -2001,6 +2001,22 @@ int main(int argc, char* argv[])
     
     /* 8. 主循环 - 等待中断并进行中断处理 */
     while (g_running) {
+        uint8_t abnormal_rf_mask = 0;
+        uint8_t abnormal_rf_count = 0;
+
+        if (TK8710GetAbnormalRfChannelStatus(&abnormal_rf_mask,
+                                             &abnormal_rf_count) == TK8710_OK &&
+            abnormal_rf_count >= 3) {
+            fprintf(stderr,
+                    "FATAL: %u RF channels are abnormal (mask=0x%02X); "
+                    "stopping gateway safely.\n",
+                    abnormal_rf_count, abnormal_rf_mask);
+            g_fatal_error = 1;
+            exit_code = 1;
+            g_running = 0;
+            break;
+        }
+
         if (TRM_IsShutdownRequested()) {
             uint32_t failure_count = TRM_GetAcmConsecutiveFailureCount();
 
