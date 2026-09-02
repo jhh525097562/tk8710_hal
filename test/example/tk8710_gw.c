@@ -441,7 +441,7 @@ static uint32_t g_trmSendCount = 0;               /* TRM发送计数 */
 static uint32_t g_trmRxCount = 0;                 /* TRM接收计数 */
 
 #define DRIVER_IRQ_STALL_TIMEOUT_SEC 120
-#define CONSOLE_POLL_INTERVAL_SEC 10
+#define CONSOLE_POLL_INTERVAL_SEC 1
 #define CONFIG_APPLY_TIMEOUT_TICKS 600  /* 600 * 100 ms = 60 s */
 
 /* 核间通信上下文由 src/tk8710_ipc_comm.c 定义 */

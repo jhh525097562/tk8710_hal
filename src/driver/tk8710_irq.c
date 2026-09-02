@@ -82,8 +82,8 @@ static uint32_t g_aNoiseGetCount = 0;
 static uint32_t g_lastANoise[TK8710_MAX_ANTENNAS] = {0};
 static uint8_t g_aNoiseSameCount[TK8710_MAX_ANTENNAS] = {0};
 static uint8_t g_aNoiseInitialized[TK8710_MAX_ANTENNAS] = {0};
-static volatile uint8_t g_abnormalRfChannelMask = 0;
-static volatile uint8_t g_abnormalRfChannelCount = 0;
+static uint8_t g_abnormalRfChannelMask = 0;
+static uint8_t g_abnormalRfChannelCount = 0;
 
 #define TK8710_ANOISE_ABNORMAL_THRESHOLD 15U
 
@@ -150,10 +150,12 @@ static int _tk8710_disable_abnormal_rf_channel(uint8_t channel, uint32_t aNoise)
         slotCfg->rfSel = init9.b.rf_sel;
     }
 
-    if ((g_abnormalRfChannelMask & channelMask) == 0) {
+    TK8710EnterCritical();
+    if ((g_abnormalRfChannelMask & channelMask) == 0U) {
         g_abnormalRfChannelMask |= channelMask;
         g_abnormalRfChannelCount++;
     }
+    TK8710ExitCritical();
 
     TK8710_LOG_IRQ_ERROR(
         "RF channel[%u] disabled: ANoise=%lu unchanged for %u samples, ant_en=0x%02X, rf_sel=0x%02X",
@@ -168,8 +170,10 @@ int TK8710GetAbnormalRfChannelStatus(uint8_t* channelMask, uint8_t* channelCount
         return TK8710_ERR_PARAM;
     }
 
+    TK8710EnterCritical();
     *channelMask = g_abnormalRfChannelMask;
     *channelCount = g_abnormalRfChannelCount;
+    TK8710ExitCritical();
     return TK8710_OK;
 }
 
@@ -205,8 +209,15 @@ static void _tk8710_check_anoise_channels(void)
 
         if (g_aNoiseSameCount[channel] == TK8710_ANOISE_ABNORMAL_THRESHOLD &&
             _tk8710_disable_abnormal_rf_channel(channel, currentANoise) == TK8710_OK) {
+            uint8_t abnormalMask;
+            uint8_t abnormalCount;
+
             g_aNoiseInitialized[channel] = 0;
             g_aNoiseSameCount[channel] = 0;
+            if (TK8710GetAbnormalRfChannelStatus(&abnormalMask, &abnormalCount) == TK8710_OK &&
+                abnormalCount >= 3U) {
+                break;
+            }
         }
     }
 }
