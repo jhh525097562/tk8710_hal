@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "adc_telemetry.h"
+#include "app_faults.h"
 #include "data_transfer.h"
 #include "hal_api.h"
 #include "tk8710_tms570.h"
@@ -31,9 +33,9 @@
 #define SAT_PAYLOAD_SLOT_MODE18_BLOCK_BYTES     40U
 #define SAT_PAYLOAD_SLOT_MAX_BLOCKS             16U
 #define SAT_PAYLOAD_SLOT_MAX_SUPER_FRAMES       64U
-#define SAT_PAYLOAD_DEFAULT_SWEEP_STEP_HZ    125000U
-#define SAT_PAYLOAD_DEFAULT_SWEEP_POINTS          8U
-#define SAT_PAYLOAD_DEFAULT_SWEEP_MODE            1U
+#define SAT_PAYLOAD_SWEEP_START_FREQ_HZ    504000000U
+#define SAT_PAYLOAD_SWEEP_END_FREQ_HZ      508000000U
+#define SAT_PAYLOAD_SWEEP_RATE_MODE_BASE           5U
 #define SAT_PAYLOAD_TX_FE_ANTENNA_STRIDE       0x1000U
 #define SAT_PAYLOAD_CAPTURE_STORE_CHUNK_BYTES     1024U
 #define SAT_PAYLOAD_STORE_MAX_RETRIES                3U
@@ -647,19 +649,20 @@ static SatPayloadResult SatPayloadStartMode(SatPayloadWorkParams* params,
     TxToneConfig tone;
     int trmRet;
 
-    if ((mode == SAT_PAYLOAD_MODE_SWEEP) &&
-        (params->sweepStartFreqHz == 0U) &&
-        (params->sweepEndFreqHz == 0U)) {
-        params->sweepStartFreqHz = params->centerFreqHz;
-        params->sweepEndFreqHz = params->centerFreqHz +
-            (SAT_PAYLOAD_DEFAULT_SWEEP_STEP_HZ *
-             (SAT_PAYLOAD_DEFAULT_SWEEP_POINTS - 1U));
-        params->sweepMode = SAT_PAYLOAD_DEFAULT_SWEEP_MODE;
-        TRM_LOG_INFO("SAT APP default sweep: start=%lu end=%lu mode=%u points=%u",
+    if (mode == SAT_PAYLOAD_MODE_SWEEP) {
+        if ((params->rates[0].rateMode < 5U) ||
+            (params->rates[0].rateMode > 8U)) {
+            return SAT_PAYLOAD_ERR_PARAM;
+        }
+        params->sweepStartFreqHz = SAT_PAYLOAD_SWEEP_START_FREQ_HZ;
+        params->sweepEndFreqHz = SAT_PAYLOAD_SWEEP_END_FREQ_HZ;
+        params->sweepMode = (uint8_t)(params->rates[0].rateMode -
+                                      SAT_PAYLOAD_SWEEP_RATE_MODE_BASE);
+        TRM_LOG_INFO("SAT APP fixed sweep: start=%lu end=%lu mode=%u rate=%u",
                      (unsigned long)params->sweepStartFreqHz,
                      (unsigned long)params->sweepEndFreqHz,
                      (unsigned int)params->sweepMode,
-                     (unsigned int)SAT_PAYLOAD_DEFAULT_SWEEP_POINTS);
+                     (unsigned int)params->rates[0].rateMode);
     }
 
     g_satRfConfig.Freq = (mode == SAT_PAYLOAD_MODE_SWEEP) ?
@@ -824,6 +827,7 @@ static void SatPayloadUpdateTelemetry(void)
     TRM_AcmCalibResult acmResult;
     TK8710CaptureInfo captureInfo;
     TRM_SweepResultInfo sweepInfo;
+    AdcTelemetryValues adcValues;
     uint32_t now = TK8710GetTickMs();
 
     (void)memset(&next, 0, sizeof(next));
@@ -833,6 +837,7 @@ static void SatPayloadUpdateTelemetry(void)
     (void)memset(&acmResult, 0, sizeof(acmResult));
     (void)memset(&captureInfo, 0, sizeof(captureInfo));
     (void)memset(&sweepInfo, 0, sizeof(sweepInfo));
+    (void)memset(&adcValues, 0, sizeof(adcValues));
 
     TK8710Tms570GetStats(&portStats);
     next.sequence = g_satPayload.telemetry.sequence + 1U;
@@ -877,6 +882,17 @@ static void SatPayloadUpdateTelemetry(void)
     if (TRM_GetSweepResultInfo(&sweepInfo) == TRM_OK) {
         next.sweep = sweepInfo;
     }
+    if (AdcTelemetry_Read(&adcValues) == 0) {
+        next.adcBasebandTempC = adcValues.basebandTempC;
+        next.adcRfTempC = adcValues.rfTempC;
+        next.adcRf3v3Mv = adcValues.rf3v3Mv;
+        next.adcRf1v2Mv = adcValues.rf1v2Mv;
+    } else {
+        AppFaults_Set(APP_FAULT_ADC1);
+        AppFaults_Set(APP_FAULT_ADC2);
+        AppFaults_Set(APP_FAULT_ADC3);
+        AppFaults_Set(APP_FAULT_ADC4);
+    }
 
     if ((g_satPayload.halActive != 0U) &&
         (TK8710HalGetStatus(&trmStats) == TK8710_HAL_OK)) {
@@ -915,6 +931,7 @@ void SatPayloadApp_Init(void)
     g_satPayload.startMs = TK8710GetTickMs();
     g_satPayload.lastTelemetryMs = g_satPayload.startMs;
     g_satPayload.lastResult = SAT_PAYLOAD_OK;
+    AdcTelemetry_Init();
     SatPayloadUpdateTelemetry();
 }
 
@@ -1011,6 +1028,17 @@ void SatPayloadApp_Process(void)
             }
         }
     }
+
+    if ((now - g_satPayload.lastTelemetryMs) >=
+        SAT_PAYLOAD_TELEMETRY_PERIOD_MS) {
+        g_satPayload.lastTelemetryMs = now;
+        SatPayloadUpdateTelemetry();
+    }
+}
+
+void SatPayloadApp_ProcessTelemetry(void)
+{
+    uint32_t now = TK8710GetTickMs();
 
     if ((now - g_satPayload.lastTelemetryMs) >=
         SAT_PAYLOAD_TELEMETRY_PERIOD_MS) {

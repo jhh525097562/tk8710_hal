@@ -38,6 +38,8 @@ int main(void)
     DataTransferCaptureChunk capture;
     DataTransferSweepPoint point;
     DataTransferSweepChunk sweep;
+    DataTransferSnapshot snapshot;
+    uint8_t frame[DATA_TRANSFER_FRAME_LEN];
     static const char logText[] = "[BOOT][INFO] ready";
     static const uint8_t rawData[] = {0x11U, 0x22U, 0x33U};
 
@@ -147,6 +149,24 @@ int main(void)
     assert(ReadBe32(&records[offset + 64U]) == 0xC0000000UL);
     offset += 68U;
     assert(offset == length);
+
+    /* A continuous CMD_09 session must keep packet sequence monotonic when
+       records appended after start are loaded into the next transmit window. */
+    assert(DataTransfer_ClearPending() == 0);
+    assert(DataTransfer_AppendString(0x80U, "A", 1U) == 0);
+    assert(DataTransfer_StartTransmit() == 0);
+    assert(DataTransfer_TestBuildNextFrame(frame) == 1);
+    assert(ReadBe16(&frame[6]) == 0U);
+    assert(DataTransfer_AppendString(0x80U, "B", 1U) == 0);
+    assert(DataTransfer_TestBuildNextFrame(frame) == 1);
+    assert(ReadBe16(&frame[6]) == 1U);
+    assert(DataTransfer_TestBuildNextFrame(frame) == 0);
+    DataTransfer_GetSnapshot(&snapshot);
+    assert(snapshot.transmitActive == 1U);
+    assert(snapshot.txStartCount == 1U);
+    DataTransfer_StopTransmit();
+    DataTransfer_GetSnapshot(&snapshot);
+    assert(snapshot.transmitActive == 0U);
 
     puts("data_transfer_records_test: PASS");
     return 0;

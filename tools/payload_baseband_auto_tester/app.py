@@ -14,6 +14,10 @@ from payload_tester.runner import PayloadTestRunner
 ROOT = Path(__file__).resolve().parent
 
 
+def result_exit_code(cases) -> int:
+    return 1 if any(case.verdict.value in ("FAILED", "BLOCKED") for case in cases) else 0
+
+
 def _configure_console_output() -> None:
     # Windows GBK控制台无法编码串口乱码解码产生的U+FFFD。日志文件仍保留
     # UTF-8原文，命令行显示使用替换策略，不能让显示异常中止硬件预检。
@@ -43,7 +47,7 @@ def main() -> int:
         runner = PayloadTestRunner(config, ROOT, lambda source, text: print(f"[{source}] {text}"), args.simulate)
         result = runner.run()
         print(f"结果目录: {runner.run_dir}")
-        return 1 if any(case.verdict.value == "FAILED" for case in result.cases) else 0
+        return result_exit_code(result.cases)
     run_gui(config, ROOT)
     return 0
 

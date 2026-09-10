@@ -61,8 +61,10 @@ class TestConfig:
     ack_port: int = 2
     ack_payload: str = "1122334411223344"
     attempts: int = 3
+    case_timeout_s: float = 120.0
     acm_timeout_s: float = 180.0
     sweep_timeout_s: float = 180.0
+    sweep_point_count: int = 33
     capture_timeout_s: float = 180.0
     gateway_wait_s: float = 20.0
     preexisting_archive_limit_bytes: int = 64 * 1024
@@ -111,6 +113,8 @@ def load_config(path: str | Path | None = None) -> AppConfig:
             serial_values.setdefault("terminal_baudrate", legacy_baudrate)
         _merge_dataclass(config, raw)
     config.mqtt.password = os.getenv("PAYLOAD_TEST_MQTT_PASSWORD", config.mqtt.password)
+    if config.test.case_timeout_s <= 0:
+        raise ValueError("test.case_timeout_s必须大于0")
     return config
 
 

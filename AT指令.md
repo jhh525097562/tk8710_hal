@@ -56,11 +56,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-combined-image.ps1
 F:\ti\uniflash_9.6.0\dslite.bat --config=targetConfigs\TMS570LS3137.ccxml --flash combined\tms570_boot_app_flash.hex --verify --verbose
 
 
-powershell -ExecutionPolicy Bypass -File .\scripts\flash-tms570.ps1 `
-  -Image Combined `
-  -FpgaSelfTest `
-  -DataTransferSpi2SlaveTest
+.\scripts\flash-tms570.ps1 -Image Combined -FpgaSelfTest -DataTransferSpi2SlaveTest
 
-  powershell -ExecutionPolicy Bypass -File .\scripts\flash-tms570.ps1 `
-  -Image Combined `
-  -DataTransferSpi2SlaveTest
+.\scripts\flash-tms570.ps1 -Image Combined -DataTransferSpi2SlaveTest

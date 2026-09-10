@@ -20,6 +20,15 @@ extern "C"
 #define DATA_TRANSFER_FLASH_SECTOR_SIZE (64UL * 1024UL)
 #endif
 
+/*
+ * The SPI flash is optional at run time.  Keep enough SDRAM-backed staging
+ * space for one complete 8-antenna capture when the flash probe fails; mode 0
+ * capture uses about 256 KiB before record headers are added.
+ */
+#ifndef DATA_TRANSFER_RAM_CAPACITY
+#define DATA_TRANSFER_RAM_CAPACITY (512UL * 1024UL)
+#endif
+
 #ifndef DATA_TRANSFER_FLASH_ERASE_SIZE
 #define DATA_TRANSFER_FLASH_ERASE_SIZE (256UL * 1024UL)
 #endif
@@ -150,6 +159,7 @@ extern "C"
     int DataTransfer_AppendCaptureRawData(const DataTransferCaptureChunk *chunk);
     int DataTransfer_AppendSweepBackgroundNoise(const DataTransferSweepChunk *chunk);
     int DataTransfer_StartTransmit(void);
+    void DataTransfer_StopTransmit(void);
     void DataTransfer_SetUtcSeconds(uint32_t utcSeconds);
     uint32_t DataTransfer_GetPendingLength(void);
     uint32_t DataTransfer_ReadPending(uint32_t offset, uint8_t *data, uint32_t length);

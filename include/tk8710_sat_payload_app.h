@@ -154,6 +154,10 @@ typedef struct {
     TRM_AcmCalibResult acmResult;
     SatPayloadLastRx lastRx;
     TK8710CaptureInfo capture;
+    int16_t adcBasebandTempC;
+    int16_t adcRfTempC;
+    uint16_t adcRf3v3Mv;
+    uint16_t adcRf1v2Mv;
     TRM_SweepResultInfo sweep;
 } SatPayloadTelemetry;
 
@@ -209,6 +213,7 @@ typedef struct {
 
 void SatPayloadApp_Init(void);
 void SatPayloadApp_Process(void);
+void SatPayloadApp_ProcessTelemetry(void);
 SatPayloadResult SatPayloadApp_SetWorkParams(const SatPayloadWorkParams* params);
 SatPayloadResult SatPayloadApp_SetWorkMode(uint8_t mode);
 SatPayloadResult SatPayloadApp_Stop(void);

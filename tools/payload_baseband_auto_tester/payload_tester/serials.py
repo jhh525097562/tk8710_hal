@@ -143,37 +143,55 @@ class PortDiscovery:
         from serial.tools import list_ports
         return sorted((port.device for port in list_ports.comports()), key=natural_port_key)
 
-    def discover(self, ports: Optional[List[str]] = None, preferred_terminal: str = "COM14") -> DiscoveredPorts:
+    def discover(self, ports: Optional[List[str]] = None, preferred_terminal: str = "COM14",
+                 discover_terminals: bool = True) -> DiscoveredPorts:
         candidates = ports or self.available_ports()
         result = DiscoveredPorts()
-        tms_endpoints = {
-            p: self.endpoint_factory(p, self.tms570_baudrate, self.line_sink)
-            for p in candidates
-        }
+        tms_endpoints = {}
+        for port in candidates:
+            try:
+                tms_endpoints[port] = self.endpoint_factory(
+                    port, self.tms570_baudrate, self.line_sink)
+            except Exception:
+                result.unknown.append(port)
         try:
             # 先识别570，绝不在这个阶段发送AT+RST。
-            for port in candidates:
-                endpoint = tms_endpoints[port]
-                passive = endpoint.collect(0.4)
-                if any(marker in passive for marker in TMS570_BANNERS):
-                    result.tms570 = port; break
-                reply = endpoint.command("AT+FPGATM", self.probe_timeout_s)
-                if ("FPGA_TM rxFrames=" in reply and "FPGA_PARAM mode=" in reply and
-                        ("DT head=" in reply or "dmaRxSum=" in reply)):
-                    result.tms570 = port; break
+            for port, endpoint in tms_endpoints.items():
+                try:
+                    passive = endpoint.collect(0.4)
+                    if any(marker in passive for marker in TMS570_BANNERS):
+                        result.tms570 = port; break
+                    reply = endpoint.command("AT+FPGATM", self.probe_timeout_s)
+                    if ("FPGA_TM rxFrames=" in reply and "FPGA_PARAM mode=" in reply and
+                            ("DT head=" in reply or "dmaRxSum=" in reply)):
+                        result.tms570 = port; break
+                except Exception:
+                    if port not in result.unknown:
+                        result.unknown.append(port)
         finally:
             for endpoint in tms_endpoints.values(): endpoint.close()
 
-        terminal_candidates = [p for p in candidates if p != result.tms570]
-        terminal_endpoints = {
-            p: self.endpoint_factory(p, self.terminal_baudrate, self.line_sink)
-            for p in terminal_candidates
-        }
+        if not discover_terminals:
+            return result
+
+        terminal_candidates = [p for p in candidates
+                               if p != result.tms570 and p not in result.unknown]
+        terminal_endpoints = {}
+        for port in terminal_candidates:
+            try:
+                terminal_endpoints[port] = self.endpoint_factory(
+                    port, self.terminal_baudrate, self.line_sink)
+            except Exception:
+                result.unknown.append(port)
         try:
-            for port in terminal_candidates:
-                reply = terminal_endpoints[port].command("AT+RST", 5.0)
-                if any(marker in reply for marker in TERMINAL_BANNERS): result.terminals.append(port)
-                else: result.unknown.append(port)
+            for port, endpoint in terminal_endpoints.items():
+                try:
+                    reply = endpoint.command("AT+RST", 5.0)
+                    if any(marker in reply for marker in TERMINAL_BANNERS): result.terminals.append(port)
+                    else: result.unknown.append(port)
+                except Exception:
+                    if port not in result.unknown:
+                        result.unknown.append(port)
         finally:
             for endpoint in terminal_endpoints.values(): endpoint.close()
         if preferred_terminal in result.terminals:
@@ -188,7 +206,7 @@ class Tms570Console:
 
     def wait_rc(self, command: int, timeout: float = 5.0) -> str:
         marker = f"RC OK CMD_{command:02X}"
-        text = self.endpoint.collect(timeout)
+        text = self.endpoint.collect(timeout, any_markers=(marker,))
         if marker not in text:
             raise TimeoutError(f"570未输出{marker}")
         return text
@@ -196,8 +214,10 @@ class Tms570Console:
     def fpga_tm(self, timeout: float = 15.0, attempts: int = 3) -> Dict[str, Any]:
         last_text = ""
         for _ in range(attempts):
-            last_text = self.endpoint.command("AT+FPGATM", timeout,
-                                              ("FPGA_TM rxFrames=", "dmaRxSum=", "OK"))
+            last_text = self.endpoint.command(
+                "AT+FPGATM", timeout,
+                ("FPGA_TM rxFrames=", "dmaRxSum=", "OK"),
+                any_markers=("ERROR",))
             values = parse_fpga_tm(last_text)
             if all(key in values for key in ("rx_frames", "mode", "dt_pending")):
                 values["raw"] = last_text
@@ -207,7 +227,9 @@ class Tms570Console:
     def app_tm(self, timeout: float = 15.0, attempts: int = 3) -> Dict[str, Any]:
         last_text = ""
         for _ in range(attempts):
-            last_text = self.endpoint.command("AT+TM", timeout, ("SWEEP gen=", "OK"))
+            last_text = self.endpoint.command(
+                "AT+TM", timeout, ("SWEEP gen=", "OK"),
+                any_markers=("ERROR",))
             values = parse_app_tm(last_text)
             if all(key in values for key in ("uptime_ms", "mode", "sweep_generation")):
                 values["raw"] = last_text
@@ -216,12 +238,17 @@ class Tms570Console:
 
     def clear_data_transfer(self, timeout: float = 15.0, attempts: int = 3) -> str:
         transcripts = []
-        for _ in range(attempts):
+        for attempt in range(attempts):
             text = self.endpoint.command("AT+DTCLEAR", timeout,
                                          any_markers=("DTCLEAR OK", "ERROR"))
             transcripts.append(text)
             if "DTCLEAR OK" in text and "ERROR" not in text:
                 return "".join(transcripts)
+            if attempt + 1 < attempts:
+                # Under continuous INFO output the polled SCI receiver can lose
+                # one command byte.  An immediate ERROR is transport noise, so
+                # retry after allowing the command parser to return to SAT>.
+                time.sleep(0.2)
         raise SerialError(f"清理历史数传缓存失败: {''.join(transcripts).strip()}")
 
     def close(self) -> None:

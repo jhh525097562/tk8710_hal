@@ -372,6 +372,14 @@ void TK8710SetForceProcessAllUsers(uint8_t enable);
  */
 uint8_t TK8710GetForceProcessAllUsers(void);
 
+#if defined(TK8710_DRIVER_TEST_RX_INJECTION)
+int TK8710TestRxInjectionEnable(uint8_t userCount);
+int TK8710TestRxInjectionSetUser(uint8_t userIndex,
+                                 const uint8_t* data,
+                                 uint16_t dataLen);
+void TK8710TestRxInjectionDisable(void);
+#endif
+
 /**
  * @brief 设置是否强制按最大用户数发送（测试接口）
  * @param enable 1-强制按最大用户数发送，0-按实际输入用户数发送

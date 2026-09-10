@@ -43,6 +43,7 @@ $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $buildDir = Join-Path $projectRoot $Configuration
 $makefile = Join-Path $buildDir 'makefile'
 $directBuildMarker = Join-Path $buildDir '.direct-build-test-flags'
+$managedMakefileSupportsMergedSources = $false
 
 if ([string]::IsNullOrWhiteSpace($CcsRoot)) {
     $CcsRoot = Find-FirstPath @(
@@ -142,7 +143,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "armcl revision check failed with exit code $LASTEXITCODE."
 }
 
-if ((Test-Path -LiteralPath $makefile) -and (-not $FpgaSelfTest) -and (-not $DataTransferSpi2SlaveTest)) {
+if (Test-Path -LiteralPath $makefile) {
+    $managedMakefileText = Get-Content -LiteralPath $makefile -Raw
+    $managedMakefileSupportsMergedSources =
+        ($managedMakefileText -match 'source/adc_telemetry\.obj') -and
+        ($managedMakefileText -match 'source/app_faults\.obj') -and
+        ($managedMakefileText -match 'source/app_selftest\.obj') -and
+        ($managedMakefileText -match 'source/external_watchdog\.obj')
+}
+
+if ($managedMakefileSupportsMergedSources -and (-not $FpgaSelfTest) -and (-not $DataTransferSpi2SlaveTest)) {
     if ((-not $Clean) -and (Test-Path -LiteralPath $directBuildMarker)) {
         Write-Host 'Previous output used direct-build test flags; cleaning managed objects before the normal build.'
         & $gmake -C $buildDir clean
@@ -174,7 +184,11 @@ if ($Clean) {
     return
 }
 
-Write-Host "Generated CCS makefile not found. Using direct armcl build fallback."
+if ((Test-Path -LiteralPath $makefile) -and (-not $managedMakefileSupportsMergedSources)) {
+    Write-Host 'Generated CCS makefile is stale and omits merged source files. Using direct armcl build fallback.'
+} else {
+    Write-Host 'Generated CCS makefile not found. Using direct armcl build fallback.'
+}
 
 New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
 
@@ -220,6 +234,9 @@ $sourceFiles = @(
     'rk3506_8710/src/trm/trm_satellite.c',
     'rk3506_8710/src/trm/trm_slot.c',
     'source/adc.c',
+    'source/adc_telemetry.c',
+    'source/app_faults.c',
+    'source/app_selftest.c',
     'source/app_status.c',
     'source/can.c',
     'source/crc.c',
@@ -231,6 +248,7 @@ $sourceFiles = @(
     'source/errata_SSWF021_45.c',
     'source/esm.c',
     'source/data_transfer.c',
+    'source/external_watchdog.c',
     'source/fpga_param_store.c',
     'source/fpga_protocol.c',
     'source/gio.c',
@@ -308,6 +326,8 @@ if ($FpgaSelfTest) { $enabledTestFlags += 'FPGA_PROTOCOL_SELF_TEST' }
 if ($DataTransferSpi2SlaveTest) { $enabledTestFlags += 'DATA_TRANSFER_SPI2_SLAVE_TEST' }
 if ($enabledTestFlags.Count -gt 0) {
     Set-Content -LiteralPath $directBuildMarker -Value ($enabledTestFlags -join "`r`n")
+} elseif (Test-Path -LiteralPath $directBuildMarker) {
+    Remove-Item -LiteralPath $directBuildMarker -Force
 }
 $objects = @()
 foreach ($relativeSource in $sourceFiles) {

@@ -45,6 +45,18 @@ static uint8_t g_forceMaxUsersTx = 0;      /* 是否强制按最大用户数发�
 static uint8_t g_simulationDataLoaded = 0; /* 是否已加载仿真数据（用于测试） */
 static uint8_t g_currentRateIndex = 0;     /* 当前多速率索引 */
 
+#if defined(TK8710_DRIVER_TEST_RX_INJECTION)
+typedef struct {
+    const uint8_t* data;
+    uint16_t dataLen;
+    uint8_t valid;
+} TK8710TestRxInjection;
+
+static TK8710TestRxInjection g_testRxInjection[128];
+static uint8_t g_testRxInjectionEnabled = 0U;
+static uint8_t g_testRxInjectionUserCount = 0U;
+#endif
+
 /* 中断计数器 */
 static uint32_t g_irqCounters[10] = {0};  /* 对应10种中断类型 */
 
@@ -95,10 +107,63 @@ static TK8710UserInfoBuffer g_userInfoTxBuffers[128] = {0}; /* 发送用户波�
 
 /* ANoise获取计数器 */
 static uint32_t g_aNoiseGetCount = 0;
+#define TK8710_ANOISE_STUCK_THRESHOLD 15U
+static uint32_t g_aNoisePrevious[TK8710_MAX_ANTENNAS] = {0};
+static uint8_t g_aNoiseSameCount[TK8710_MAX_ANTENNAS] = {0};
 
 static uint8_t g_irqInfoScratch[5120] = {0};
 static uint8_t g_irqSignalScratch[5120] = {0};
 static uint8_t g_irqANoiseScratch[32] = {0};
+
+#if defined(TK8710_DRIVER_TEST_RX_INJECTION)
+static uint8_t tk8710_test_rx_injection_process(uint16_t dataLen)
+{
+    uint8_t i;
+
+    if (g_testRxInjectionEnabled == 0U) {
+        return 0U;
+    }
+    g_irqResult.maxUsers = g_testRxInjectionUserCount;
+    g_irqResult.crcValidCount = 0U;
+    g_irqResult.crcErrorCount = 0U;
+
+    for (i = 0U; i < 128U; i++) {
+        g_irqResult.crcResults[i].userIndex = i;
+        g_irqResult.crcResults[i].crcValid = 0U;
+        g_irqResult.crcResults[i].dataValid = 0U;
+        g_irqResult.crcResults[i].reserved = 0U;
+    }
+    for (i = 0U; i < g_testRxInjectionUserCount; i++) {
+        uint8_t* dataBuffer;
+        if ((g_testRxInjection[i].valid == 0U) ||
+            (g_testRxInjection[i].data == NULL) ||
+            (g_testRxInjection[i].dataLen != dataLen)) {
+            g_irqResult.crcErrorCount++;
+            continue;
+        }
+#if defined(PLATFORM_TMS570)
+        dataBuffer = (dataLen <= TK8710_TMS570_PAYLOAD_MAX) ?
+                     g_rxPayloadPool[i] : NULL;
+#else
+        dataBuffer = (uint8_t*)malloc(dataLen);
+#endif
+        if (dataBuffer == NULL) {
+            g_irqResult.crcErrorCount++;
+            continue;
+        }
+        memcpy(dataBuffer, g_testRxInjection[i].data, dataLen);
+        g_rxBuffers[i].data = dataBuffer;
+        g_rxBuffers[i].dataLen = dataLen;
+        g_rxBuffers[i].valid = 1U;
+        g_rxBuffers[i].userIndex = i;
+        g_irqResult.crcResults[i].crcValid = 1U;
+        g_irqResult.crcResults[i].dataValid = 1U;
+        g_irqResult.crcValidCount++;
+    }
+    g_irqResult.mdDataValid = 1U;
+    return 1U;
+}
+#endif
 
 static int TK8710PadTxUserData(TK8710TxBuffer* txBuffer,
                                uint8_t userIndex,
@@ -252,6 +317,88 @@ static void tk8710_reset_slave_bcn_tracking(void)
     g_slaveContiScanState = 0xFFU;
 }
 
+static void tk8710_reset_anoise_channel_detection(void)
+{
+    memset(g_aNoisePrevious, 0, sizeof(g_aNoisePrevious));
+    memset(g_aNoiseSameCount, 0, sizeof(g_aNoiseSameCount));
+    g_aNoiseGetCount = 0U;
+}
+
+static void tk8710_detect_stuck_anoise_channels(void)
+{
+    const slotCfg_t* slotCfg = TK8710GetSlotConfig();
+    uint8_t activeMask;
+    uint8_t abnormalMask = 0U;
+    uint8_t antenna;
+    s_init_9 init9;
+    int ret;
+
+    if (slotCfg == NULL) {
+        return;
+    }
+
+    activeMask = (uint8_t)(slotCfg->antEn & slotCfg->rfSel);
+    for (antenna = 0U; antenna < TK8710_MAX_ANTENNAS; antenna++) {
+        uint8_t antennaMask = (uint8_t)(1U << antenna);
+        uint32_t current = g_irqResult.ANoiseInfo[antenna];
+
+        if ((activeMask & antennaMask) == 0U) {
+            g_aNoiseSameCount[antenna] = 0U;
+            continue;
+        }
+
+        if ((g_aNoiseSameCount[antenna] == 0U) ||
+            (g_aNoisePrevious[antenna] != current)) {
+            g_aNoisePrevious[antenna] = current;
+            g_aNoiseSameCount[antenna] = 1U;
+        } else if (g_aNoiseSameCount[antenna] < TK8710_ANOISE_STUCK_THRESHOLD) {
+            g_aNoiseSameCount[antenna]++;
+        }
+
+        if (g_aNoiseSameCount[antenna] >= TK8710_ANOISE_STUCK_THRESHOLD) {
+            abnormalMask |= antennaMask;
+        }
+    }
+
+    if (abnormalMask == 0U) {
+        return;
+    }
+
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+                        MAC_BASE + offsetof(struct mac, init_9), &init9.data);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_IRQ_ERROR("ANoise channel disable failed to read init_9: mask=0x%02X ret=%d",
+                             abnormalMask, ret);
+        return;
+    }
+
+    init9.data = TK8710_S_INIT_9_ANT_EN_SET(
+        init9.data,
+        (uint8_t)(TK8710_S_INIT_9_ANT_EN_GET(init9.data) &
+                  (uint8_t)~abnormalMask));
+    init9.data = TK8710_S_INIT_9_RF_SEL_SET(
+        init9.data,
+        (uint8_t)(TK8710_S_INIT_9_RF_SEL_GET(init9.data) &
+                  (uint8_t)~abnormalMask));
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                         MAC_BASE + offsetof(struct mac, init_9), init9.data);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_IRQ_ERROR("ANoise channel disable failed to write init_9: mask=0x%02X ret=%d",
+                             abnormalMask, ret);
+        return;
+    }
+
+    ((slotCfg_t*)slotCfg)->antEn =
+        (uint8_t)(slotCfg->antEn & (uint8_t)~abnormalMask);
+    ((slotCfg_t*)slotCfg)->rfSel =
+        (uint8_t)(slotCfg->rfSel & (uint8_t)~abnormalMask);
+    TK8710_LOG_IRQ_ERROR("ANoise channel stuck for %u samples, disabled mask=0x%02X antEn=0x%02X rfSel=0x%02X",
+                         (unsigned int)TK8710_ANOISE_STUCK_THRESHOLD,
+                         abnormalMask,
+                         (unsigned int)((slotCfg_t*)slotCfg)->antEn,
+                         (unsigned int)((slotCfg_t*)slotCfg)->rfSel);
+}
+
 /* 中断处理函数表 */
 typedef void (*IrqHandler)(void);
 static const IrqHandler g_irqHandlers[] = {
@@ -376,6 +523,7 @@ void TK8710RegisterCallbacks(const TK8710DriverCallbacks* callbacks)
     g_currentRateIndex = 0;
     g_bcnRotationCount = 0;
     tk8710_reset_slave_bcn_tracking();
+    tk8710_reset_anoise_channel_detection();
 }
 
 /**
@@ -743,6 +891,7 @@ void TK8710ResetIrqCounters(void)
     g_s0LastPeriodUs = 0;
     g_s0PeriodCount = 0;
     tk8710_reset_slave_bcn_tracking();
+    tk8710_reset_anoise_channel_detection();
     /* 同时重置时间统计 */
     TK8710ResetIrqTimeStats(255);
     TK8710_LOG_IRQ_INFO("IRQ counters reset");
@@ -805,6 +954,41 @@ uint8_t TK8710GetForceProcessAllUsers(void)
 {
     return g_forceProcessAllUsers;
 }
+
+#if defined(TK8710_DRIVER_TEST_RX_INJECTION)
+int TK8710TestRxInjectionEnable(uint8_t userCount)
+{
+    if ((userCount == 0U) || (userCount > 128U)) {
+        return TK8710_ERR;
+    }
+    memset(g_testRxInjection, 0, sizeof(g_testRxInjection));
+    g_testRxInjectionUserCount = userCount;
+    g_testRxInjectionEnabled = 1U;
+    return TK8710_OK;
+}
+
+int TK8710TestRxInjectionSetUser(uint8_t userIndex,
+                                 const uint8_t* data,
+                                 uint16_t dataLen)
+{
+    if ((g_testRxInjectionEnabled == 0U) ||
+        (userIndex >= g_testRxInjectionUserCount) ||
+        (data == NULL) || (dataLen == 0U)) {
+        return TK8710_ERR;
+    }
+    g_testRxInjection[userIndex].data = data;
+    g_testRxInjection[userIndex].dataLen = dataLen;
+    g_testRxInjection[userIndex].valid = 1U;
+    return TK8710_OK;
+}
+
+void TK8710TestRxInjectionDisable(void)
+{
+    g_testRxInjectionEnabled = 0U;
+    g_testRxInjectionUserCount = 0U;
+    memset(g_testRxInjection, 0, sizeof(g_testRxInjection));
+}
+#endif
 
 /**
  * @brief 设置是否强制按最大用户数发送（测试接口）
@@ -1205,6 +1389,7 @@ static void tk8710_md_ud_get_user_info(void)
         
         /* 增加计数器 */
         g_aNoiseGetCount++;
+        tk8710_detect_stuck_anoise_channels();
         
         /* 每10次打印一次ANoise值 */
         if (g_aNoiseGetCount % 10 == 0) {
@@ -1221,6 +1406,7 @@ static void tk8710_md_ud_get_user_info(void)
         TK8710_LOG_IRQ_ERROR("Failed to get ANoise info: %d", ret);
         /* 获取失败时清零ANoise数据 */
         memset(g_irqResult.ANoiseInfo, 0, sizeof(g_irqResult.ANoiseInfo));
+        memset(g_aNoiseSameCount, 0, sizeof(g_aNoiseSameCount));
     }
 
 //    /* 标记数据有效 */
@@ -1310,6 +1496,12 @@ static void tk8710_md_data_process(void)
         dataLen = slotCfg->s3Cfg[g_irqResult.currentRateIndex].byteLen;
         TK8710_LOG_IRQ_DEBUG("Slave mode: using S3 config, dataLen=%d", dataLen);
     }
+
+#if defined(TK8710_DRIVER_TEST_RX_INJECTION)
+    if (tk8710_test_rx_injection_process(dataLen) != 0U) {
+        return;
+    }
+#endif
     
     g_irqResult.maxUsers = maxUsers;
     TK8710_LOG_IRQ_DEBUG("MD DATA processing for %d users, payload len=%d", maxUsers, dataLen);

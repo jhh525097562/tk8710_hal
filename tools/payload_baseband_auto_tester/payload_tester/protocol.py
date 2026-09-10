@@ -25,6 +25,10 @@ def build_remote_control(command: int, value: Any = None) -> bytes:
     frame[0:3] = bytes((0x76, 0x25, command))
     if command in (0x01, 0x02, 0x03, 0x04, 0x06):
         frame[3] = int(value) & 0xFF
+    elif command == 0x09:
+        if value is None or int(value) not in (0, 1):
+            raise ValueError("CMD_09 data transfer switch must be 0 or 1")
+        frame[3] = int(value)
     elif command in (0x05, 0x0D):
         frame[3:7] = int(value).to_bytes(4, "big")
     elif command == 0x0A:
@@ -200,9 +204,12 @@ class RecordDecoder:
         return records
 
 
-def validate_capture(records: Iterable[DataRecord]) -> Dict[str, Any]:
+def validate_capture(records: Iterable[DataRecord],
+                     minimum_generation: int = 0) -> Dict[str, Any]:
     chunks = [r.decoded for r in records if r.type == 0x03]
-    generations = sorted({c.get("generation") for c in chunks})
+    generations = sorted({int(c["generation"]) for c in chunks
+                          if c.get("generation") is not None and
+                          int(c["generation"]) >= minimum_generation})
     for generation in generations:
         group = [c for c in chunks if c.get("generation") == generation]
         antennas = sorted({c["antenna"] for c in group})
@@ -219,13 +226,18 @@ def validate_capture(records: Iterable[DataRecord]) -> Dict[str, Any]:
         if valid:
             return {"valid": True, "generation": generation, "antennas": 8,
                     "bytes_per_antenna": group[0]["bytes_per_antenna"]}
-    return {"valid": False, "reason": "没有重组出8天线完整采数generation"}
+    return {"valid": False,
+            "reason": f"没有重组出generation>={minimum_generation}的8天线完整采数"}
 
 
-def validate_sweep(records: Iterable[DataRecord], required_generations: int = 2) -> Dict[str, Any]:
+def validate_sweep(records: Iterable[DataRecord], required_generations: int = 2,
+                   minimum_generation: int = 0) -> Dict[str, Any]:
     chunks = [r.decoded for r in records if r.type == 0x04]
     complete = []
-    for generation in sorted({c.get("generation") for c in chunks}):
+    generations = sorted({int(c["generation"]) for c in chunks
+                          if c.get("generation") is not None and
+                          int(c["generation"]) >= minimum_generation})
+    for generation in generations:
         group = sorted((c for c in chunks if c.get("generation") == generation),
                        key=lambda c: c["start_index"])
         points: List[Dict[str, Any]] = []
@@ -237,13 +249,21 @@ def validate_sweep(records: Iterable[DataRecord], required_generations: int = 2)
             points.extend(chunk["points"])
             expected_index += chunk["point_count"]
         if not group or expected_index != group[0]["total_points"]: valid = False
-        expected_freqs = [477800000 + 125000 * i for i in range(8)]
+        total_points = group[0]["total_points"] if group else 0
+        start_frequency = group[0]["start_frequency_hz"] if group else 0
+        end_frequency = group[0]["end_frequency_hz"] if group else 0
+        step_frequency = group[0]["step_frequency_hz"] if group else 0
+        expected_freqs = [start_frequency + step_frequency * i
+                          for i in range(total_points)]
+        if expected_freqs and expected_freqs[-1] != end_frequency:
+            valid = False
         if valid and [p["frequency_hz"] for p in points] == expected_freqs and all(
                 len(p["noise_dbm_hz"]) == 8 and all(math.isfinite(x) for x in p["noise_dbm_hz"])
                 for p in points):
             complete.append(generation)
     return {"valid": len(complete) >= required_generations, "generations": complete,
-            "required_generations": required_generations}
+            "required_generations": required_generations,
+            "minimum_generation": minimum_generation}
 
 
 _FIELD_PATTERNS = {

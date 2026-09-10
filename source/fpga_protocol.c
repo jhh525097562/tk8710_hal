@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "app_faults.h"
+#include "app_selftest.h"
 #include "data_transfer.h"
 #include "fpga_param_store.h"
 #include "tk8710_sat_payload_app.h"
@@ -22,7 +24,6 @@
 #define FPGA_PARAM_STORE_RESULT_FAIL (-10)
 #define FPGA_BOOT_FLAG_STORE_RESULT_FAIL (-11)
 #define FPGA_BOOT_FLAG_FIRMWARE_UPGRADE 1U
-#define FPGA_BOOT_FLAG_ROLLBACK 2U
 #define FPGA_BOOT_FLAG_CLEAR 0U
 #define FPGA_WORK_MODE_MAX 6U
 #define FPGA_PROTOCOL_RATE_MAX 2U
@@ -102,6 +103,7 @@ static uint8_t g_hostLastMode;
 static SatPayloadTelemetry g_hostTelemetry;
 static uint8_t g_hostAppliedRateMode;
 static uint32_t g_hostDcApplyCount;
+static uint32_t g_hostResetRequestCount;
 static uint8_t g_hostDcAntenna[8U];
 static int16_t g_hostDcI[8U];
 static int16_t g_hostDcQ[8U];
@@ -110,6 +112,8 @@ static uint32_t g_hostRcLogCount;
 #else
 extern volatile uint32 g_tk8710ResetCause;
 #endif
+
+static int FpgaClearBootFlagWithReadback(void);
 
 #if defined(FPGA_PROTOCOL_HOST_TEST)
 void FpgaProtocol_Log(const char *text)
@@ -267,6 +271,36 @@ static int FpgaCommandLogsBeforeReset(uint8_t command)
             (command == FPGA_CMD_ROLLBACK)) ? 1 : 0;
 }
 
+static void FpgaSetFaultForCommand(uint8_t command)
+{
+    switch ((FpgaCommand)command)
+    {
+    case FPGA_CMD_WORK_MODE:
+        AppFaults_Set(APP_FAULT_TK8710_WORK_MODE);
+        break;
+    case FPGA_CMD_RATE:
+    case FPGA_CMD_FREQ:
+    case FPGA_CMD_RF_CHANNEL:
+        AppFaults_Set(APP_FAULT_TK8710_PARAMS);
+        break;
+    case FPGA_CMD_SLOT:
+        AppFaults_Set(APP_FAULT_TK8710_SLOT);
+        break;
+    case FPGA_CMD_TX_POWER:
+        AppFaults_Set(APP_FAULT_TK8710_TX_POWER);
+        break;
+    case FPGA_CMD_DC_PARAMS:
+        AppFaults_Set(APP_FAULT_TK8710_DC);
+        break;
+    case FPGA_CMD_WRITE_REG:
+    case FPGA_CMD_READ_REG:
+        AppFaults_Set(APP_FAULT_TK8710_COMM);
+        break;
+    default:
+        break;
+    }
+}
+
 static uint8_t FpgaMapProtocolRateToTkRate(uint8_t rate)
 {
     return (uint8_t)(rate + FPGA_TK_RATE_BASE);
@@ -375,7 +409,9 @@ static void FpgaLogRcOk(const uint8_t *frame, uint8_t immediate)
         (void)snprintf(logText, sizeof(logText), "RC OK CMD_08 firmwareUpgrade request\r\n");
         break;
     case FPGA_CMD_DATA_TRANSFER:
-        (void)snprintf(logText, sizeof(logText), "RC OK CMD_09 dataTransfer start\r\n");
+        (void)snprintf(logText, sizeof(logText),
+                       "RC OK CMD_09 dataTransfer=%s\r\n",
+                       (frame[3] == 0U) ? "off" : "on");
         break;
     case FPGA_CMD_WRITE_REG:
         (void)snprintf(logText, sizeof(logText),
@@ -432,6 +468,10 @@ static void FpgaLogRcDispatchResult(const uint8_t *frame, int result)
     else if (FpgaIsKnownCommand(frame[2]) == 0)
     {
         FpgaLogRcUnsupported(frame);
+    }
+    else if (FpgaCommandLogsBeforeReset(frame[2]) != 0)
+    {
+        return;
     }
     else
     {
@@ -515,7 +555,9 @@ void FpgaProtocol_FormatUtcTime(uint32_t seconds, char *text, uint32_t textSize)
 
 static void FpgaTriggerTms570Reset(void)
 {
-#if !defined(FPGA_PROTOCOL_HOST_TEST)
+#if defined(FPGA_PROTOCOL_HOST_TEST)
+    g_hostResetRequestCount++;
+#else
     systemREG1->SYSECR = (uint32_t)(0x10U << 14U);
     for (;;)
     {
@@ -544,7 +586,7 @@ static void FpgaBuildDcCommandFrame(uint8_t *frame, uint8_t antenna,
     frame[0] = FPGA_RC_SYNC0;
     frame[1] = FPGA_RC_SYNC1;
     frame[2] = FPGA_CMD_DC_PARAMS;
-    frame[3] = antenna;
+    frame[3] = (uint8_t)(antenna + 1U);
     FpgaWriteBe16(&frame[4], (uint16_t)iDc);
     FpgaWriteBe16(&frame[6], (uint16_t)qDc);
     frame[9] = FpgaChecksum(frame, 2U, 8U);
@@ -601,16 +643,12 @@ static void FpgaClearCompletedBootFlag(void)
     {
         return;
     }
-    if ((flag != FPGA_BOOT_FLAG_FIRMWARE_UPGRADE) &&
-        (flag != FPGA_BOOT_FLAG_ROLLBACK))
+    if (flag != FPGA_BOOT_FLAG_FIRMWARE_UPGRADE)
     {
         return;
     }
 
-    if (FpgaParamStore_SaveBootFlag(FPGA_BOOT_FLAG_CLEAR) != 0)
-    {
-        g_fpga.lastResult = FPGA_BOOT_FLAG_STORE_RESULT_FAIL;
-    }
+    (void)FpgaClearBootFlagWithReadback();
 }
 
 static void FpgaInitDefaultParams(SatPayloadWorkParams *params)
@@ -711,18 +749,56 @@ static int FpgaSaveDcParams(uint8_t antenna, int16_t iDc, int16_t qDc)
     return FpgaSaveCurrentParams();
 }
 
-static int FpgaSaveBootFlagAndReset(uint8_t flag, const uint8_t *frame)
+static int FpgaClearBootFlagWithReadback(void)
 {
+    uint8_t readback = 0xFFU;
+
+    if ((FpgaParamStore_SaveBootFlag(FPGA_BOOT_FLAG_CLEAR) != 0) ||
+        (FpgaParamStore_LoadBootFlag(&readback) != 0) ||
+        (readback != FPGA_BOOT_FLAG_CLEAR))
+    {
+        g_fpga.lastResult = FPGA_BOOT_FLAG_STORE_RESULT_FAIL;
+        AppFaults_Set(APP_FAULT_BOOT_FLAG_VERIFY);
+        return -1;
+    }
+    return 0;
+}
+
+static int FpgaWriteBootFlagWithReadback(uint8_t flag, const char *label,
+                                         uint8_t requestReset)
+{
+    uint8_t readback = 0xFFU;
+    char logText[FPGA_RC_LOG_TEXT_LEN];
+
     if (FpgaParamStore_SaveBootFlag(flag) != 0)
     {
         g_fpga.lastResult = FPGA_BOOT_FLAG_STORE_RESULT_FAIL;
+        AppFaults_Set(APP_FAULT_BOOT_FLAG_VERIFY);
+        (void)snprintf(logText, sizeof(logText),
+                       "RC ERR %s flagWrite=%u saveFail\r\n", label, flag);
+        FpgaProtocol_Log(logText);
         return -1;
     }
-    if (frame != NULL)
+    if ((FpgaParamStore_LoadBootFlag(&readback) != 0) || (readback != flag))
     {
-        FpgaLogRcOk(frame, 1U);
+        g_fpga.lastResult = FPGA_BOOT_FLAG_STORE_RESULT_FAIL;
+        AppFaults_Set(APP_FAULT_BOOT_FLAG_VERIFY);
+        (void)snprintf(logText, sizeof(logText),
+                       "RC ERR %s flagWrite=%u flagRead=%u\r\n",
+                       label, flag, readback);
+        FpgaProtocol_Log(logText);
+        return -1;
     }
-    FpgaTriggerTms570Reset();
+
+    (void)snprintf(logText, sizeof(logText),
+                   "RC OK %s flagWrite=%u flagRead=%u %s\r\n",
+                   label, flag, readback,
+                   (requestReset != 0U) ? "reset" : "noReset");
+    FpgaProtocol_Log(logText);
+    if (requestReset != 0U)
+    {
+        FpgaTriggerTms570Reset();
+    }
     return 0;
 }
 
@@ -762,6 +838,10 @@ static SatPayloadResult FpgaApplyPendingParams(void)
     FpgaMakeTkWorkParams(&g_fpga.pendingParams, &tkParams);
     result = SatPayloadApp_SetWorkParams(&tkParams);
     g_fpga.lastResult = result;
+    if (result < SAT_PAYLOAD_OK)
+    {
+        AppFaults_Set(APP_FAULT_TK8710_PARAMS);
+    }
     return result;
 }
 
@@ -773,20 +853,19 @@ static SatPayloadResult FpgaHandleTelecommand(SatPayloadTelecommand *request,
     request->requestId = g_fpga.rxFrameCount;
     result = SatPayloadApp_HandleTelecommand(request, response);
     g_fpga.lastResult = result;
+    if (result < SAT_PAYLOAD_OK)
+    {
+        FpgaSetFaultForCommand(g_fpga.lastCommandId);
+    }
     return result;
 }
 
-static int FpgaHandleWriteRegisterCommand(const uint8_t *frame)
+static int FpgaHandleReservedWriteRegisterCommand(const uint8_t *frame)
 {
-    SatPayloadTelecommand request;
-    SatPayloadTelecommandResponse response;
-
-    (void)memset(&request, 0, sizeof(request));
-    (void)memset(&response, 0, sizeof(response));
-    request.commandId = SAT_PAYLOAD_TC_WRITE_REG;
-    request.payload.reg.address = FpgaReadBe16(&frame[3]);
-    request.payload.reg.value = FpgaReadBe32(&frame[5]);
-    return (FpgaHandleTelecommand(&request, &response) >= SAT_PAYLOAD_OK) ? 0 : -1;
+    (void)frame;
+    g_fpga.unsupportedCount++;
+    g_fpga.lastResult = SAT_PAYLOAD_ERR_UNSUPPORTED;
+    return -1;
 }
 
 static int FpgaHandleReadRegisterCommand(const uint8_t *frame)
@@ -816,16 +895,45 @@ static int FpgaHandleUtcTimeCommand(const uint8_t *frame)
     return 0;
 }
 
+static int FpgaHandleDataTransferCommand(const uint8_t *frame)
+{
+    if (frame[3] > 1U)
+    {
+        g_fpga.lastResult = SAT_PAYLOAD_ERR_PARAM;
+        FpgaLogRcRangeError(frame, "dataTransferSwitch", frame[3], 0U, 1U);
+        return FPGA_DISPATCH_RANGE_ERROR;
+    }
+    if (frame[3] == 0U)
+    {
+        DataTransfer_StopTransmit();
+        g_fpga.lastResult = SAT_PAYLOAD_OK;
+        return 0;
+    }
+
+    g_fpga.lastResult = (DataTransfer_StartTransmit() == 0)
+                            ? SAT_PAYLOAD_OK
+                            : SAT_PAYLOAD_ERR_DRIVER;
+    return (g_fpga.lastResult >= SAT_PAYLOAD_OK) ? 0 : -1;
+}
+
 static int FpgaHandleDcParamsCommand(const uint8_t *frame)
 {
     SatPayloadTelecommand request;
     SatPayloadTelecommandResponse response;
-    uint8_t antenna = frame[3];
+    uint8_t protocolAntenna = frame[3];
+    uint8_t antenna;
     int16_t iDc = (int16_t)FpgaReadBe16(&frame[4]);
     int16_t qDc = (int16_t)FpgaReadBe16(&frame[6]);
 
     (void)memset(&request, 0, sizeof(request));
     (void)memset(&response, 0, sizeof(response));
+    if ((protocolAntenna == 0U) || (protocolAntenna > 8U))
+    {
+        g_fpga.lastResult = SAT_PAYLOAD_ERR_PARAM;
+        FpgaLogRcRangeError(frame, "antenna", protocolAntenna, 1U, 8U);
+        return FPGA_DISPATCH_RANGE_ERROR;
+    }
+    antenna = (uint8_t)(protocolAntenna - 1U);
     request.commandId = SAT_PAYLOAD_TC_SET_RF_TX_DC;
     request.payload.rfTxDc.antenna = antenna;
     request.payload.rfTxDc.iDc = iDc;
@@ -937,20 +1045,21 @@ static int FpgaDispatchCommand(const uint8_t *frame)
         return 0;
 
     case FPGA_CMD_FIRMWARE_UPGRADE:
-        return FpgaSaveBootFlagAndReset(FPGA_BOOT_FLAG_FIRMWARE_UPGRADE, frame);
+        return FpgaWriteBootFlagWithReadback(FPGA_BOOT_FLAG_FIRMWARE_UPGRADE,
+                                             "CMD_08 firmwareUpgrade", 1U);
 
     case FPGA_CMD_DATA_TRANSFER:
-        g_fpga.lastResult = (DataTransfer_StartTransmit() == 0) ? SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_DRIVER;
-        return (g_fpga.lastResult >= SAT_PAYLOAD_OK) ? 0 : -1;
+        return FpgaHandleDataTransferCommand(frame);
 
     case FPGA_CMD_WRITE_REG:
-        return FpgaHandleWriteRegisterCommand(frame);
+        return FpgaHandleReservedWriteRegisterCommand(frame);
 
     case FPGA_CMD_READ_REG:
         return FpgaHandleReadRegisterCommand(frame);
 
     case FPGA_CMD_ROLLBACK:
-        return FpgaSaveBootFlagAndReset(FPGA_BOOT_FLAG_ROLLBACK, frame);
+        FpgaLogRcOk(frame, 1U);
+        return 0;
 
     case FPGA_CMD_DC_PARAMS:
         return FpgaHandleDcParamsCommand(frame);
@@ -977,6 +1086,7 @@ static int FpgaDispatchCommand(const uint8_t *frame)
         g_fpga.lastResult = result;
         if (result < SAT_PAYLOAD_OK)
         {
+            AppFaults_Set(APP_FAULT_TK8710_WORK_MODE);
             return -1;
         }
         g_fpga.activeMode = frame[3];
@@ -1032,17 +1142,17 @@ static int FpgaDispatchCommand(const uint8_t *frame)
         return 0;
 
     case FPGA_CMD_WRITE_REG:
-        return FpgaHandleWriteRegisterCommand(frame);
+        return FpgaHandleReservedWriteRegisterCommand(frame);
 
     case FPGA_CMD_READ_REG:
         return FpgaHandleReadRegisterCommand(frame);
 
     case FPGA_CMD_FIRMWARE_UPGRADE:
-        return FpgaSaveBootFlagAndReset(FPGA_BOOT_FLAG_FIRMWARE_UPGRADE, frame);
+        return FpgaWriteBootFlagWithReadback(FPGA_BOOT_FLAG_FIRMWARE_UPGRADE,
+                                             "CMD_08 firmwareUpgrade", 1U);
 
     case FPGA_CMD_DATA_TRANSFER:
-        g_fpga.lastResult = (DataTransfer_StartTransmit() == 0) ? SAT_PAYLOAD_OK : SAT_PAYLOAD_ERR_DRIVER;
-        return (g_fpga.lastResult >= SAT_PAYLOAD_OK) ? 0 : -1;
+        return FpgaHandleDataTransferCommand(frame);
 
     case FPGA_CMD_DC_PARAMS:
         return FpgaHandleDcParamsCommand(frame);
@@ -1051,7 +1161,8 @@ static int FpgaDispatchCommand(const uint8_t *frame)
         return FpgaHandleUtcTimeCommand(frame);
 
     case FPGA_CMD_ROLLBACK:
-        return FpgaSaveBootFlagAndReset(FPGA_BOOT_FLAG_ROLLBACK, frame);
+        FpgaLogRcOk(frame, 1U);
+        return 0;
 
     default:
         g_fpga.unsupportedCount++;
@@ -1148,6 +1259,15 @@ static void FpgaBuildTelemetry(uint8_t *frame)
         FpgaWriteBe16(&frame[2U + (antenna * 2U)],
                       (uint16_t)FpgaNoiseToTelemetry(telemetry.capture.noiseDbmHz[antenna]));
     }
+    {
+        uint32_t sweepIndex = telemetry.sweep.completedPoints;
+        if (sweepIndex > 0U)
+        {
+            sweepIndex--;
+        }
+        FpgaWriteBe16(&frame[18],
+                      (uint16_t)((sweepIndex > 31U) ? 31U : sweepIndex));
+    }
     frame[20] = telemetry.activeMode;
     frame[21] = FpgaMapTkRateToProtocolRate(telemetry.activeParams.rates[0].rateMode);
     frame[22] = g_fpga.slotConfig;
@@ -1175,6 +1295,11 @@ static void FpgaBuildTelemetry(uint8_t *frame)
     frame[46] = (uint8_t)heapPercent;
     frame[47] = 0U;
     frame[48] = 0U;
+    FpgaWriteBe32(&frame[49], AppFaults_GetBitmap());
+    frame[53] = (uint8_t)telemetry.lastRx.rssi;
+    frame[54] = telemetry.lastRx.snr;
+    FpgaWriteBe16(&frame[55], (uint16_t)telemetry.lastRx.freqOffset);
+    frame[57] = (uint8_t)telemetry.lastRx.frameNo;
 
     FpgaWriteBe16(&frame[61], (uint16_t)telemetry.gpioIrqCount);
     FpgaWriteBe16(&frame[63], g_fpga.lastRegDevice);
@@ -1188,6 +1313,11 @@ static void FpgaBuildTelemetry(uint8_t *frame)
         FpgaWriteBe32(&frame[75U + (antenna * 8U)],
                       telemetry.acmResult.qFactor[antenna]);
     }
+
+    FpgaWriteBe16(&frame[135], (uint16_t)telemetry.adcBasebandTempC);
+    FpgaWriteBe16(&frame[137], (uint16_t)telemetry.adcRfTempC);
+    FpgaWriteBe16(&frame[139], telemetry.adcRf3v3Mv);
+    FpgaWriteBe16(&frame[141], telemetry.adcRf1v2Mv);
 
     frame[143] = FpgaChecksum(frame, 2U, 142U);
 }
@@ -1363,8 +1493,14 @@ void FpgaProtocol_Init(void)
     uint8_t loadedStoredParams = 0U;
 
     (void)memset(&g_fpga, 0, sizeof(g_fpga));
+    if (FpgaParamStore_ParamsAreCorrupt() != 0)
+    {
+        AppFaults_Set(APP_FAULT_PARAM_CHECKSUM);
+    }
+    (void)AppSelfTest_Run();
     g_fpga.slotConfig = DEFAULT_SLOT_CONFIG;
     g_fpga.txPower = DEFAULT_TX_POWER;
+    FpgaClearCompletedBootFlag();
     if (FpgaParamStore_Load(&stored) == 0)
     {
         FpgaApplyStoredParamsToContext(&stored);
@@ -1377,7 +1513,6 @@ void FpgaProtocol_Init(void)
         g_fpga.pendingParamsValid = 1U;
     }
     g_fpga.lastResult = SAT_PAYLOAD_OK;
-    FpgaClearCompletedBootFlag();
     g_fpga.resetType = FpgaClassifyResetType((uint32_t)g_tk8710ResetCause);
     FpgaLoadAndIncrementResetCount();
     (void)loadedStoredParams;
@@ -1519,6 +1654,16 @@ void SatPayloadApp_GetTelemetry(SatPayloadTelemetry *telemetry)
     g_hostTelemetry.capture.noiseDbmHz[5] = -2.3F;
     g_hostTelemetry.capture.noiseDbmHz[6] = -3.4F;
     g_hostTelemetry.capture.noiseDbmHz[7] = -4.5F;
+    g_hostTelemetry.sweep.completedPoints = 0x12U;
+    g_hostTelemetry.lastRx.rssi = -42;
+    g_hostTelemetry.lastRx.snr = 0x25U;
+    g_hostTelemetry.lastRx.freqOffset = 0x12343456L;
+    g_hostTelemetry.lastRx.generation = 0x01020304UL;
+    g_hostTelemetry.lastRx.frameNo = 0xA5U;
+    g_hostTelemetry.adcBasebandTempC = 25;
+    g_hostTelemetry.adcRfTempC = 30;
+    g_hostTelemetry.adcRf3v3Mv = 3300U;
+    g_hostTelemetry.adcRf1v2Mv = 1200U;
     for (i = 0U; i < 8U; i++)
     {
         g_hostTelemetry.acmResult.iFactor[i] = 0x01020304UL + i;
@@ -1603,12 +1748,20 @@ void FpgaProtocol_TestReset(void)
     (void)memset(&g_fpga, 0, sizeof(g_fpga));
     (void)memset(&g_hostTelemetry, 0, sizeof(g_hostTelemetry));
     g_hostAppliedRateMode = 0U;
+    g_hostResetRequestCount = 0U;
     (void)memset(g_hostLastRcLog, 0, sizeof(g_hostLastRcLog));
     g_hostRcLogCount = 0U;
     g_hostDcApplyCount = 0U;
     (void)memset(g_hostDcAntenna, 0, sizeof(g_hostDcAntenna));
     (void)memset(g_hostDcI, 0, sizeof(g_hostDcI));
     (void)memset(g_hostDcQ, 0, sizeof(g_hostDcQ));
+    AppFaults_Init();
+    AppSelfTest_TestInjectPeripheralFault(0U);
+    AppSelfTest_TestInjectEccFault(0U);
+    AppSelfTest_TestInjectAdcFault(0U, 0U);
+    AppSelfTest_TestInjectAdcFault(1U, 0U);
+    AppSelfTest_TestInjectAdcFault(2U, 0U);
+    AppSelfTest_TestInjectAdcFault(3U, 0U);
     FpgaParamStore_TestErase();
     FpgaInitDefaultParams(&g_fpga.pendingParams);
     g_fpga.pendingParamsValid = 1U;
@@ -1641,6 +1794,11 @@ const char *FpgaProtocol_TestGetLastLog(void)
 uint32_t FpgaProtocol_TestGetLogCount(void)
 {
     return g_hostRcLogCount;
+}
+
+uint32_t FpgaProtocol_TestGetResetRequestCount(void)
+{
+    return g_hostResetRequestCount;
 }
 
 void FpgaProtocol_TestClearLastLog(void)

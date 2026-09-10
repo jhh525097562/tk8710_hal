@@ -14,6 +14,8 @@
 
 JTool只能作为SPI master。使用PC接收SPI2数传时，TMS570固件必须启用`DATA_TRANSFER_SPI2_SLAVE_TEST`。正式的“TMS570 SPI2 master”路径不能由当前JTool DLL模拟slave或被动抓取。
 
+新版固件将遥控`CMD_09`定义为数传开关：Byte3=`1`持续开启数传，Byte3=`0`停止数传。工具会在每次SPI2采集前发送`CMD_09=1`，在空闲超时或采集异常后通过`finally`路径发送`CMD_09=0`，再用`AT+FPGATM`复核`active=0`。
+
 建议使用以下命令构建并烧录测试固件：
 
 ```powershell
@@ -69,16 +71,18 @@ GUI允许覆盖自动结果。配置中填写`tms570_port`或`terminal_ports`后
 ## 自动判据
 
 - RF-01/02/04/05要求570串口存在；缺失时为`BLOCKED`。
+- RF-02按当前固件固定504～508 MHz、125 kHz步进、33点一轮执行，默认等待两轮结果并校验SPI2导出的完整频点记录。
 - RF-03会进入模式4并检查软件状态，但没有频谱仪时固定为`SKIP`。
-- RF-06的C模式由RF-07～09覆盖；A/B不在本轮范围，因此为`SKIP`。
+- RF-06依次进入模式A/B/C，并要求每次均有板端状态和连续两帧SPI1遥测确认。
 - RF-10～13少于16个已注册终端时为`SKIP`。
-- RF-13要求同一轮RF-12先通过；每10分钟同步发送，每个终端每小时至少成功一次，并每5分钟检查遥测健康状态。
+- RF-13要求同一轮RF-12先通过；发送和健康检查间隔分别由`rf13_send_interval_s`、`rf13_health_interval_s`控制。
+- 每个用例由`case_timeout_s`限制总执行时间，当前为120秒。RF-13在该配置下只形成短时稳定性证据，报告会明确标注“不替代24小时稳定性测试”。
 - RF-07～12每个终端最多尝试3次；`+TXSTATUS:7`和相同DevEUI/端口/payload的MQTT上行同时出现才算成功。
 - RF-07～13先完成570频率、速率和模式配置，并用连续两帧SPI1遥测确认生效；之后才通过MQTT重建地面站网关。
 - 网关时隙结构固定为第二种`BCN+UP+DOWN`（MQTT API字段`slot_cfg_num=2`），重建后必须查询回读一致。
-- SPI2的0x02首用户记录按终端ID、速率和接收测量频率判定；测量频率相对477.8 MHz中心频率允许默认±125 kHz偏差。
+- SPI2的0x02首用户记录按终端ID、速率和接收测量频率判定；载荷配置中心频率仍须严格等于477.8 MHz，8710接收测量频率按当前速率2实板结果允许默认±250 kHz偏差（可通过`user_frequency_tolerance_hz`收紧）。
 
-模式0、4、5、6结束后会自动切回模式3。正式用例开始前若发现历史待传数据，工具会先隔离旧记录，避免旧generation混入本轮结果：不超过`preexisting_archive_limit_bytes`（默认64 KiB）时下传并保存为`preexisting`证据；超过上限时发送`AT+DTCLEAR`并复核`pending=0、active=0`后再测试。
+模式0、4、5、6结束后会自动切回模式3。正式用例开始前若发现历史待传数据，工具会先隔离旧记录，避免旧generation混入本轮结果：不超过`preexisting_archive_limit_bytes`（默认64 KiB）时下传并保存为`preexisting`证据；超过上限时发送`AT+DTCLEAR`并复核`active=0`后再测试。RF-01结束以及RF-02、RF-05、RF-07～RF-09开始前还会再次清空并复核数传队列；清理后的实时用户记录允许让`pending`重新增长，但`active`必须为0。扫频和采数记录必须属于各自用例开始后的generation，旧记录不能用于通过判定。
 
 ## 输出
 

@@ -2,16 +2,16 @@
   "spi": {
     "spi1_sn": "9a85a46b0453",
     "spi2_sn": "9a85B9a50453",
-    "bridge_exe": "bridge/jtool_spi_bridge.exe",
+    "bridge_exe": "bridge_newdll_test/jtool_spi_bridge_x86.exe",
     "spi2_max_frames": 4096,
     "spi2_idle_timeout_ms": 2000
   },
   "serial": {
     "tms570_baudrate": 1000000,
     "terminal_baudrate": 115200,
-    "preferred_terminal": "COM14",
-    "tms570_port": "",
-    "terminal_ports": [],
+    "preferred_terminal": "COM3",
+    "tms570_port": "COM22",
+    "terminal_ports": ["COM3"],
     "probe_timeout_s": 15.0,
     "join_timeout_s": 60.0
   },
@@ -33,7 +33,7 @@
     "slot_cfg_num": 2,
     "uplink_len": 30,
     "downlink_len": 30,
-    "description": "载荷软件3.6自动测试网关"
+    "description": "载荷软件3.9 RF-01至RF-09自动测试"
   },
   "test": {
     "frequency_hz": 477800000,
@@ -44,17 +44,20 @@
     "ack_port": 2,
     "ack_payload": "1122334411223344",
     "attempts": 3,
-    "case_timeout_s": 120,
+    "case_timeout_s": 900,
     "acm_timeout_s": 90,
     "sweep_timeout_s": 450,
     "sweep_point_count": 33,
     "capture_timeout_s": 60,
     "gateway_wait_s": 20,
-    "preexisting_archive_limit_bytes": 65536,
-    "rf13_duration_s": 120,
+    "preexisting_archive_limit_bytes": 0,
+    "rf13_duration_s": 600,
     "rf13_send_interval_s": 60,
     "rf13_health_interval_s": 30,
     "report_template": "../../docs/载荷基带软件测试报告_v0.1.md",
-    "selected_cases": ["RF-01", "RF-02", "RF-03", "RF-04", "RF-05", "RF-06", "RF-07", "RF-08", "RF-09", "RF-10", "RF-11", "RF-12", "RF-13"]
+    "selected_cases": [
+      "RF-01", "RF-02", "RF-03", "RF-04", "RF-05", "RF-06", "RF-07",
+      "RF-08", "RF-09"
+    ]
   }
 }

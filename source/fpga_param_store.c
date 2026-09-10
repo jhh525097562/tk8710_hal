@@ -59,6 +59,9 @@ typedef struct
 static FpgaParamRecord g_fpgaParamStoreSector[FPGA_PARAM_STORE_BANK7_SECTOR2_SIZE / FPGA_PARAM_STORE_RECORD_SIZE];
 static uint8_t g_fpgaBootFlagStoreSector[FPGA_BOOT_FLAG_STORE_BANK7_SECTOR1_SIZE];
 static uint8_t g_fpgaParamStoreInitialized;
+static uint8_t g_fpgaBootFlagSaveFailure;
+static uint8_t g_fpgaBootFlagReadbackOverride;
+static uint8_t g_fpgaBootFlagReadbackValue;
 #endif
 
 static uint32_t FpgaParamChecksumBytes(const void *data, uint32_t length)
@@ -443,6 +446,48 @@ int FpgaParamStore_Load(FpgaStoredParams *params)
     return 0;
 }
 
+int FpgaParamStore_ParamsAreCorrupt(void)
+{
+    const uint8_t *sector;
+    uint32_t i;
+    uint32_t count;
+    int sawNonBlank = 0;
+    int sawValid = 0;
+
+#if !defined(FPGA_PROTOCOL_HOST_TEST)
+    FpgaParamStoreAllowBlankEepromReads();
+#endif
+    sector = (const uint8_t *)FpgaParamStoreRecords();
+    count = FPGA_PARAM_STORE_BANK7_SECTOR2_SIZE / FPGA_PARAM_STORE_RECORD_SIZE;
+    for (i = 0U; i < count; i++)
+    {
+        const FpgaParamRecord *record =
+            (const FpgaParamRecord *)&sector[i * FPGA_PARAM_STORE_RECORD_SIZE];
+        if (FpgaParamRecordIsBlank(record) == 0)
+        {
+            sawNonBlank = 1;
+            if (FpgaParamRecordIsValid(record) != 0)
+            {
+                sawValid = 1;
+            }
+        }
+    }
+
+    count = FPGA_PARAM_STORE_BANK7_SECTOR2_SIZE /
+            FPGA_PARAM_STORE_LEGACY_RECORD_SIZE;
+    for (i = 0U; i < count; i++)
+    {
+        const FpgaParamLegacyRecord *record =
+            (const FpgaParamLegacyRecord *)&sector[i * FPGA_PARAM_STORE_LEGACY_RECORD_SIZE];
+        if (FpgaParamLegacyRecordIsValid(record) != 0)
+        {
+            sawValid = 1;
+        }
+    }
+
+    return ((sawNonBlank != 0) && (sawValid == 0)) ? 1 : 0;
+}
+
 int FpgaParamStore_Save(const FpgaStoredParams *params)
 {
     uint8_t *sector;
@@ -523,6 +568,12 @@ int FpgaParamStore_LoadBootFlag(uint8_t *flag)
 
 #if !defined(FPGA_PROTOCOL_HOST_TEST)
     FpgaParamStoreAllowBlankEepromReads();
+#else
+    if (g_fpgaBootFlagReadbackOverride != 0U)
+    {
+        *flag = g_fpgaBootFlagReadbackValue;
+        return 0;
+    }
 #endif
     *flag = FpgaBootFlagStoreBytes()[0];
     return 0;
@@ -535,6 +586,10 @@ int FpgaParamStore_SaveBootFlag(uint8_t flag)
     (void)FpgaParamStore_LoadResetCount(&resetCount);
 #if defined(FPGA_PROTOCOL_HOST_TEST)
     FpgaParamStoreEnsureInitialized();
+    if (g_fpgaBootFlagSaveFailure != 0U)
+    {
+        return -1;
+    }
     (void)memset(g_fpgaBootFlagStoreSector, 0xFF, sizeof(g_fpgaBootFlagStoreSector));
     g_fpgaBootFlagStoreSector[0] = flag;
     FpgaBootStoreWriteBe32(&g_fpgaBootFlagStoreSector[1], resetCount);
@@ -588,6 +643,9 @@ void FpgaParamStore_TestErase(void)
     g_fpgaParamStoreInitialized = 1U;
     (void)memset(g_fpgaParamStoreSector, 0xFF, sizeof(g_fpgaParamStoreSector));
     (void)memset(g_fpgaBootFlagStoreSector, 0xFF, sizeof(g_fpgaBootFlagStoreSector));
+    g_fpgaBootFlagSaveFailure = 0U;
+    g_fpgaBootFlagReadbackOverride = 0U;
+    g_fpgaBootFlagReadbackValue = 0xFFU;
 }
 
 void FpgaParamStore_TestCorrupt(void)
@@ -595,4 +653,16 @@ void FpgaParamStore_TestCorrupt(void)
     g_fpgaParamStoreInitialized = 1U;
     (void)memset(g_fpgaParamStoreSector, 0x00, FPGA_PARAM_STORE_RECORD_SIZE);
 }
+
+void FpgaParamStore_TestSetBootFlagSaveFailure(uint8_t enabled)
+{
+    g_fpgaBootFlagSaveFailure = enabled;
+}
+
+void FpgaParamStore_TestSetBootFlagReadback(uint8_t enabled, uint8_t value)
+{
+    g_fpgaBootFlagReadbackOverride = enabled;
+    g_fpgaBootFlagReadbackValue = value;
+}
+
 #endif

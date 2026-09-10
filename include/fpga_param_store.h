@@ -29,6 +29,7 @@ extern "C"
 
     int FpgaParamStore_Load(FpgaStoredParams *params);
     int FpgaParamStore_Save(const FpgaStoredParams *params);
+    int FpgaParamStore_ParamsAreCorrupt(void);
     int FpgaParamStore_LoadBootFlag(uint8_t *flag);
     int FpgaParamStore_SaveBootFlag(uint8_t flag);
     int FpgaParamStore_LoadResetCount(uint32_t *count);
@@ -37,6 +38,8 @@ extern "C"
 #if defined(FPGA_PROTOCOL_HOST_TEST)
     void FpgaParamStore_TestErase(void);
     void FpgaParamStore_TestCorrupt(void);
+    void FpgaParamStore_TestSetBootFlagSaveFailure(uint8_t enabled);
+    void FpgaParamStore_TestSetBootFlagReadback(uint8_t enabled, uint8_t value);
 #endif
 
 #ifdef __cplusplus

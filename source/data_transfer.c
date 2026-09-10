@@ -78,8 +78,8 @@ typedef struct
     uint8_t txHadError;
     uint8_t utcValid;
     uint8_t flashAvailable;
-    uint8_t ram[DATA_TRANSFER_FLASH_SECTOR_SIZE];
-    uint8_t txRam[DATA_TRANSFER_FLASH_SECTOR_SIZE];
+    uint8_t ram[DATA_TRANSFER_RAM_CAPACITY];
+    uint8_t txRam[DATA_TRANSFER_RAM_CAPACITY];
 #if defined(DATA_TRANSFER_SPI2_SLAVE_TEST)
     uint8_t slaveFrame[DATA_TRANSFER_FRAME_LEN];
     uint32_t slaveTxWords[DATA_TRANSFER_FRAME_LEN];
@@ -423,16 +423,34 @@ static int DataTransferFlushSector(void)
     }
     return 0;
 }
+
 #endif
+
+static uint32_t DataTransferRamLimit(void)
+{
+#if DATA_TRANSFER_SPI_FLASH_ENABLED
+    if (g_dataTransfer.flashAvailable != 0U)
+    {
+        return DATA_TRANSFER_FLASH_SECTOR_SIZE;
+    }
+#endif
+    return DATA_TRANSFER_RAM_CAPACITY;
+}
 
 static int DataTransferAppendRaw(const uint8_t *data, uint32_t length)
 {
     uint32_t chunk;
     uint32_t copied = 0U;
+    uint32_t ramLimit;
 
     while (copied < length)
     {
-        chunk = DATA_TRANSFER_FLASH_SECTOR_SIZE - g_dataTransfer.ramLength;
+        ramLimit = DataTransferRamLimit();
+        if (g_dataTransfer.ramLength >= ramLimit)
+        {
+            return -1;
+        }
+        chunk = ramLimit - g_dataTransfer.ramLength;
         if (chunk > (length - copied))
         {
             chunk = length - copied;
@@ -441,7 +459,8 @@ static int DataTransferAppendRaw(const uint8_t *data, uint32_t length)
         g_dataTransfer.ramLength += chunk;
         copied += chunk;
 #if DATA_TRANSFER_SPI_FLASH_ENABLED
-        if (g_dataTransfer.ramLength == DATA_TRANSFER_FLASH_SECTOR_SIZE)
+        if ((g_dataTransfer.flashAvailable != 0U) &&
+            (g_dataTransfer.ramLength == DATA_TRANSFER_FLASH_SECTOR_SIZE))
         {
             if (DataTransferFlushSector() != 0)
             {
@@ -582,10 +601,46 @@ static int DataTransferCommitTransmitCleanup(void)
     return 0;
 }
 
+static void DataTransferLoadTransmitWindow(uint8_t resetSession)
+{
+    g_dataTransfer.txFlashRead = g_dataTransfer.tail;
+    g_dataTransfer.txFlashEnd = g_dataTransfer.head;
+    g_dataTransfer.txRamLength = g_dataTransfer.ramLength;
+    g_dataTransfer.txRamRead = 0U;
+    g_dataTransfer.txStartTail = g_dataTransfer.tail;
+    g_dataTransfer.txStartHead = g_dataTransfer.head;
+    g_dataTransfer.txStartRamLength = g_dataTransfer.ramLength;
+    if (resetSession != 0U)
+    {
+        g_dataTransfer.txPacketSeq = 0U;
+        g_dataTransfer.txStartCount++;
+    }
+    g_dataTransfer.txHadError = 0U;
+    g_dataTransfer.lastBuildResult = 0;
+    g_dataTransfer.lastFrameLength = 0U;
+    g_dataTransfer.lastPacketSeq = 0U;
+    if (g_dataTransfer.txRamLength != 0U)
+    {
+        (void)memcpy(g_dataTransfer.txRam, g_dataTransfer.ram, g_dataTransfer.txRamLength);
+    }
+}
+
+static void DataTransferClearTransmitWindow(void)
+{
+    g_dataTransfer.txFlashRead = g_dataTransfer.tail;
+    g_dataTransfer.txFlashEnd = g_dataTransfer.tail;
+    g_dataTransfer.txRamLength = 0U;
+    g_dataTransfer.txRamRead = 0U;
+    g_dataTransfer.txStartTail = g_dataTransfer.tail;
+    g_dataTransfer.txStartHead = g_dataTransfer.tail;
+    g_dataTransfer.txStartRamLength = 0U;
+}
+
 static int DataTransferBuildNextFrame(uint8_t *frame)
 {
     int length;
     uint16_t checksum;
+    uint8_t reloaded = 0U;
 
     if ((frame == 0) || (g_dataTransfer.transmitActive == 0U))
     {
@@ -594,6 +649,7 @@ static int DataTransferBuildNextFrame(uint8_t *frame)
     }
 
     (void)memset(frame, 0x5A, DATA_TRANSFER_FRAME_LEN);
+read_again:
     length = DataTransferReadTransmitBytes(&frame[8], DATA_TRANSFER_FRAME_DATA_LEN);
     if (length < 0)
     {
@@ -612,7 +668,13 @@ static int DataTransferBuildNextFrame(uint8_t *frame)
             g_dataTransfer.transmitActive = 0U;
             return -1;
         }
-        g_dataTransfer.transmitActive = 0U;
+        DataTransferClearTransmitWindow();
+        if ((reloaded == 0U) && (DataTransfer_GetPendingLength() != 0U))
+        {
+            reloaded = 1U;
+            DataTransferLoadTransmitWindow(0U);
+            goto read_again;
+        }
         return 0;
     }
 
@@ -639,8 +701,7 @@ static void DataTransferHandleSendResult(int sendResult)
     else
     {
         g_dataTransfer.txSendErrors++;
-        g_dataTransfer.txHadError = 1U;
-        g_dataTransfer.transmitActive = 0U;
+        DataTransferLoadTransmitWindow(0U);
     }
 }
 
@@ -1134,22 +1195,25 @@ static int DataTransferAppendRecord(uint8_t format, uint8_t type,
     uint8_t header[DATA_TRANSFER_RECORD_HEADER_LEN];
     uint32_t recordLength = (uint32_t)DATA_TRANSFER_RECORD_HEADER_LEN +
                             (uint32_t)length;
+    uint32_t ramLimit;
 
     if ((data == 0) && (length != 0U))
     {
         return -1;
     }
     DataTransferEnsureInitialized();
+    ramLimit = DataTransferRamLimit();
 #if DATA_TRANSFER_SPI_FLASH_ENABLED
-    if ((g_dataTransfer.transmitActive != 0U) &&
+    if (((g_dataTransfer.flashAvailable == 0U) ||
+         (g_dataTransfer.transmitActive != 0U)) &&
         (g_dataTransfer.ramLength >= g_dataTransfer.txStartRamLength) &&
-        ((DATA_TRANSFER_FLASH_SECTOR_SIZE - g_dataTransfer.ramLength) < recordLength))
+        ((ramLimit - g_dataTransfer.ramLength) < recordLength))
     {
         return -1;
     }
 #else
     if (recordLength >
-        (DATA_TRANSFER_FLASH_SECTOR_SIZE - g_dataTransfer.ramLength))
+        (ramLimit - g_dataTransfer.ramLength))
     {
         return -1;
     }
@@ -1174,19 +1238,22 @@ static int DataTransferAppendStructuredHeader(uint8_t type, uint16_t length)
     uint8_t header[DATA_TRANSFER_RECORD_HEADER_LEN];
     uint32_t recordLength = (uint32_t)DATA_TRANSFER_RECORD_HEADER_LEN +
                             (uint32_t)length;
+    uint32_t ramLimit;
 
     DataTransferEnsureInitialized();
+    ramLimit = DataTransferRamLimit();
 #if DATA_TRANSFER_SPI_FLASH_ENABLED
-    if ((g_dataTransfer.transmitActive != 0U) &&
+    if (((g_dataTransfer.flashAvailable == 0U) ||
+         (g_dataTransfer.transmitActive != 0U)) &&
         (g_dataTransfer.ramLength >= g_dataTransfer.txStartRamLength) &&
-        ((DATA_TRANSFER_FLASH_SECTOR_SIZE - g_dataTransfer.ramLength) <
+        ((ramLimit - g_dataTransfer.ramLength) <
          recordLength))
     {
         return -1;
     }
 #else
     if (recordLength >
-        (DATA_TRANSFER_FLASH_SECTOR_SIZE - g_dataTransfer.ramLength))
+        (ramLimit - g_dataTransfer.ramLength))
     {
         return -1;
     }
@@ -1399,24 +1466,7 @@ int DataTransfer_AppendSweepBackgroundNoise(const DataTransferSweepChunk *chunk)
 int DataTransfer_StartTransmit(void)
 {
     DataTransferEnsureInitialized();
-    g_dataTransfer.txFlashRead = g_dataTransfer.tail;
-    g_dataTransfer.txFlashEnd = g_dataTransfer.head;
-    g_dataTransfer.txRamLength = g_dataTransfer.ramLength;
-    g_dataTransfer.txRamRead = 0U;
-    g_dataTransfer.txStartTail = g_dataTransfer.tail;
-    g_dataTransfer.txStartHead = g_dataTransfer.head;
-    g_dataTransfer.txStartRamLength = g_dataTransfer.ramLength;
-    g_dataTransfer.txPacketSeq = 0U;
-    g_dataTransfer.txHadError = 0U;
-    g_dataTransfer.txStartCount++;
-    g_dataTransfer.lastBuildResult = 0;
-    g_dataTransfer.lastSendResult = 0;
-    g_dataTransfer.lastFrameLength = 0U;
-    g_dataTransfer.lastPacketSeq = 0U;
-    if (g_dataTransfer.txRamLength != 0U)
-    {
-        (void)memcpy(g_dataTransfer.txRam, g_dataTransfer.ram, g_dataTransfer.txRamLength);
-    }
+    DataTransferLoadTransmitWindow(1U);
     g_dataTransfer.transmitActive = 1U;
 #if defined(DATA_TRANSFER_SPI2_SLAVE_TEST)
     DataTransferConfigSpi2SlaveTest();
@@ -1425,6 +1475,22 @@ int DataTransfer_StartTransmit(void)
     DataTransferPrepareSpi2SlaveFrame();
 #endif
     return 0;
+}
+
+void DataTransfer_StopTransmit(void)
+{
+    DataTransferEnsureInitialized();
+    g_dataTransfer.transmitActive = 0U;
+    g_dataTransfer.txHadError = 0U;
+#if defined(DATA_TRANSFER_SPI2_SLAVE_TEST)
+    DataTransferStopSpi2SlaveDma();
+    g_dataTransfer.slaveFrameReady = 0U;
+    g_dataTransfer.slaveOffset = 0U;
+    g_dataTransfer.slaveDmaRxRemaining = 0U;
+    g_dataTransfer.slaveDmaTxRemaining = 0U;
+    g_dataTransfer.slaveDmaStarted = 0U;
+    DataTransferPrimeSpi2SlaveIdle();
+#endif
 }
 
 void DataTransfer_SetUtcSeconds(uint32_t utcSeconds)

@@ -12,11 +12,15 @@
 
 #include "sci.h"
 #include "sys_core.h"
+#include "sys_vim.h"
 #include "tk8710_tms570.h"
 #include "tk8710_hal.h"
 #include "driver/tk8710_regs.h"
 #include "driver/tk8710_internal.h"
+#include "app_faults.h"
+#include "app_selftest.h"
 #include "data_transfer.h"
+#include "external_watchdog.h"
 #include "fpga_param_store.h"
 #include "fpga_protocol.h"
 #include "spi_flash.h"
@@ -30,6 +34,7 @@
 #define SAT_MAIN_STAGE_CONTROL_READY 5U
 #define SAT_MAIN_VERSION_REG (MAC_BASE + 0x0110U)
 #define SAT_MAIN_AT_LINE_MAX 1024U
+#define SAT_MAIN_AT_RX_RING_SIZE 2048U
 #define SAT_MAIN_DTWRITE_PAYLOAD_MAX 495U
 #define SAT_MAIN_SWEEP_RESULT_PAGE_MAX 8U
 #define SAT_MAIN_DT_PRINT_MAX 512U
@@ -45,6 +50,10 @@ volatile uint32 g_tk8710BringupHaltLine = 0U;
 volatile uint32 g_tk8710BringupReadValue = 0U;
 
 static char g_satAtLine[SAT_MAIN_AT_LINE_MAX];
+static volatile uint8 g_satAtRxRing[SAT_MAIN_AT_RX_RING_SIZE];
+static volatile uint32 g_satAtRxHead = 0U;
+static volatile uint32 g_satAtRxTail = 0U;
+static volatile uint8 g_satAtRxOverflow = 0U;
 static SatPayloadWorkParams g_satAtPendingParams;
 static uint8 g_satAtPendingParamsValid = 0U;
 
@@ -60,6 +69,14 @@ static void SatMainLogDb(float value);
 static void SatMainLogHexByte(uint8 value);
 static void SatMainLogHex16(uint16 value);
 static void SatMainLogHex32(uint32 value);
+static uint8 SatMainIsIgnoredRxControl(uint8 ch);
+static uint8 SatMainIsTrailingCommandSpace(char ch);
+static void SatMainNormalizeCommandLine(char *line);
+static void SatMainLogUnknownCommand(const char *line);
+static void SatMainConsoleRxPush(uint8 ch);
+static uint8 SatMainReadConsoleRxByte(uint8 *ch);
+static void SatMainResetConsoleRx(void);
+static void SatMainInitConsoleRxInterrupt(void);
 static void SatMainHalt(uint32 stage, uint32 line);
 static void SatMainPrintHelp(void);
 static void SatMainProcessConsole(void);
@@ -86,6 +103,7 @@ static int SatMainDataTransferFlashId(void);
 static int SatMainDataTransferFlashStat(void);
 static int SatMainDataTransferFlashDump(void);
 static int SatMainDataTransferPrint(char *line);
+void linHighLevelInterrupt(void);
 
 #define SatMainHaltAt(stage) SatMainHalt((stage), (uint32)__LINE__)
 #endif
@@ -102,8 +120,21 @@ int main(void)
     {
         SatMainHaltAt(SAT_MAIN_STAGE_PORT_FAIL);
     }
+    AppFaults_Init();
+    ExternalWatchdog_Init();
 
     SatMainLog("\r\nTK8710 TMS570 satellite payload start\r\n");
+    SatMainLog("APP version=");
+    SatMainLogU32(FPGA_PROTOCOL_VERSION_MAJOR);
+    SatMainLog(".");
+    SatMainLogU32(FPGA_PROTOCOL_VERSION_MINOR);
+    SatMainLog(".");
+    SatMainLogU32(FPGA_PROTOCOL_VERSION_PATCH);
+    SatMainLog(" build=");
+    SatMainLog(__DATE__);
+    SatMainLog(" ");
+    SatMainLog(__TIME__);
+    SatMainLog("\r\n");
     SatMainLog("Reset cause=");
     SatMainLogHex32(g_tk8710ResetCause);
     SatMainLog("\r\n");
@@ -151,6 +182,7 @@ int main(void)
     if (TK8710SpiReset(TK8710_RST_SM_AND_REG) != 0)
     {
         SatMainLog("TK8710 SPI reset failed\r\n");
+        AppFaults_Set(APP_FAULT_TK8710_COMM);
         SatMainHaltAt(SAT_MAIN_STAGE_SPI_RESET_FAIL);
     }
     TK8710DelayMs(20U);
@@ -159,6 +191,7 @@ int main(void)
                          (uint32_t *)&g_tk8710BringupReadValue, 1U) != 0)
     {
         SatMainLog("TK8710 version read failed\r\n");
+        AppFaults_Set(APP_FAULT_TK8710_COMM);
         SatMainHaltAt(SAT_MAIN_STAGE_SPI_READ_FAIL);
     }
     SatMainLog("TK8710 FPGA version=");
@@ -168,6 +201,7 @@ int main(void)
         (g_tk8710BringupReadValue == 0xFFFFFFFFU))
     {
         SatMainLog("TK8710 version is invalid\r\n");
+        AppFaults_Set(APP_FAULT_TK8710_COMM);
         SatMainHaltAt(SAT_MAIN_STAGE_SPI_READ_FAIL);
     }
 #else
@@ -178,6 +212,7 @@ int main(void)
     DataTransfer_Init();
     SatMainLogPendingBootFlagComplete();
     FpgaProtocol_Init();
+    SatMainInitConsoleRxInterrupt();
     g_tk8710BringupStage = SAT_MAIN_STAGE_CONTROL_READY;
     _enable_interrupt_();
 
@@ -192,6 +227,8 @@ int main(void)
         TK8710ProcessRuntimeWatchdog();
         SatPayloadApp_Process();
 #endif
+        SatPayloadApp_ProcessTelemetry();
+        ExternalWatchdog_Process((uint32_t)(TK8710GetTimeUs() / 1000U));
         FpgaProtocol_Process();
         DataTransfer_Process();
         SatMainProcessConsole();
@@ -302,6 +339,142 @@ static void SatMainLogHexByte(uint8 value)
     SatMainLog(text);
 }
 
+static uint8 SatMainIsIgnoredRxControl(uint8 ch)
+{
+    return ((ch < 0x20U) &&
+            (ch != (uint8)'\r') &&
+            (ch != (uint8)'\n') &&
+            (ch != 0x08U) &&
+            (ch != 0x7FU)) ? 1U : 0U;
+}
+
+static uint8 SatMainIsTrailingCommandSpace(char ch)
+{
+    return (((uint8)ch <= (uint8)' ') || ((uint8)ch == 0x7FU)) ? 1U : 0U;
+}
+
+static void SatMainNormalizeCommandLine(char *line)
+{
+    char *at;
+    uint32 length;
+
+    if (line == NULL)
+    {
+        return;
+    }
+    at = strstr(line, "AT");
+    if ((at != NULL) && (at != line))
+    {
+        (void)memmove(line, at, strlen(at) + 1U);
+    }
+    length = (uint32)strlen(line);
+    while ((length > 0U) && SatMainIsTrailingCommandSpace(line[length - 1U]))
+    {
+        line[length - 1U] = '\0';
+        length--;
+    }
+}
+
+static void SatMainLogUnknownCommand(const char *line)
+{
+    uint32 index;
+    uint32 length;
+
+    if (line == NULL)
+    {
+        line = "";
+    }
+    length = (uint32)strlen(line);
+    SatMainLog("ERROR unknown command line=\"");
+    SatMainLog(line);
+    SatMainLog("\" hex=");
+    for (index = 0U; (index < length) && (index < 48U); index++)
+    {
+        if (index != 0U)
+        {
+            SatMainLog(" ");
+        }
+        SatMainLogHexByte((uint8)line[index]);
+    }
+    if (length > 48U)
+    {
+        SatMainLog(" ...");
+    }
+    SatMainLog("\r\n");
+}
+
+static void SatMainConsoleRxPush(uint8 ch)
+{
+    uint32 next = g_satAtRxHead + 1U;
+
+    if (next >= SAT_MAIN_AT_RX_RING_SIZE)
+    {
+        next = 0U;
+    }
+    if (next == g_satAtRxTail)
+    {
+        g_satAtRxOverflow = 1U;
+        return;
+    }
+    g_satAtRxRing[g_satAtRxHead] = ch;
+    g_satAtRxHead = next;
+}
+
+static uint8 SatMainReadConsoleRxByte(uint8 *ch)
+{
+    uint32 tail;
+
+    if ((ch == NULL) || (g_satAtRxTail == g_satAtRxHead))
+    {
+        return 0U;
+    }
+    tail = g_satAtRxTail;
+    *ch = g_satAtRxRing[tail];
+    tail++;
+    if (tail >= SAT_MAIN_AT_RX_RING_SIZE)
+    {
+        tail = 0U;
+    }
+    g_satAtRxTail = tail;
+    return 1U;
+}
+
+static void SatMainResetConsoleRx(void)
+{
+    g_satAtRxHead = 0U;
+    g_satAtRxTail = 0U;
+    g_satAtRxOverflow = 0U;
+    while (sciIsRxReady(scilinREG) != 0U)
+    {
+        (void)scilinREG->RD;
+    }
+    scilinREG->FLR = (uint32)(SCI_FE_INT | SCI_OE_INT | SCI_PE_INT);
+}
+
+static void SatMainInitConsoleRxInterrupt(void)
+{
+    SatMainResetConsoleRx();
+    vimChannelMap(13U, 13U, &linHighLevelInterrupt);
+    vimEnableInterrupt(13U, SYS_IRQ);
+    sciEnableNotification(scilinREG,
+                          SCI_RX_INT | SCI_OE_INT | SCI_FE_INT | SCI_PE_INT);
+}
+
+#pragma CODE_STATE(linHighLevelInterrupt, 32)
+#pragma INTERRUPT(linHighLevelInterrupt, IRQ)
+void linHighLevelInterrupt(void)
+{
+    while (sciIsRxReady(scilinREG) != 0U)
+    {
+        SatMainConsoleRxPush((uint8)(scilinREG->RD & 0xFFU));
+    }
+    if ((scilinREG->FLR &
+         (uint32)(SCI_FE_INT | SCI_OE_INT | SCI_PE_INT)) != 0U)
+    {
+        scilinREG->FLR = (uint32)(SCI_FE_INT | SCI_OE_INT | SCI_PE_INT);
+    }
+}
+
 static void SatMainHalt(uint32 stage, uint32 line)
 {
     g_tk8710BringupStage = stage;
@@ -327,6 +500,7 @@ static void SatMainPrintHelp(void)
     SatMainLog("  AT+VER\r\n");
     SatMainLog("  AT+TM\r\n");
     SatMainLog("  AT+FPGATM\r\n");
+    SatMainLog("  AT+SELFTEST\r\n");
     SatMainLog("  AT+DTWRITE=S,<type>,<string>\r\n");
     SatMainLog("  AT+DTWRITE=H,<type>,<hexbytes>\r\n");
     SatMainLog("  AT+DTFILL64K\r\n");
@@ -349,6 +523,7 @@ static void SatMainProcessConsole(void)
 {
     if (SatMainReadLine(g_satAtLine, (uint32)sizeof(g_satAtLine)) > 0)
     {
+        SatMainNormalizeCommandLine(g_satAtLine);
         (void)SatMainHandleCommand(g_satAtLine);
         SatMainLog("SAT> ");
     }
@@ -358,10 +533,19 @@ static int SatMainReadLine(char *line, uint32 capacity)
 {
     static uint32 index = 0U;
     static uint8 overflow = 0U;
+    uint8 ch;
 
-    while (sciIsRxReady(scilinREG) != 0U)
+    if (g_satAtRxOverflow != 0U)
     {
-        uint8 ch = sciReceiveByte(scilinREG);
+        SatMainResetConsoleRx();
+        index = 0U;
+        overflow = 0U;
+        SatMainLog("ERROR console RX overflow\r\n");
+        return -1;
+    }
+
+    while (SatMainReadConsoleRxByte(&ch) != 0U)
+    {
         if ((ch == (uint8)'\r') || (ch == (uint8)'\n'))
         {
             if ((index == 0U) && (overflow == 0U))
@@ -386,6 +570,11 @@ static int SatMainReadLine(char *line, uint32 capacity)
             {
                 index--;
             }
+            continue;
+        }
+
+        if (SatMainIsIgnoredRxControl(ch) != 0U)
+        {
             continue;
         }
 
@@ -1048,10 +1237,6 @@ static void SatMainLogPendingBootFlagComplete(void)
     {
         SatMainLog("FPGA firmware upgrade complete\r\n");
     }
-    else if (flag == 2U)
-    {
-        SatMainLog("FPGA rollback complete\r\n");
-    }
 }
 
 static int SatMainSetRfTxDc(char *line)
@@ -1684,6 +1869,13 @@ static int SatMainHandleCommand(char *line)
         SatMainLog("OK\r\n");
         return 0;
     }
+    if (strcmp(line, "AT+SELFTEST") == 0)
+    {
+        SatMainLog("SELFTEST faults=");
+        SatMainLogHex32(AppSelfTest_Run());
+        SatMainLog("\r\nOK\r\n");
+        return 0;
+    }
     if (strncmp(line, "AT+DTWRITE=", 11) == 0)
     {
         return SatMainDataTransferWrite(line + 11);
@@ -1763,7 +1955,7 @@ static int SatMainHandleCommand(char *line)
         return SatMainSetRfTxDc(line + 11);
     }
 
-    SatMainLog("ERROR unknown command\r\n");
+    SatMainLogUnknownCommand(line);
     return -1;
 }
 #endif

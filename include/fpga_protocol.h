@@ -90,6 +90,7 @@ extern "C"
     uint32_t FpgaProtocol_TestGetDcApplyCount(void);
     int FpgaProtocol_TestGetAppliedDc(uint32_t index, uint8_t *antenna, int16_t *iDc, int16_t *qDc);
     uint8_t FpgaProtocol_TestGetHostAppliedRateMode(void);
+    uint32_t FpgaProtocol_TestGetResetRequestCount(void);
 #endif
 
 #ifdef __cplusplus

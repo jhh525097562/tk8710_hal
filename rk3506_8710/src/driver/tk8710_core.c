@@ -661,7 +661,7 @@ int TK8710Init(const ChipConfig* initConfig)
     
     /* 初始化默认日志系统（如果尚未初始化） */
 #if defined(PLATFORM_TMS570)
-    defaultLogConfig.level = TK8710_LOG_WARN;
+    defaultLogConfig.level = TK8710_LOG_INFO;
 #else
     defaultLogConfig.level = TK8710_LOG_INFO;
 #endif
