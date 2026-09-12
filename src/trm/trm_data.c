@@ -1291,8 +1291,10 @@ int TRM_ProcessRxUserDataBatch(uint8_t* userIndices, uint8_t userCount, TK8710Cr
     TrmContext* ctx = TRM_GetContext();
     if (ctx && ctx->config.callbacks.onRxData != NULL && deliverCount > 0) {
         if (deliverCount > 0) {
-            TRM_LOG_INFO("TRM: RX users - rateMode=%u, systemFrame=%u, userCount=%u",
-                         currentRateMode, g_trmCurrentFrame, deliverCount);
+            TRM_LOG_INFO("TRM: RX users - rateMode=%u, systemFrame=%u, superFrame=%u, "
+                         "userCount=%u, firstRssi=%d",
+                         currentRateMode, g_trmCurrentFrame, rxDataList.frameNo, deliverCount,
+                         userStorage[0].rssi);
         }
         TRM_LOG_DEBUG("TRM: Calling onRxData callback for %d users", deliverCount);
         ctx->config.callbacks.onRxData(&rxDataList);

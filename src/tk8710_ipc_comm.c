@@ -135,6 +135,20 @@ int IpcCommSendConfigRequest(IpcCommContext *ctx) {
     }
 }
 
+static int _is_ns_data_payload_valid(const void* payload, uint32_t payload_len)
+{
+    const NsDataDown_t* ns_data;
+    size_t header_len = offsetof(NsDataDown_t, payload);
+
+    if (payload == NULL || payload_len < header_len) {
+        return 0;
+    }
+
+    ns_data = (const NsDataDown_t*)payload;
+    return ns_data->payload_len <= MAX_PAYLOAD_LEN &&
+        ns_data->payload_len <= payload_len - header_len;
+}
+
 // 打印消息详情
 static void PrintMessageDetail(const char *prefix, const ipc_smp_msg_hdr_t *hdr, const void *payload, uint32_t payload_len) {
     printf("[%s] 消息头: ver=%u type=%u len=%u seq=%u ts_ns=%llu flags=%u crc32=0x%08X\n",
@@ -152,7 +166,12 @@ static void PrintMessageDetail(const char *prefix, const ipc_smp_msg_hdr_t *hdr,
         
         switch (*msg_type_ptr) {
             case MSG_TYPE_NS_CONFIG_DOWN: {
-                NsConfigDown_t* config = (NsConfigDown_t*)payload;
+                if (payload_len != sizeof(NsConfigDown_t)) {
+                    printf("NS配置长度无效: actual=%u, expected=%zu\n",
+                           payload_len, sizeof(NsConfigDown_t));
+                    break;
+                }
+                const NsConfigDown_t* config = (const NsConfigDown_t*)payload;
                 printf("收到NS配置下行消息: freq=%u, nwk_num=%d, tdd_num=%d, slot_cfg=%d, rate_num=%d\n",
                        config->freq, config->nwk_num, config->tdd_num, config->slot_cfg, config->rate_num);
                 
@@ -164,7 +183,7 @@ static void PrintMessageDetail(const char *prefix, const ipc_smp_msg_hdr_t *hdr,
                 break;
             }
             case MSG_TYPE_NS_DATA_DOWN: {
-                if (payload_len >= offsetof(NsDataDown_t, payload)) {
+                if (_is_ns_data_payload_valid(payload, payload_len)) {
                     const NsDataDown_t *ns_data = (const NsDataDown_t *)payload;
                     printf("  [NS数据下行] TDD=%d, 速率=%d, 时隙=%d, 载荷长度=%zu\n",
                            ns_data->tdd, ns_data->rate, ns_data->slot, ns_data->payload_len);
@@ -230,6 +249,11 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
         const ipc_smp_msg_hdr_t *hdr = (const ipc_smp_msg_hdr_t *)
             ((const uint8_t *)msg.payload - sizeof(ipc_smp_msg_hdr_t));
         
+        if (msg.payload == NULL || msg.len < sizeof(MacMsgType_e)) {
+            fprintf(stderr, "IPC消息载荷过短: len=%u\n", msg.len);
+            continue;
+        }
+
         MacMsgType_e *msg_type_ptr = (MacMsgType_e *)msg.payload;
         int print_ns_data_detail = 1;
         if (msg.len >= sizeof(MacMsgType_e) && *msg_type_ptr == MSG_TYPE_NS_DATA_DOWN) {
@@ -253,8 +277,10 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
         switch (*msg_type_ptr) {
             case MSG_TYPE_NS_CONFIG_DOWN: {
                 // NS配置下行消息 - 用于TK8710HalInit配置
-                if (msg.len >= sizeof(NsConfigDown_t)) {
-                    const NsConfigDown_t *config = (const NsConfigDown_t *)msg.payload;
+                if (msg.len == sizeof(NsConfigDown_t)) {
+                    NsConfigDown_t effective_config = {0};
+                    memcpy(&effective_config, msg.payload, msg.len);
+                    const NsConfigDown_t *config = &effective_config;
                     
                     // 判断是否为首次配置或配置更新
                     int is_first_config = 0;
@@ -284,6 +310,7 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
                         }
                         
                         if (g_received_config.freq != config->freq ||
+                            g_received_config.gps_enable != config->gps_enable ||
                             g_received_config.tdd_num != config->tdd_num ||
                             g_received_config.nwk_num != config->nwk_num ||
                             rate_cfgs_changed) {
@@ -323,12 +350,15 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
                         printf("⚠️  未设置配置处理回调函数\n");
                     }
                     
+                } else {
+                    fprintf(stderr, "拒绝NS配置: 长度=%u, 期望=%zu（必须包含gps_enable）\n",
+                            msg.len, sizeof(NsConfigDown_t));
                 }
                 break;
             }
             case MSG_TYPE_NS_DATA_DOWN: {
                 // NS数据下行消息 - 调用TK8710HalSendData发送
-                if (msg.len >= offsetof(NsDataDown_t, payload)) {
+                if (_is_ns_data_payload_valid(msg.payload, msg.len)) {
                     const NsDataDown_t *ns_data = (const NsDataDown_t *)msg.payload;
                     if (print_ns_data_detail) {
                         printf("收到NS下行数据，调用TK8710HalSendData发送...\n");
@@ -354,6 +384,8 @@ static void ProcessIncomingMessages(IpcCommContext *ctx) {
                         printf("TK8710HalSendData调用失败: %d\n", halRet);
                         printed_any_log = 1;
                     }
+                } else {
+                    fprintf(stderr, "拒绝NS下行数据: 载荷长度无效, msg.len=%u\n", msg.len);
                 }
                 break;
             }

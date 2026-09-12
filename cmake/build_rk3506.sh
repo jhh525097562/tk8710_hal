@@ -12,8 +12,10 @@ list_targets() {
     {
         find test/DriverTest -maxdepth 1 -name "*.c" ! -name "TestJtool*.c" \
             -type f -exec basename {} .c \;
-        for target in test8710main_3506 TestTRMmain tk8710_gw tk8710_gw_slave tk8710_gw_sat tk8710_gw_ground; do
-            if [ -f "test/example/${target}.c" ]; then
+        for target in test8710main_3506 test_tk8710_pps_api test_tk8710_gw_gps test_tk8710_gw_gps_protocol test_tk8710_gw_gps_faults tk8710_gw_gps_device_test tk8710_pps_test TestTRMmain tk8710_gw tk8710_gw_gps_ns_test tk8710_gw_slave tk8710_gw_sat tk8710_gw_ground; do
+            if [ "$target" = "tk8710_gw_gps_ns_test" ] && [ -f "test/example/tk8710_gw.c" ]; then
+                echo "${target}"
+            elif [ -f "test/example/${target}.c" ]; then
                 echo "${target}"
             fi
         done
@@ -29,8 +31,13 @@ is_known_target() {
         return 0
     fi
 
+    if [ "$1" = "tk8710_gw_gps_ns_test" ]; then
+        [ -f "test/example/tk8710_gw.c" ]
+        return $?
+    fi
+
     case "$1" in
-        test8710main_3506|TestTRMmain|tk8710_gw|tk8710_gw_slave|tk8710_gw_sat|tk8710_gw_ground)
+        test8710main_3506|test_tk8710_pps_api|test_tk8710_gw_gps|test_tk8710_gw_gps_protocol|test_tk8710_gw_gps_faults|tk8710_gw_gps_device_test|tk8710_pps_test|TestTRMmain|tk8710_gw|tk8710_gw_gps_ns_test|tk8710_gw_slave|tk8710_gw_sat|tk8710_gw_ground)
             [ -f "test/example/$1.c" ]
             return $?
             ;;
@@ -239,6 +246,14 @@ else
     exit 1
 fi
 
+arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -c src/tk8710_pps_api.c -o ${BUILD_DIR}/tk8710_pps_api.o
+if [ $? -eq 0 ]; then
+    echo "✅ src/tk8710_pps_api.c 编译成功"
+else
+    echo "❌ src/tk8710_pps_api.c 编译失败"
+    exit 1
+fi
+
 arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -c src/phy/phy_api.c -o ${BUILD_DIR}/phy_api.o
 if [ $? -eq 0 ]; then
     echo "✅ src/phy/phy_api.c 编译成功"
@@ -359,6 +374,7 @@ ar rcs ${BUILD_DIR}/libtk8710_hal_complete.a \
     ${BUILD_DIR}/hal_api.o \
     ${BUILD_DIR}/hal_cb.o \
     ${BUILD_DIR}/hal_status.o \
+    ${BUILD_DIR}/tk8710_pps_api.o \
     ${BUILD_DIR}/phy_api.o \
     ${BUILD_DIR}/phy_irq.o \
     ${BUILD_DIR}/phy_regs.o \
@@ -444,6 +460,85 @@ done
 echo ""
 echo "创建示例程序..."
 
+if [ -f "test/example/test_tk8710_pps_api.c" ] && should_build "test_tk8710_pps_api"; then
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} \
+        test/example/test_tk8710_pps_api.c \
+        -L${BUILD_DIR} -ltk8710_hal_complete -lgpiod -lpthread -lm \
+        -o ${BUILD_DIR}/test_tk8710_pps_api
+    if [ $? -eq 0 ]; then
+        echo "✅ test_tk8710_pps_api 创建成功"
+    else
+        echo "❌ test_tk8710_pps_api 创建失败"
+        exit 1
+    fi
+fi
+
+if [ -f "test/example/test_tk8710_gw_gps.c" ] && should_build "test_tk8710_gw_gps"; then
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./test/example \
+        test/example/test_tk8710_gw_gps.c test/example/tk8710_gw_gps.c \
+        -L${BUILD_DIR} -ltk8710_hal_complete -lpthread -lgpiod \
+        -o ${BUILD_DIR}/test_tk8710_gw_gps
+    if [ $? -eq 0 ]; then
+        echo "test_tk8710_gw_gps created successfully"
+    else
+        echo "test_tk8710_gw_gps build failed"
+        exit 1
+    fi
+fi
+
+if [ -f "test/example/test_tk8710_gw_gps_protocol.c" ] && should_build "test_tk8710_gw_gps_protocol"; then
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./test/example \
+        test/example/test_tk8710_gw_gps_protocol.c test/example/tk8710_gw_gps.c \
+        -L${BUILD_DIR} -ltk8710_hal_complete -lpthread -lgpiod \
+        -o ${BUILD_DIR}/test_tk8710_gw_gps_protocol
+    if [ $? -eq 0 ]; then
+        echo "test_tk8710_gw_gps_protocol created successfully"
+    else
+        echo "test_tk8710_gw_gps_protocol build failed"
+        exit 1
+    fi
+fi
+
+if [ -f "test/example/test_tk8710_gw_gps_faults.c" ] && should_build "test_tk8710_gw_gps_faults"; then
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./test/example \
+        -DTK8710_GPS_TEST_HOOKS \
+        test/example/test_tk8710_gw_gps_faults.c test/example/tk8710_gw_gps.c \
+        -L${BUILD_DIR} -ltk8710_hal_complete -lpthread -lgpiod \
+        -o ${BUILD_DIR}/test_tk8710_gw_gps_faults
+    if [ $? -eq 0 ]; then
+        echo "test_tk8710_gw_gps_faults created successfully"
+    else
+        echo "test_tk8710_gw_gps_faults build failed"
+        exit 1
+    fi
+fi
+
+if [ -f "test/example/tk8710_gw_gps_device_test.c" ] && should_build "tk8710_gw_gps_device_test"; then
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./test/example \
+        test/example/tk8710_gw_gps_device_test.c test/example/tk8710_gw_gps.c \
+        -L${BUILD_DIR} -ltk8710_hal_complete -lpthread -lgpiod \
+        -o ${BUILD_DIR}/tk8710_gw_gps_device_test
+    if [ $? -eq 0 ]; then
+        echo "tk8710_gw_gps_device_test created successfully"
+    else
+        echo "tk8710_gw_gps_device_test build failed"
+        exit 1
+    fi
+fi
+
+if [ -f "test/example/tk8710_pps_test.c" ] && should_build "tk8710_pps_test"; then
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+        test/example/tk8710_pps_test.c \
+        -L${BUILD_DIR} -ltk8710_hal_complete -lgpiod -lpthread -lm \
+        -o ${BUILD_DIR}/tk8710_pps_test
+    if [ $? -eq 0 ]; then
+        echo "✅ tk8710_pps_test 创建成功"
+    else
+        echo "❌ tk8710_pps_test 创建失败"
+        exit 1
+    fi
+fi
+
 # 创建 test8710main_3506
 if [ -f "test/example/test8710main_3506.c" ] && should_build "test8710main_3506"; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -517,6 +612,7 @@ if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw"; then
     # 编译测试程序并链接验证器（单独包含IPC对象文件）
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
         test/example/tk8710_gw.c \
+        test/example/tk8710_gw_gps.c \
         ${BUILD_DIR}/trm_tx_validator.o \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
@@ -532,6 +628,22 @@ if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw"; then
     fi
 elif should_build "tk8710_gw"; then
     echo "⚠️  tk8710_gw 源文件不存在"
+fi
+
+if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw_gps_ns_test"; then
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
+        -DTK8710_GPS_TEST_HOOKS \
+        test/example/tk8710_gw.c test/example/tk8710_gw_gps.c \
+        test/example/trm_tx_validator.c ${BUILD_DIR}/tk8710_ipc_comm.o \
+        -L${BUILD_DIR} -ltk8710_hal_complete -L./lib -lipc_smp \
+        -Wl,-rpath,./lib -lpthread -lgpiod -lm \
+        -o ${BUILD_DIR}/tk8710_gw_gps_ns_test
+    if [ $? -eq 0 ]; then
+        echo "tk8710_gw_gps_ns_test created successfully"
+    else
+        echo "tk8710_gw_gps_ns_test build failed"
+        exit 1
+    fi
 fi
 
 # 创建 tk8710_gw_slave

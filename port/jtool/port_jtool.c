@@ -1140,3 +1140,43 @@ uint64_t TK8710GetTimeUs(void)
 #endif
 }
 
+int TK8710GetRandomBytes(uint8_t* data, size_t len)
+{
+#ifdef _WIN32
+    typedef BOOLEAN (WINAPI *RtlGenRandomFn)(PVOID, ULONG);
+    union {
+        FARPROC proc;
+        RtlGenRandomFn random;
+    } randomProvider;
+    HMODULE provider;
+    int ret = -1;
+
+    if (data == NULL && len > 0U) {
+        return -1;
+    }
+    if (len == 0U) {
+        return 0;
+    }
+    if (len > 0xFFFFFFFFUL) {
+        return -1;
+    }
+
+    provider = LoadLibraryA("advapi32.dll");
+    if (provider == NULL) {
+        return -1;
+    }
+
+    randomProvider.proc = GetProcAddress(provider, "SystemFunction036");
+    if (randomProvider.proc != NULL && randomProvider.random(data, (ULONG)len)) {
+        ret = 0;
+    }
+
+    FreeLibrary(provider);
+    return ret;
+#else
+    (void)data;
+    (void)len;
+    return -1;
+#endif
+}
+

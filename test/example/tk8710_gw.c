@@ -30,6 +30,10 @@
 #include "tk8710_ipc_comm.h"  /* 核间通信模块 */
 #include "tk8710_scan_ipc_server.h"  /* Web扫频IPC服务 */
 #include "tk8710_noise_api.h"           /* 噪底能量计算 API */
+#include "tk8710_gw_gps.h"
+#ifdef PLATFORM_RK3506
+#include "tk8710_gw_rf_status.h"
+#endif
 
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
@@ -54,6 +58,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 #define TK8710_CHDIR(path) chdir(path)
@@ -89,6 +94,83 @@ static volatile int g_init_error = 0;
 static volatile int g_fatal_error = 0;
 static uint8_t g_rf_tx_gain = 0x2a;
 static uint32_t g_reg_a064_value = 0x00044003u;
+static GwGpsManager g_gps_manager;
+static time_t g_last_gps_poll_time;
+
+static void SaveRfStatus(uint8_t abnormal_mask)
+{
+#ifdef PLATFORM_RK3506
+    static int last_saved_mask = -1;
+
+    if (last_saved_mask == abnormal_mask) return;
+    if (GwWriteRfStatus("/userdata/RFStatus", abnormal_mask) != 0) {
+        fprintf(stderr, "Cannot update /userdata/RFStatus/RFstatus.txt: %s\n",
+            strerror(errno));
+        return; /* Retry on the next poll; retain the last complete snapshot. */
+    }
+    last_saved_mask = abnormal_mask;
+#else
+    (void)abnormal_mask;
+#endif
+}
+
+static int ClearRuntimeStatusFiles(void)
+{
+#ifdef PLATFORM_RK3506
+    static const char* directories[] = {"/userdata/RFStatus", "/userdata/GPS"};
+    int result = 0;
+
+    /* All status producers must be stopped before removing their snapshots. */
+    for (size_t index = 0; index < sizeof(directories) / sizeof(directories[0]); ++index) {
+        const char* path = directories[index];
+        int fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        DIR* directory;
+        struct dirent* entry;
+        if (fd < 0) {
+            if (errno != ENOENT) {
+                fprintf(stderr, "Cannot open status directory %s: %s\n", path, strerror(errno));
+                result = -1;
+            }
+            continue;
+        }
+        directory = fdopendir(fd);
+        if (directory == NULL) {
+            fprintf(stderr, "Cannot read status directory %s: %s\n", path, strerror(errno));
+            close(fd);
+            result = -1;
+            continue;
+        }
+        for (;;) {
+            errno = 0;
+            entry = readdir(directory);
+            if (entry == NULL) {
+                if (errno != 0) {
+                    fprintf(stderr, "Cannot enumerate %s: %s\n", path, strerror(errno));
+                    result = -1;
+                }
+                break;
+            }
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+            /* Unlink files, including temporary files, without following symlinks. */
+            if (unlinkat(fd, entry->d_name, 0) != 0 && errno != ENOENT) {
+                fprintf(stderr, "Cannot remove %s/%s: %s\n",
+                    path, entry->d_name, strerror(errno));
+                result = -1;
+            }
+        }
+        if (closedir(directory) != 0) result = -1;
+    }
+    return result;
+#else
+    return 0;
+#endif
+}
+#ifdef TK8710_GPS_TEST_HOOKS
+static uint8_t g_test_ns_config;
+static uint8_t g_test_gps_scenario_set;
+static GwGpsTestScenario g_test_gps_scenario = GW_GPS_TEST_PASSTHROUGH;
+static const char* g_test_gps_run_id;
+#endif
 static TK8710LogLevel g_driver_log_level = TK8710_LOG_WARN;
 static TRMLogLevel g_trm_log_level = TRM_LOG_WARN;
 
@@ -441,8 +523,9 @@ static uint32_t g_trmSendCount = 0;               /* TRM发送计数 */
 static uint32_t g_trmRxCount = 0;                 /* TRM接收计数 */
 
 #define DRIVER_IRQ_STALL_TIMEOUT_SEC 120
-#define CONSOLE_POLL_INTERVAL_SEC 1
-#define CONFIG_APPLY_TIMEOUT_TICKS 600  /* 600 * 100 ms = 60 s */
+#define CONSOLE_POLL_INTERVAL_SEC 10
+#define CONFIG_APPLY_TIMEOUT_TICKS 4200  /* Includes GPS acquisition (up to 300 s). */
+#define GPS_RECOVERY_EXIT_CODE 2
 
 /* 核间通信上下文由 src/tk8710_ipc_comm.c 定义 */
 
@@ -585,6 +668,12 @@ static void PrintUsage(const char* prog_name)
     printf("  --reg-a064 <value>          : Set register 0xA064 (default: 0x00045003)\n");
     printf("  --driver-log-level <level>  : Driver log: none|error|warn|info|debug|trace|all\n");
     printf("  --trm-log-level <level>     : TRM log: none|error|warn|info|debug|trace\n");
+#ifdef TK8710_GPS_TEST_HOOKS
+    printf("  --test-ns-config            : Inject a fixed NS config for board testing\n");
+    printf("  --gps-test-scenario <name>  : passthrough|no-module|no-pps|"
+           "no-pps-then-recover\n");
+    printf("  --gps-test-run-id <id>      : Required by no-pps-then-recover\n");
+#endif
     printf("  --help, -h                 : Show this help\n");
 }
 
@@ -628,6 +717,33 @@ static int NormalizeRuntimeArgs(int* argc, char* argv[], const char** work_dir)
             PrintUsage(argv[0]);
             return 1;
         }
+
+#ifdef TK8710_GPS_TEST_HOOKS
+        if (strcmp(argv[arg_index], "--test-ns-config") == 0) {
+            g_test_ns_config = 1;
+            continue;
+        }
+        if (strcmp(argv[arg_index], "--gps-test-scenario") == 0) {
+            if (arg_index + 1 >= *argc ||
+                GwGpsTestParseScenario(argv[arg_index + 1], &g_test_gps_scenario) != 0) {
+                printf("Error: --gps-test-scenario requires a valid scenario name\n");
+                PrintUsage(argv[0]);
+                return -1;
+            }
+            g_test_gps_scenario_set = 1;
+            arg_index++;
+            continue;
+        }
+        if (strcmp(argv[arg_index], "--gps-test-run-id") == 0) {
+            if (arg_index + 1 >= *argc) {
+                printf("Error: --gps-test-run-id requires an identifier\n");
+                PrintUsage(argv[0]);
+                return -1;
+            }
+            g_test_gps_run_id = argv[++arg_index];
+            continue;
+        }
+#endif
 
         if (strcmp(argv[arg_index], "--work-dir") == 0 || strcmp(argv[arg_index], "-w") == 0) {
             if (arg_index + 1 >= *argc) {
@@ -1032,6 +1148,8 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
     slotCfg_t slotCfg;
     memset(&slotCfg, 0, sizeof(slotCfg_t));
     slotCfg.msMode = TK8710_MODE_MASTER;
+    slotCfg.local_sync = TK8710_SYNC_MODE_LOCAL;
+    GwGpsUseLocalWithoutRecovery(&g_gps_manager);
     slotCfg.plCrcEn = 0;
     slotCfg.brdUserNum = 1;
     slotCfg.antEn = 0xFF;
@@ -1129,11 +1247,90 @@ static int DoFrequencySweep(uint32_t start_freq, uint32_t end_freq, int sweep_mo
  * @param config NS配置数据
  * @return 0成功，负数失败
  */
+static int RandomizeBcnRotation(slotCfg_t* slot_config)
+{
+    unsigned int seed;
+    unsigned int random_state;
+
+    if (TK8710GetRandomBytes((uint8_t*)&seed, sizeof(seed)) != 0) {
+        fprintf(stderr, "Failed to obtain BCN rotation random seed\n");
+        return -1;
+    }
+    random_state = seed;
+    for (unsigned int index = 0; index < TK8710_MAX_ANTENNAS; ++index) {
+        slot_config->bcnRotation[index] = (uint8_t)index;
+    }
+    /* Local PRNG state avoids changing random sequences in other threads. */
+    for (unsigned int count = TK8710_MAX_ANTENNAS; count > 1; --count) {
+        unsigned int value;
+        unsigned int range = (unsigned int)RAND_MAX + 1u;
+        unsigned int limit = range - range % count;
+        do {
+            value = (unsigned int)rand_r(&random_state);
+        } while (value >= limit);
+        unsigned int selected = value % count;
+        uint8_t antenna = slot_config->bcnRotation[count - 1];
+        slot_config->bcnRotation[count - 1] = slot_config->bcnRotation[selected];
+        slot_config->bcnRotation[selected] = antenna;
+    }
+    printf("BCN rotation seed=%u table[0..7]=", seed);
+    for (unsigned int index = 0; index < TK8710_MAX_ANTENNAS; ++index) {
+        printf("%s%u", index == 0 ? "" : ",", slot_config->bcnRotation[index]);
+    }
+    printf("\n");
+    return 0;
+}
+
 static int ApplyNsConfig(const NsConfigDown_t* config) {
     uint8_t network_id;
+    uint8_t use_external_sync = 0;
+    int slot_calc_ok;
+    uint32_t pps_period_s = 0;
 
     if (!config) {
         return -1;
+    }
+    if (config->gps_enable != 0 && config->gps_enable != 1) return -1;
+    {
+        char process_stat[2048] = {0};
+        unsigned long long start_ticks = 0;
+        FILE *proc = fopen("/proc/self/stat", "r");
+        if (proc) {
+            if (fgets(process_stat, sizeof(process_stat), proc)) {
+                char *cursor = strrchr(process_stat, ')');
+                if (cursor) {
+                    ++cursor;
+                    for (int field = 3; field < 22; ++field) {
+                        while (*cursor == ' ') ++cursor;
+                        while (*cursor && *cursor != ' ') ++cursor;
+                    }
+                    start_ticks = strtoull(cursor, NULL, 10);
+                }
+            }
+            fclose(proc);
+        }
+        FILE *state = start_ticks ? fopen("/var/run/tk8710_gps_policy.tmp", "w") : NULL;
+        if (state) {
+            fprintf(state, "%ld %d %llu\n", (long)getpid(), config->gps_enable, start_ticks);
+            if (fclose(state) == 0)
+                rename("/var/run/tk8710_gps_policy.tmp", "/var/run/tk8710_gps_policy");
+        }
+    }
+    GwGpsClose(&g_gps_manager);
+    GwGpsUseLocalWithoutRecovery(&g_gps_manager);
+    if (config->gps_enable) {
+        GwGpsPolicy policy;
+        TK8710PpsConfig pps;
+        char version[TK8710_PPS_DIAG_TEXT_MAX];
+        GwGpsGetDefaultPolicy(&policy);
+        if (TK8710PpsGetDefaultConfig(&pps) != TK8710_PPS_OK ||
+            GwGpsStartup(&g_gps_manager, &pps, &policy, &g_running, version, sizeof(version)) != 0 ||
+            g_gps_manager.mode != GW_GPS_MODE_EXTERNAL_READY) {
+            fprintf(stderr, "FATAL: NS gps_enable=1 but GPS is unavailable/unhealthy; refusing business startup\n");
+            return -1;
+        }
+    } else {
+        printf("NS gps_enable=0: GPS disabled, local synchronization required\n");
     }
 
     g_ns_config_started = 0;
@@ -1177,6 +1374,9 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
             printf("TK8710 full reset failed before reconfiguration: %d\n", ret);
             return TK8710_HAL_ERROR_RESET;
         }
+
+        TK8710ResetIrqCounters();
+        printf("Driver IRQ counters reset before reconfiguration\n");
 
         // TK8710GpioIrqEnable(0, 0);
         
@@ -1267,6 +1467,7 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     
     // 配置基本参数
     slotCfg.msMode = TK8710_MODE_MASTER;
+    slotCfg.local_sync = TK8710_SYNC_MODE_LOCAL;
     slotCfg.plCrcEn = 0;
     slotCfg.brdUserNum = 1;
     slotCfg.antEn = 0xFF;
@@ -1279,9 +1480,8 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     slotCfg.brdFreq[0] = 20000.0;
     slotCfg.frameTimeLen = 0;
     
-    // 配置BCN轮流发送
-    for (int i = 0; i < TK8710_MAX_ANTENNAS; i++) {
-        slotCfg.bcnRotation[i] = i;
+    if (RandomizeBcnRotation(&slotCfg) != 0) {
+        return -1;
     }
     
     // 根据NS配置设置速率模式
@@ -1317,7 +1517,8 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     
     // 使用多速率时隙计算函数计算gap参数
     TRM_MultiRateSlotCalcOutput multiSlotOutput;
-    if (trm_calc_multi_rate_slot_config(&multiSlotInput, &multiSlotOutput) == 0) {
+    slot_calc_ok = trm_calc_multi_rate_slot_config(&multiSlotInput, &multiSlotOutput) == 0;
+    if (slot_calc_ok) {
         printf("✅ 多速率时隙计算成功！总原始周期: %u us, 调整后周期: %u us, 添加gap: %u us\n", 
                multiSlotOutput.totalRawPeriod, multiSlotOutput.framePeriod, multiSlotOutput.addedGap);
         
@@ -1341,6 +1542,34 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
             slotCfg.s3Cfg[i].da_m = 12000;
         }
     }
+
+    if (slot_calc_ok && GwGpsPeriodFromSlotCalc(&multiSlotOutput, &pps_period_s) != 0) {
+        fprintf(stderr,
+                "Invalid PPS period from slot calculator: framePeriod=%u frameCount=%u\n",
+                multiSlotOutput.framePeriod, multiSlotOutput.frameCount);
+        slot_calc_ok = 0;
+    }
+    printf("GPS/PPS mode before NS synchronization setup: %s\n",
+           GwGpsModeName(g_gps_manager.mode));
+    if (config->gps_enable && slot_calc_ok && GwGpsCanConfigurePeriod(&g_gps_manager)) {
+        printf("Configuring GPS/PPS period from slot calculator: %u s\n", pps_period_s);
+        if (GwGpsConfigurePeriod(&g_gps_manager, pps_period_s) == 0) {
+            use_external_sync = 1;
+        } else {
+            if (!g_running) {
+                return -1;
+            }
+            fprintf(stderr, "FATAL: mandatory GPS/PPS alignment failed\n");
+            return -1;
+        }
+    } else if (config->gps_enable) {
+        fprintf(stderr, "FATAL: mandatory GPS/PPS period unavailable\n");
+        return -1;
+    }
+    slotCfg.local_sync = use_external_sync ?
+        TK8710_SYNC_MODE_EXTERNAL : TK8710_SYNC_MODE_LOCAL;
+    printf("TK8710 synchronization source: %s\n",
+           use_external_sync ? "external GPS/PPS" : "local");
     
     // 配置时隙长度和频点
     for (int i = 0; i < config->rate_num && i < MAX_RATE_CFGS; i++) {
@@ -1399,10 +1628,13 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
 }
 
 /* IPC接收线程通过此包装函数把配置结果同步给main。 */
+static NsConfigDown_t g_applied_ns_config;
+static int g_applied_ns_valid;
 static int HandleNsConfig(const NsConfigDown_t* config)
 {
     int ret;
 
+    TK8710ScanConfigLock();
     g_init_state = GW_INIT_IN_PROGRESS;
     g_init_error = 0;
 
@@ -1410,14 +1642,44 @@ static int HandleNsConfig(const NsConfigDown_t* config)
     if (ret != 0) {
         g_init_error = ret;
         g_init_state = GW_INIT_FAILED;
-        g_fatal_error = 1;
-        g_running = 0;
-        printf("Fatal: NS configuration failed: %d; requesting program shutdown.\n", ret);
+        if (g_running) {
+            g_fatal_error = 1;
+            g_running = 0;
+            printf("Fatal: NS configuration failed: %d; requesting program shutdown.\n", ret);
+        }
+        TK8710ScanConfigUnlock();
         return ret;
     }
 
+    g_last_gps_poll_time = time(NULL);
+    g_applied_ns_config = *config;
+    g_applied_ns_valid = 1;
     g_init_state = GW_INIT_SUCCESS;
+    TK8710ScanConfigUnlock();
     return 0;
+}
+
+static NsConfigDown_t g_pre_scan_config;
+static int g_pre_scan_valid;
+static int StartManagedScan(uint32_t start, uint32_t end, int mode)
+{
+    g_pre_scan_valid = g_applied_ns_valid;
+    if (!g_pre_scan_valid) return -1;
+    g_pre_scan_config = g_applied_ns_config;
+    g_init_state = GW_INIT_IN_PROGRESS;
+    return DoFrequencySweep(start, end, mode);
+}
+static int RestoreManagedScan(void)
+{
+    if (!g_pre_scan_valid) return 0;
+    if (!g_running) { g_pre_scan_valid = 0; return 0; }
+    int ret = ApplyNsConfig(&g_pre_scan_config);
+    g_pre_scan_valid = 0;
+    g_init_state = ret == 0 ? GW_INIT_SUCCESS : GW_INIT_FAILED;
+    g_last_gps_poll_time = time(NULL);
+    if (ret) { g_fatal_error = 1; g_running = 0; }
+    printf("[Scan] business configuration restore ret=%d\n", ret);
+    return ret;
 }
 
 /*============================================================================
@@ -1696,7 +1958,7 @@ static void start_frequency_sweep_from_console(void)
 
     printf("[Sweep] Starting: start=%u Hz, end=%u Hz, mode=%d (500 kHz step)\n",
            start_freq, end_freq, sweep_mode);
-    ret = DoFrequencySweep(start_freq, end_freq, sweep_mode);
+    ret = TK8710ScanSubmit(start_freq, end_freq, sweep_mode);
     if (ret != 0) {
         printf("[Sweep] Start failed: ret=%d\n", ret);
     }
@@ -1705,6 +1967,43 @@ static void start_frequency_sweep_from_console(void)
 /**
  * @brief 主函数
  */
+static int PublishGatewayVersion(void)
+{
+#ifndef _WIN32
+    char buffer[4096];
+    unsigned long long ticks = 0;
+    FILE *fp = fopen("/proc/self/stat", "r");
+    if (!fp) return -1;
+    if (fgets(buffer, sizeof(buffer), fp)) {
+        char *p = strrchr(buffer, ')');
+        if (p) {
+            ++p;
+            for (int field = 3; field < 22; ++field) {
+                while (*p == ' ') ++p;
+                while (*p && *p != ' ') ++p;
+            }
+            ticks = strtoull(p, NULL, 10);
+        }
+    }
+    fclose(fp);
+    if (!ticks) return -1;
+    if (mkdir("/var/run/tk8710_gw", 0755) && errno != EEXIST) return -1;
+    char temporary[128];
+    snprintf(temporary, sizeof(temporary), "/var/run/tk8710_gw/version.%ld.tmp", (long)getpid());
+    fp = fopen(temporary, "w");
+    if (!fp) return -1;
+    int failed = fprintf(fp, "version=%s\npid=%ld\nstart_ticks=%llu\n",
+                         TK8710_GW_VERSION_STRING, (long)getpid(), ticks) < 0;
+    if (fflush(fp) || fsync(fileno(fp))) failed = 1;
+    if (fclose(fp)) failed = 1;
+    if (!failed && rename(temporary, "/var/run/tk8710_gw/version.txt")) failed = 1;
+    if (failed) unlink(temporary);
+    return failed ? -1 : 0;
+#else
+    return 0;
+#endif
+}
+
 int main(int argc, char* argv[])
 {
     char input;
@@ -1719,6 +2018,15 @@ int main(int argc, char* argv[])
     if (ConfigureRuntimeDirectory(work_dir) != 0) {
         return 1;
     }
+    if (PublishGatewayVersion() != 0)
+        fprintf(stderr, "Warning: unable to publish gateway version file\n");
+#ifdef TK8710_GPS_TEST_HOOKS
+    if ((g_test_gps_scenario_set || g_test_gps_run_id != NULL) &&
+        GwGpsTestSetScenario(g_test_gps_scenario, g_test_gps_run_id) != 0) {
+        fprintf(stderr, "Error: invalid GPS test scenario/run-id combination\n");
+        return 1;
+    }
+#endif
     printf("RF TX gain: 0x%02X\n", g_rf_tx_gain);
     printf("Register 0xA064 value: 0x%08X\n", g_reg_a064_value);
     printf("Driver log level: %s\n", DriverLogLevelName(g_driver_log_level));
@@ -1750,21 +2058,51 @@ int main(int argc, char* argv[])
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 #endif
+
+    SaveRfStatus(0);
+    GwGpsUseLocalWithoutRecovery(&g_gps_manager);
+    printf("Waiting for explicit NS gps_enable policy before GPS startup\n");
+
+#ifdef TK8710_GPS_TEST_HOOKS
+    if (g_test_ns_config) {
+        NsConfigDown_t test_config;
+
+        memset(&test_config, 0, sizeof(test_config));
+        test_config.msg_type = MSG_TYPE_NS_CONFIG_DOWN;
+        test_config.freq = 477808000;
+        test_config.nwk_num = 1;
+        test_config.tdd_num = 1;
+        test_config.slot_cfg = 0;
+        test_config.rate_num = 1;
+        test_config.rate_cfgs[0].rate = 3;
+        test_config.rate_cfgs[0].uplink_pkt = 2;
+        test_config.rate_cfgs[0].downlink_pkt = 2;
+        printf("TEST HOOK: injecting fixed NS configuration\n");
+        if (HandleNsConfig(&test_config) != 0) {
+            exit_code = 1;
+            goto shutdown;
+        }
+        goto runtime_loop;
+    }
+#endif
     
     /* 6. 启动核间通信 */
     printf("启动核间通信...\n");
     
     // 设置配置处理回调函数
     IpcCommSetConfigHandler(HandleNsConfig);
+    TK8710ScanSetHandlers(StartManagedScan, RestoreManagedScan);
     
     if (IpcCommInit(&g_ipc_ctx) != 0) {
         printf("核间通信初始化失败\n");
-        return -1;
+        exit_code = 1;
+        goto shutdown;
     }
     if (IpcCommStart(&g_ipc_ctx) != 0) {
         printf("核间通信启动失败\n");
         IpcCommCleanup(&g_ipc_ctx);
-        return -1;
+        exit_code = 1;
+        goto shutdown;
     }
     ipc_started = 1;
     printf("核间通信已启动，等待配置消息...\n");
@@ -1818,195 +2156,61 @@ int main(int argc, char* argv[])
     }
 
     if (!IpcCommIsConfigReceived()) {
-        g_init_state = GW_INIT_IN_PROGRESS;
-        printf("⚠️  已请求10次仍未收到配置消息，使用默认配置继续\n");
-        // 使用默认配置进行时隙配置
-            /* ========== 使用 HAL API 进行初始化 ========== */
-        /* 1. 准备RF配置 */
-        static ChiprfConfig rfConfig = {
-            .rftype = TK8710_RF_TYPE_1255_1M,
-            .Freq = 483800000,
-            .rxgain = 0x7e,
-            .txgain = 0x2a,
-            // .txadc = {//C号板
-            //     {0x0bc0, 0x04a0}, {0x0a50, 0x0780}, {0x0750, 0x0820}, {0x0bc3, 0x0940},
-            //     {0x0e83, 0x05e0}, {0xfbff, 0x0850}, {0x0880, 0x0500}, {0x02a0, 0x06ff}
-            // }
-            // .txadc = {//2号板
-            //     {0x0c90, 0x1190}, {0xfe30, 0x0220}, {0x0210, 0x01a0}, {0x0b70, 0x07b0},
-            //     {0x03ae, 0x0980}, {0x0740, 0x0990}, {0x0930, 0x0680}, {0x0df0, 0x0190}
-            // }
-        };
-        rfConfig.txgain = g_rf_tx_gain;
-        
-        /* 2. 准备芯片配置 (与原 init_tk8710_chip 配置一致) */
-        ChipConfig chipConfig = {
-            .bcn_agc     = 32,
-            .interval    = 32,
-            .tx_dly      = 0,
-            .tx_fix_info = 0,
-            .offset_adj  = 0,
-            .tx_pre      = 0,
-            .conti_mode  = 1,
-            .bcn_scan    = 0,
-            .ant_en      = 0xFF,
-            .rf_sel      = 0xFF,
-            .tx_bcn_en   = 1,
-            .ts_sync     = 0,
-            .rf_model    = 1,
-            .bcnbits     = 0,
-            .anoiseThe1  = 0,
-            .power2rssi  = 0,
-            .irq_ctrl0   = 0x7FF,
-            .irq_ctrl1   = 0,
-            .spiConfig   = NULL,
-            .rfConfig    = (struct ChiprfConfig_s*)&rfConfig  /* RF配置在TK8710Init中自动调用 */
-        };
-        
-        /* 3. 准备TRM配置 (与原 init_trm_system 配置一致) */
-        TRM_InitConfig trmConfig;
-        memset(&trmConfig, 0, sizeof(trmConfig));
-        trmConfig.beamMode = TRM_BEAM_MODE_FULL_STORE;
-        trmConfig.beamMaxUsers = 3000;
-        trmConfig.beamTimeoutMs = 10000;
-        trmConfig.callbacks.onRxData = OnTrmRxData;
-        trmConfig.callbacks.onTxComplete = OnTrmTxComplete;
-        trmConfig.maxFrameCount = 2;
-        /* 4. 准备HAL初始化配置 */
-        TK8710HalInitCfg halConfig = {
-            .chipInitCfg = &chipConfig,
-            .trmCfg = {
-                .beamMaxUsers = trmConfig.beamMaxUsers,
-                .beamTimeoutMs = trmConfig.beamTimeoutMs,
-                .maxFrameCount = trmConfig.maxFrameCount,
-                .onRxData = trmConfig.callbacks.onRxData,
-                .onTxComplete = trmConfig.callbacks.onTxComplete
-            }
-        };
-        /* 5. 调用 TK8710HalInit 完成芯片、RF、日志、TRM初始化 */
-        printf("Initializing HAL (chip + RF + log + TRM)...\n");
-        TK8710HalError halRet = TK8710HalInit(&halConfig);
-        ApplyRuntimeLogLevels();
-        if (halRet != TK8710_HAL_OK) {
-            printf("HAL initialization failed: %d\n", halRet);
-            g_init_error = halRet;
-            g_init_state = GW_INIT_FAILED;
-            exit_code = 1;
-            goto shutdown;
-        }
-        g_hal_initialized = 1;
-
-        printf("HAL initialization completed (including RF)\n");
-
-        if (ConfigureRegA064() != TK8710_OK) {
-            g_init_error = -1;
-            g_init_state = GW_INIT_FAILED;
-            exit_code = 1;
-            goto shutdown;
-        }
-        slotCfg_t slotCfg;
-        memset(&slotCfg, 0, sizeof(slotCfg_t));
-        
-        // 配置基本参数 (使用默认值)
-        slotCfg.msMode = TK8710_MODE_MASTER;
-        slotCfg.plCrcEn = 0;
-        slotCfg.brdUserNum = 1;
-        slotCfg.antEn = 0xFF;
-        slotCfg.rfSel = 0xFF;
-        slotCfg.txBeamCtrlMode = 1;
-        g_txBeamCtrlMode = (slotCfg.txBeamCtrlMode == 0);
-        slotCfg.txBcnAntEn = 0xff;
-        slotCfg.rx_delay = 0;
-        slotCfg.md_agc = 1024;
-        slotCfg.brdFreq[0] = 20000.0;
-        slotCfg.frameTimeLen = 0;
-        
-        // 配置BCN轮流发送
-        for (int i = 0; i < TK8710_MAX_ANTENNAS; i++) {
-            slotCfg.bcnRotation[i] = i;
-        }
-        
-        // 使用默认单速率配置
-        slotCfg.rateCount = 1;
-        slotCfg.rateModes[0] = TK8710_RATE_MODE_8;
-        slotCfg.s0Cfg[0].byteLen = 0;
-        slotCfg.s0Cfg[0].centerFreq = 483800000;
-        slotCfg.s1Cfg[0].byteLen = 52;
-        slotCfg.s1Cfg[0].centerFreq = 483800000;
-        slotCfg.s2Cfg[0].byteLen = 26;
-        slotCfg.s2Cfg[0].centerFreq = 483800000;
-        slotCfg.s3Cfg[0].byteLen = 26;
-        slotCfg.s3Cfg[0].centerFreq = 483800000;
-        switch (slotCfg.rateModes[0]) {
-            case TK8710_RATE_MODE_5:
-                slotCfg.s1Cfg[0].da_m = 21492;
-                slotCfg.s2Cfg[0].da_m = 21492;
-                slotCfg.s3Cfg[0].da_m = 21492;
-                break;
-            case TK8710_RATE_MODE_6:
-                slotCfg.s1Cfg[0].da_m = 19728;
-                slotCfg.s2Cfg[0].da_m = 19728;
-                slotCfg.s3Cfg[0].da_m = 19728;
-                break;
-            case TK8710_RATE_MODE_7:
-                slotCfg.s1Cfg[0].da_m = 12000;
-                slotCfg.s2Cfg[0].da_m = 12000;
-                slotCfg.s3Cfg[0].da_m = 12000;
-                break;
-            case TK8710_RATE_MODE_8:
-                slotCfg.s1Cfg[0].da_m = 5600;
-                slotCfg.s2Cfg[0].da_m = 5600;
-                slotCfg.s3Cfg[0].da_m = 5600;
-                break;
-            default:
-                slotCfg.s1Cfg[0].da_m = 12000;
-                slotCfg.s2Cfg[0].da_m = 12000;
-                slotCfg.s3Cfg[0].da_m = 12000;
-                break;
-        }
-        
-        TK8710HalError halRet_config = TK8710HalCfg(&slotCfg);
-        if (halRet_config != TK8710_HAL_OK) {
-            printf("HAL config (slot) failed: %d\n", halRet_config);
-            g_init_error = halRet_config;
-            g_init_state = GW_INIT_FAILED;
-            exit_code = 1;
-            goto shutdown;
-        }
-        printf("使用默认配置完成时隙参数配置\n");
-
-        /* 12. 调用 TK8710HalStart 启动工作 */
-        TK8710HalError halRet_start = TK8710HalStart();
-        if (halRet_start != TK8710_HAL_OK) {
-            printf("HAL start failed: %d\n", halRet_start);
-            g_init_error = halRet_start;
-            g_init_state = GW_INIT_FAILED;
-            exit_code = 1;
-            goto shutdown;
-        }
-        printf("HAL started successfully (Master mode, Continuous work)\n");
-        g_ns_config_started = 1;
-        g_init_state = GW_INIT_SUCCESS;
-        if (!TK8710ScanIpcServerIsRunning()) {
-            if (TK8710ScanIpcServerStart() == 0) {
-                printf("Web扫频IPC服务已启动: /tmp/data_collect.sock\n");
-            } else {
-                printf("Web扫频IPC服务启动失败，Web侧无法触发扫频\n");
-            }
-        }
+        fprintf(stderr, "FATAL: missing explicit NS GPS policy; refusing default business startup\n");
+        exit_code = 1;
+        goto shutdown;
 
     } else {
         printf("✅ 已收到并处理配置消息\n");
     }
     
+#ifdef TK8710_GPS_TEST_HOOKS
+runtime_loop:
+#endif
     /* 8. 主循环 - 等待中断并进行中断处理 */
     while (g_running) {
         uint8_t abnormal_rf_mask = 0;
         uint8_t abnormal_rf_count = 0;
+        time_t now = time(NULL);
+
+        if (g_init_state == GW_INIT_IN_PROGRESS) {
+            usleep(100000);
+            continue;
+        }
 
         if (TK8710GetAbnormalRfChannelStatus(&abnormal_rf_mask,
-                                             &abnormal_rf_count) == TK8710_OK &&
-            abnormal_rf_count >= 3) {
+                &abnormal_rf_count) == TK8710_OK) {
+            SaveRfStatus(abnormal_rf_mask);
+        }
+
+        if (g_last_gps_poll_time == 0 ||
+            difftime(now, g_last_gps_poll_time) >= CONSOLE_POLL_INTERVAL_SEC) {
+            GwGpsAction gps_action;
+
+            g_last_gps_poll_time = now;
+            TK8710ScanConfigLock();
+            gps_action = GwGpsPoll(&g_gps_manager);
+            TK8710ScanConfigUnlock();
+            if (gps_action == GW_GPS_ACTION_FATAL_EXIT) {
+                fprintf(stderr,
+                        "FATAL: GPS/PPS remained unhealthy for %u consecutive checks\n",
+                        g_gps_manager.policy.consecutive_limit);
+                g_fatal_error = 1;
+                exit_code = 1;
+                g_running = 0;
+                break;
+            }
+            if (gps_action == GW_GPS_ACTION_RESTART_EXIT) {
+                fprintf(stderr,
+                        "GPS/PPS recovered for %u consecutive checks; requesting restart\n",
+                        g_gps_manager.policy.consecutive_limit);
+                exit_code = GPS_RECOVERY_EXIT_CODE;
+                g_running = 0;
+                break;
+            }
+        }
+
+        if (abnormal_rf_count >= 3) {
             fprintf(stderr,
                     "FATAL: %u RF channels are abnormal (mask=0x%02X); "
                     "stopping gateway safely.\n",
@@ -2156,7 +2360,12 @@ shutdown:
     }
     printf("核间通信已停止\n");
 
+    GwGpsClose(&g_gps_manager);
     TK8710HalReset();
+    if (ClearRuntimeStatusFiles() != 0) {
+        fprintf(stderr, "Runtime status cleanup incomplete\n");
+        if (exit_code == 0) exit_code = 1;
+    }
     
     printf("Program ended\n");
     return exit_code;

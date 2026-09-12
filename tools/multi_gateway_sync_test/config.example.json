@@ -1,0 +1,86 @@
+{
+  "mqtt": {
+    "host": "47.92.195.235",
+    "port": 41883,
+    "username": "admin",
+    "password_env": "TK8710_SYNC_MQTT_PASSWORD",
+    "topic_up": "uplink/huangjh/test",
+    "topic_down": "downlink/huangjh/test",
+    "timeout_seconds": 10
+  },
+  "radio": {
+    "freq_major": 7,
+    "freq_minor": 6
+  },
+  "gateways": [
+    {
+      "name": "gw04",
+      "gw_id": "0499999999999999",
+      "host": "192.168.200.106",
+      "nwk_num": 2,
+      "ssh_port": 22,
+      "ssh_user": "root",
+      "ssh_password_env": "TK8710_SYNC_SSH_PASSWORD",
+      "log_mode": "attach",
+      "process_name": "tk8710_gw",
+      "gateway_start_wait_seconds": 5,
+      "trm_log_dir": "/userdata/8710log",
+      "stop_command": "for pid in $(pidof tk8710_gw 2>/dev/null); do kill -TERM $pid; done; true",
+      "start_command": "/userdata/tk8710_gw -w /userdata/ -g 0x2e --driver-log-level warn --trm-log-level info"
+    },
+    {
+      "name": "gw05",
+      "gw_id": "0599999999999999",
+      "host": "192.168.100.63",
+      "nwk_num": 3,
+      "ssh_port": 22,
+      "ssh_user": "root",
+      "ssh_password_env": "TK8710_SYNC_SSH_PASSWORD",
+      "log_mode": "attach",
+      "process_name": "tk8710_gw",
+      "gateway_start_wait_seconds": 5,
+      "trm_log_dir": "/userdata/8710log",
+      "stop_command": "for pid in $(pidof tk8710_gw 2>/dev/null); do kill -TERM $pid; done; true",
+      "start_command": "/userdata/tk8710_gw -w /userdata/ -g 0x2e --driver-log-level warn --trm-log-level info"
+    }
+  ],
+  "terminal": {
+    "port": "COM14",
+    "baudrate": 115200,
+    "dev_eui": "0000000000000003",
+    "freq_major": 7,
+    "freq_minor": 6,
+    "fixed_frequency_slot": [496800000, 496820000, 496828000, 1],
+    "dev_mode": 0,
+    "security_mode": 0,
+    "root_key_env": "TK8710_SYNC_ROOT_KEY",
+    "related_id": "",
+    "power_control": 0,
+    "tx_power": 15,
+    "configuration_attempts": 3,
+    "reset_before_combination": true,
+    "reset_wait_seconds": 3,
+    "join_timeout_seconds": 120,
+    "ack_timeout_seconds": 120
+  },
+  "timing": {
+    "gps_sync_wait_seconds": 30,
+    "mqtt_uplink_wait_seconds": 10,
+    "mqtt_post_first_wait_seconds": 1,
+    "log_settle_seconds": 2
+  },
+  "execution": {
+    "packets_per_combination": 10,
+    "combination_success_threshold": 0.70,
+    "payload_bytes": 30,
+    "continue_on_failure": true
+  },
+  "case6_rate_groups": [
+    [5, 6, 7, 8],
+    [9, 10, 11, 18],
+    [6, 7, 8],
+    [10, 11, 18],
+    [7, 8],
+    [11, 18]
+  ]
+}

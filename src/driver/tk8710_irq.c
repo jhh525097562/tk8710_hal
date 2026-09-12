@@ -222,35 +222,38 @@ static void _tk8710_check_anoise_channels(void)
     }
 }
 
-static int TK8710PadTxUserData(TK8710TxBuffer* txBuffer, uint8_t userIndex, uint16_t expectedLen)
+static int TK8710PadTxData(uint8_t** data, uint16_t* dataLen, const char* dataType,
+                           uint8_t index, uint16_t expectedLen)
 {
     uint16_t oldLen;
     uint8_t* newData;
 
-    if (txBuffer == NULL || txBuffer->data == NULL) {
+    if (data == NULL || dataLen == NULL || *data == NULL || dataType == NULL) {
         return TK8710_ERR_PARAM;
     }
 
-    oldLen = txBuffer->dataLen;
+    oldLen = *dataLen;
     if (oldLen >= expectedLen) {
         return TK8710_OK;
     }
 
-    newData = realloc(txBuffer->data, expectedLen);
+    newData = realloc(*data, expectedLen);
     if (newData == NULL) {
-        TK8710_LOG_IRQ_ERROR("Failed to pad user[%d] TX data: actual=%d, expected=%d",
-                            userIndex, oldLen, expectedLen);
+        TK8710_LOG_IRQ_ERROR("Failed to pad %s[%d] TX data: actual=%d, expected=%d",
+                            dataType, index, oldLen, expectedLen);
         return TK8710_ERR;
     }
 
-    for (uint16_t i = oldLen; i < expectedLen; i++) {
-        newData[i] = rand() % 255; /* 填充随机数据 */
+    *data = newData;
+    if (TK8710GetRandomBytes(newData + oldLen, expectedLen - oldLen) != 0) {
+        TK8710_LOG_IRQ_ERROR("Failed to generate random padding for %s[%d]: length=%d",
+                            dataType, index, expectedLen - oldLen);
+        return TK8710_ERR;
     }
 
-    txBuffer->data = newData;
-    txBuffer->dataLen = expectedLen;
-    TK8710_LOG_IRQ_DEBUG("User[%d] TX data padded with random bytes: actual=%d, expected=%d",
-                         userIndex, oldLen, expectedLen);
+    *dataLen = expectedLen;
+    TK8710_LOG_IRQ_DEBUG("%s[%d] TX data padded with random bytes: actual=%d, expected=%d",
+                         dataType, index, oldLen, expectedLen);
 
     return TK8710_OK;
 }
@@ -1968,7 +1971,8 @@ static void tk8710_s1_auto_tx_process(void)
             
             /* 检查数据长度 */
             if (dataLen < expectedLen) {
-                if (TK8710PadTxUserData(&g_txBuffers[i], userIndex, expectedLen) != TK8710_OK) {
+                if (TK8710PadTxData(&g_txBuffers[i].data, &g_txBuffers[i].dataLen, "user",
+                                    userIndex, expectedLen) != TK8710_OK) {
                     errorCount++;
                     continue;
                 }
@@ -2517,6 +2521,7 @@ static void tk8710_s1_manual_tx_process(void)
     if (hasBroadcast) {
         uint8_t brdSuccessCount = 0;
         uint8_t brdErrorCount = 0;
+        uint16_t expectedLen = slotCfg->s1Cfg[g_irqResult.currentRateIndex].byteLen;
         
         /* 发送所有有效的广播数据 */
         for (uint8_t i = 0; i < 16; i++) {
@@ -2525,7 +2530,17 @@ static void tk8710_s1_manual_tx_process(void)
                 uint8_t* brdData = g_brdBuffers[i].data;
                 uint16_t dataLen = g_brdBuffers[i].dataLen;
                 uint8_t userIndex = 128 + brdIndex;  /* 广播用户索引从128开始 */
-                
+
+                if (dataLen < expectedLen) {
+                    if (TK8710PadTxData(&g_brdBuffers[i].data, &g_brdBuffers[i].dataLen,
+                                        "broadcast", brdIndex, expectedLen) != TK8710_OK) {
+                        brdErrorCount++;
+                        continue;
+                    }
+                    brdData = g_brdBuffers[i].data;
+                    dataLen = expectedLen;
+                }
+
                 /* 发送广播数据 */
                 int ret = TK8710WriteBuffer(userIndex, brdData, dataLen);
                 if (ret == TK8710_OK) {
@@ -2583,10 +2598,7 @@ static void tk8710_s1_manual_tx_process(void)
         uint8_t totalBrdUsers = slotCfg->brdUserNum + slot3SharedBrdCount;
         brdUserVal.data = 0;
         brdUserVal.b.brd_user_val = (1 << totalBrdUsers) - 1;
-        
-        TK8710_LOG_IRQ_DEBUG("Broadcast user valid: brdUserNum=%d, slot3SharedBrdCount=%d, total=%d, val=0x%04X",
-                            slotCfg->brdUserNum, slot3SharedBrdCount, totalBrdUsers, brdUserVal.b.brd_user_val);
-        
+
         int ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_17), brdUserVal.data);
         if (ret != TK8710_OK) {
             TK8710_LOG_IRQ_ERROR("Failed to configure broadcast user valid bits (init_17)");
@@ -2638,7 +2650,9 @@ static void tk8710_s1_manual_tx_process(void)
                 
                 /* 检查数据长度 */
                 if (dataLen < expectedLen) {
-                    if (TK8710PadTxUserData(&g_txBuffers[origUserIndex], origUserIndex, expectedLen) != TK8710_OK) {
+                    if (TK8710PadTxData(&g_txBuffers[origUserIndex].data,
+                                        &g_txBuffers[origUserIndex].dataLen, "user",
+                                        origUserIndex, expectedLen) != TK8710_OK) {
                         errorCount++;
                         continue;
                     }

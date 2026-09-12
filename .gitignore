@@ -61,6 +61,10 @@ arm-buildroot-linux-gnueabihf_sdk-buildroot.tar.gz
 
 # 配置文件（如果包含敏感信息）
 config.local.h
+config.local.json
+sync_network_results/
+test_logs/
+docs/trm_slot_analysis/multi_rate_block_support_sf1.csv
 
 # 本地缓存/中间文件
 *.cache

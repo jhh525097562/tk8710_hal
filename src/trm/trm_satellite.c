@@ -178,12 +178,18 @@ static uint64_t trm_sat_to_spi_u40(uint64_t value)
 
 static uint32_t trm_sat_rand_u32(void)
 {
+    uint32_t seed;
     uint64_t now;
 
     if (g_satCtx.randState == 0) {
-        now = TK8710GetTimeUs();
-        g_satCtx.randState = (uint32_t)now ^ (uint32_t)(now >> 32) ^
-                             g_satCtx.localAddr ^ 0xA5A55A5Au;
+        if (TK8710GetRandomBytes((uint8_t*)&seed, sizeof(seed)) == 0) {
+            g_satCtx.randState = seed;
+        } else {
+            now = TK8710GetTimeUs();
+            g_satCtx.randState = (uint32_t)now ^ (uint32_t)(now >> 32) ^
+                                 g_satCtx.localAddr ^ 0xA5A55A5Au;
+            TRM_LOG_WARN("TRM SAT: system random unavailable, using time-based seed");
+        }
         if (g_satCtx.randState == 0) {
             g_satCtx.randState = 1;
         }

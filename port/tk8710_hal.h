@@ -199,6 +199,14 @@ void TK8710Rk3506Cleanup(void);
 uint64_t TK8710GetTimeUs(void);
 
 /**
+ * @brief 获取平台系统随机字节
+ * @param data 输出缓冲区
+ * @param len 随机字节数
+ * @return 0-成功, 非0-失败
+ */
+int TK8710GetRandomBytes(uint8_t* data, size_t len);
+
+/**
  * @brief GPIO control function (similar to gpioset command)
  * @param chipPath GPIO chip path (e.g., "gpiochip0")
  * @param lineOffset GPIO line offset (e.g., 9)

@@ -33,6 +33,7 @@ set(HAL_SOURCES
     ../src/hal/hal_api.c
     ../src/hal/hal_cb.c
     ../src/hal/hal_status.c
+    ../src/tk8710_pps_api.c
 )
 
 set(TRM_V02_SOURCES
@@ -79,4 +80,38 @@ target_include_directories(tk8710_hal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../inc)
 if(BUILD_EXAMPLES)
     add_executable(test_hal_phy_api ../test/example/test_hal_phy_api.c)
     target_link_libraries(test_hal_phy_api tk8710_hal)
+
+    add_executable(test_tk8710_pps_api ../test/example/test_tk8710_pps_api.c)
+    target_link_libraries(test_tk8710_pps_api tk8710_hal)
+
+    add_executable(test_tk8710_gw_gps
+        ../test/example/test_tk8710_gw_gps.c
+        ../test/example/tk8710_gw_gps.c)
+    target_include_directories(test_tk8710_gw_gps PRIVATE ../test/example)
+    target_link_libraries(test_tk8710_gw_gps tk8710_hal)
+
+    if(PLATFORM_RK3506)
+        add_executable(test_tk8710_gw_gps_protocol
+            ../test/example/test_tk8710_gw_gps_protocol.c
+            ../test/example/tk8710_gw_gps.c)
+        target_include_directories(test_tk8710_gw_gps_protocol PRIVATE ../test/example)
+        target_link_libraries(test_tk8710_gw_gps_protocol tk8710_hal pthread gpiod)
+
+        add_executable(test_tk8710_gw_gps_faults
+            ../test/example/test_tk8710_gw_gps_faults.c
+            ../test/example/tk8710_gw_gps.c)
+        target_compile_definitions(test_tk8710_gw_gps_faults
+            PRIVATE TK8710_GPS_TEST_HOOKS)
+        target_include_directories(test_tk8710_gw_gps_faults PRIVATE ../test/example)
+        target_link_libraries(test_tk8710_gw_gps_faults tk8710_hal pthread gpiod)
+
+        add_executable(tk8710_gw_gps_device_test
+            ../test/example/tk8710_gw_gps_device_test.c
+            ../test/example/tk8710_gw_gps.c)
+        target_include_directories(tk8710_gw_gps_device_test PRIVATE ../test/example)
+        target_link_libraries(tk8710_gw_gps_device_test tk8710_hal pthread gpiod)
+
+        add_executable(tk8710_pps_test ../test/example/tk8710_pps_test.c)
+        target_link_libraries(tk8710_pps_test tk8710_hal gpiod)
+    endif()
 endif()

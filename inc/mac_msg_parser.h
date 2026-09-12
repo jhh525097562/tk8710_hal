@@ -52,6 +52,7 @@ typedef struct {
         int uplink_pkt;
         int downlink_pkt;
     } rate_cfgs[MAX_RATE_CFGS];
+    int gps_enable; /* Required NS policy: 0=local, 1=GPS mandatory. */
 } NsConfigDown_t;
 
 // 2. NS数据下行结构体

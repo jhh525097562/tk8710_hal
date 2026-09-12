@@ -385,6 +385,9 @@ typedef struct {
     uint32_t da_m;          /* 内部DAC参数，用于配置时隙末尾的空闲长度 */
 } SlotConfig;
 
+#define TK8710_SYNC_MODE_EXTERNAL 0u
+#define TK8710_SYNC_MODE_LOCAL    1u
+
 typedef struct {
     msMode_e   msMode;          /* 主从模式 */
     uint8_t    plCrcEn;         /* Payload CRC使能 */
@@ -399,7 +402,7 @@ typedef struct {
     uint8_t    bcnRotation[TK8710_MAX_ANTENNAS];  /* BCN发送使能为0xff时，从bcnRotation中轮流获取当前发送bcn天线*/
     uint32_t   rx_delay;        /* RX delay, 默认0 */
     uint32_t   md_agc;          /* DATA AGC长度, 默认1024 */
-    uint8_t    local_sync;      /* 本地同步: 1=产生本地同步信号, 0=接收外部同步脉冲 */
+    uint8_t    local_sync;      /* TK8710_SYNC_MODE_LOCAL/EXTERNAL */
     
     SlotConfig s0Cfg[4];           /* 时隙0(BCN)配置 */
     SlotConfig s1Cfg[4];           /* 时隙1配置 */

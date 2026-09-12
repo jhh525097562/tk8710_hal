@@ -521,6 +521,39 @@ uint64_t TK8710GetTimeUs(void)
     return (uint64_t)(tv.tv_sec * 1000000 + tv.tv_usec);
 }
 
+int TK8710GetRandomBytes(uint8_t* data, size_t len)
+{
+    size_t offset = 0;
+    int fd;
+
+    if (data == NULL && len > 0U) {
+        return -1;
+    }
+    if (len == 0U) {
+        return 0;
+    }
+
+    fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
+        return -1;
+    }
+
+    while (offset < len) {
+        ssize_t readLen = read(fd, data + offset, len - offset);
+        if (readLen > 0) {
+            offset += (size_t)readLen;
+        } else if (readLen < 0 && errno == EINTR) {
+            continue;
+        } else {
+            close(fd);
+            return -1;
+        }
+    }
+
+    close(fd);
+    return 0;
+}
+
 /**
  * @brief 进入临界区
  */

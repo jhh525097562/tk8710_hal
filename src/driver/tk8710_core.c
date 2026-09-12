@@ -620,6 +620,41 @@ static uint32_t g_slaveBcnWatchdogLastRecoveryMs = 0;
 /**
  * @brief 执行一次芯片收发启动
  */
+static int tk8710_configure_master_sync(const slotCfg_t* slotCfg)
+{
+    s_init_12 init12;
+    int ret;
+
+    if (slotCfg == NULL || (slotCfg->local_sync != TK8710_SYNC_MODE_LOCAL &&
+        slotCfg->local_sync != TK8710_SYNC_MODE_EXTERNAL)) {
+        return TK8710_ERR;
+    }
+    ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
+        MAC_BASE + offsetof(struct mac, init_12), &init12.data);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("Failed to read init12 register: %d", ret);
+        return ret;
+    }
+
+    if (slotCfg->local_sync == TK8710_SYNC_MODE_LOCAL) {
+        init12.b.ls_en = 0;
+        init12.b.ls_master = 1;
+    } else {
+        init12.b.ls_en = 1;
+        init12.b.ls_master = 0;
+    }
+    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+        MAC_BASE + offsetof(struct mac, init_12), init12.data);
+    if (ret != TK8710_OK) {
+        TK8710_LOG_CORE_ERROR("Failed to configure init12 sync mode: %d", ret);
+        return ret;
+    }
+    TK8710_LOG_CORE_INFO("Master sync mode=%s, init12.ls_en=%u, ls_master=%u",
+        slotCfg->local_sync == TK8710_SYNC_MODE_LOCAL ? "local" : "external",
+        init12.b.ls_en, init12.b.ls_master);
+    return TK8710_OK;
+}
+
 static int tk8710_start_once(uint8_t workType, uint8_t workMode)
 {
     int ret;
@@ -663,25 +698,8 @@ static int tk8710_start_once(uint8_t workType, uint8_t workMode)
             slotCfg_t* slotCfg = (slotCfg_t*)TK8710GetSlotConfig();
             slotCfg->msMode = TK8710_MODE_MASTER;
             
-            /* 配置init12寄存器，启用本地同步功能 */
-            {
-                s_init_12 init12;
-                ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_12), &init12.data);
-                if (ret == TK8710_OK) {
-                    init12.b.ls_en = 1;
-                    init12.b.ls_master = 1; //1表示Master模式启用本地同步，0表示Slave模式启用本地同步
-                    ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, MAC_BASE + offsetof(struct mac, init_12), init12.data);
-                    if (ret == TK8710_OK) {
-                        TK8710_LOG_DEBUG(TK8710_LOG_MODULE_CORE, "Set init12.ls_en = 1 for local sync mode");
-                    } else {
-                        TK8710_LOG_ERROR(TK8710_LOG_MODULE_CORE, "Failed to set init12.ls_en: %d", ret);
-                        return ret;
-                    }
-                } else {
-                    TK8710_LOG_ERROR(TK8710_LOG_MODULE_CORE, "Failed to read init12 register: %d", ret);
-                    return ret;
-                }
-            }
+            ret = tk8710_configure_master_sync(slotCfg);
+            if (ret != TK8710_OK) return ret;
 
             /* 配置中断使能 */
             {
@@ -984,7 +1002,6 @@ int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
 
     if (workType == TK8710_MODE_MASTER) {
         uint32_t bcnBits;
-        s_init_12 init12;
         s_init_9 init9;
         s_irq_ctrl0 irqCtrl0;
 
@@ -1022,16 +1039,7 @@ int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
         ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL, 0x7814, bcnBits);
         if (ret != TK8710_OK) return ret;
 
-        ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL,
-                            MAC_BASE + offsetof(struct mac, init_12),
-                            &init12.data);
-        if (ret != TK8710_OK) return ret;
-
-        init12.b.ls_en = 1;
-        init12.b.ls_master = 1;
-        ret = TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
-                             MAC_BASE + offsetof(struct mac, init_12),
-                             init12.data);
+        ret = tk8710_configure_master_sync(slotCfg);
         if (ret != TK8710_OK) return ret;
 
         irqCtrl0.data = 0xFFFF;

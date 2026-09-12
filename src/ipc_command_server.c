@@ -9,10 +9,12 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#include <poll.h>
+#include <time.h>
 #include <unistd.h>
 
 #define IPC_SERVER_BACKLOG 4
-#define IPC_SERVER_MAX_COMMAND_LEN 128
+#define IPC_SERVER_MAX_COMMAND_LEN 256
 #define IPC_SERVER_MAX_RESPONSE_LEN 256
 
 typedef struct {
@@ -72,12 +74,27 @@ static void HandleClient(int client_fd)
     memset(command, 0, sizeof(command));
     memset(response, 0, sizeof(response));
 
-    recv_len = recv(client_fd, command, IPC_SERVER_MAX_COMMAND_LEN, 0);
-    if (recv_len <= 0) {
-        return;
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    size_t used = 0;
+    int complete = 0;
+    while (used < IPC_SERVER_MAX_COMMAND_LEN) {
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long elapsed = (now.tv_sec - start.tv_sec) * 1000 +
+                       (now.tv_nsec - start.tv_nsec) / 1000000;
+        if (elapsed >= 2000) return;
+        struct pollfd pfd = {client_fd, POLLIN, 0};
+        int ready = poll(&pfd, 1, (int)(2000 - elapsed));
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready <= 0) return;
+        recv_len = recv(client_fd, command + used, IPC_SERVER_MAX_COMMAND_LEN - used, 0);
+        if (recv_len <= 0) return;
+        if (memchr(command + used, '\0', (size_t)recv_len)) return;
+        used += (size_t)recv_len;
+        if (memchr(command, '\n', used)) { complete = 1; break; }
     }
-
-    command[recv_len] = '\0';
+    if (!complete) return;
+    command[used] = '\0';
     TrimCommand(command);
 
     if (g_ipc_server.on_command == NULL) {
@@ -87,7 +104,7 @@ static void HandleClient(int client_fd)
         BuildResponse(result, response, sizeof(response));
     }
 
-    if (send(client_fd, response, strlen(response), 0) < 0) {
+    if (send(client_fd, response, strlen(response), MSG_NOSIGNAL) < 0) {
         return;
     }
 }

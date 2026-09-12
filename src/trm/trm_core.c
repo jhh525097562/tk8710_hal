@@ -493,6 +493,7 @@ static void TRM_UpdateSweepFrequencyAfterCapture(void)
         TRM_LOG_INFO("TRM: Frequency sweep completed");
 #ifdef PLATFORM_RK3506
         TK8710ScanIpcNotifySweepDone();
+        if (TK8710ScanTaskIsActive()) return;
         IpcCommClearConfigReceived();
 
         int request_count = 0;
@@ -841,6 +842,12 @@ static void TRM_OnDriverTxSlot(uint8_t slotIndex, uint8_t maxUserCount, TK8710Ir
 {
     TRM_LOG_DEBUG("TRM: TxSlot: slot=%d, maxUsers=%d\n", slotIndex, maxUserCount);
 
+    /* Noise acquisition has no business broadcast/queue configuration. */
+    if (g_sweepState.sweep_active) return;
+#ifdef PLATFORM_RK3506
+    if (TK8710ScanTaskIsActive()) return;
+#endif
+
     TRM_SatelliteProcessTxSlot(maxUserCount, irqResult);
     maxUserCount = TRM_SatelliteLimitTxUserCount(maxUserCount);
     
@@ -1163,6 +1170,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     uint8_t deferNextSlot3 = 0;
     uint8_t retryNextSuperFrame = 0;
     uint8_t haveS0Anchor = 0;
+    uint8_t externalSync = 0;
     const char* restartReason = "current-slot3";
     const char* restartAnchor = "s2-only";
     int calibRet;
@@ -1189,6 +1197,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
         return TRM_ERR_STATE;
     }
     memcpy(&slotCfgBeforeAcm, slotCfg, sizeof(slotCfgBeforeAcm));
+    externalSync = slotCfgBeforeAcm.local_sync == TK8710_SYNC_MODE_EXTERNAL;
 
     slot3Us = TRM_GetAcmSlot3WindowUs(slotCfg, irqResult);
     if (slot3Us == 0) {
@@ -1323,44 +1332,52 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
                      slot3Us, slot3AfterCalibUs, slot3AfterRefreshUs);
     }
 
-    if (slot3Us < TRM_ACM_CALIB_TIME_BUDGET_US) {
-        deferNextSlot3 = 1;
-        restartReason = "short-slot3";
-    } else if (slot3Us <= elapsedUs + request.restartAdvanceUs + request.guardUs) {
-        deferNextSlot3 = 1;
-        restartReason = "current-slot3-overrun";
-    }
-
-    if (deferNextSlot3 && framePeriodUs > request.restartAdvanceUs) {
-        restartSlot3EndUs = slot3EndUs + framePeriodUs;
-        restartTargetUs = restartSlot3EndUs - request.restartAdvanceUs;
-        virtualS3Count = 2;
-        restartNowUs = TK8710GetTimeUs();
-        while (restartTargetUs <= restartNowUs + request.guardUs) {
-            restartSlot3EndUs += framePeriodUs;
-            restartTargetUs = restartSlot3EndUs - request.restartAdvanceUs;
-            virtualS3Count++;
-        }
-        waitUs = (restartTargetUs > restartNowUs) ?
-                 (uint32_t)(restartTargetUs - restartNowUs) : 0;
-        TRM_LOG_WARN("TRM: ACM restart deferred to later S3 end: reason=%s "
-                     "slot3=%u us budget=%u us elapsed=%u us framePeriod=%u us "
-                     "virtualS3=%u",
-                     restartReason, slot3Us, TRM_ACM_CALIB_TIME_BUDGET_US,
-                     elapsedUs, framePeriodUs, virtualS3Count);
-    } else if (slot3Us > elapsedUs + request.restartAdvanceUs + request.guardUs) {
-        restartTargetUs = slot3EndUs - request.restartAdvanceUs;
-        restartSlot3EndUs = slot3EndUs;
-        {
-            uint64_t nowUs = TK8710GetTimeUs();
-            waitUs = (restartTargetUs > nowUs) ? (uint32_t)(restartTargetUs - nowUs) : 0;
-        }
-    } else {
-        TRM_LOG_WARN("TRM: ACM elapsed %u us exceeds slot3 window %u us, restart immediately "
-                     "(framePeriod=%u us, reason=%s)",
-                     elapsedUs, slot3Us, framePeriodUs, restartReason);
+    if (externalSync) {
         restartTargetUs = TK8710GetTimeUs();
-        restartSlot3EndUs = slot3EndUs;
+        restartSlot3EndUs = restartTargetUs;
+        restartReason = "external-pps";
+        restartAnchor = "external-pps";
+        TRM_LOG_INFO("TRM: ACM external-sync restart will trigger immediately and wait for PPS");
+    } else {
+        if (slot3Us < TRM_ACM_CALIB_TIME_BUDGET_US) {
+            deferNextSlot3 = 1;
+            restartReason = "short-slot3";
+        } else if (slot3Us <= elapsedUs + request.restartAdvanceUs + request.guardUs) {
+            deferNextSlot3 = 1;
+            restartReason = "current-slot3-overrun";
+        }
+
+        if (deferNextSlot3 && framePeriodUs > request.restartAdvanceUs) {
+            restartSlot3EndUs = slot3EndUs + framePeriodUs;
+            restartTargetUs = restartSlot3EndUs - request.restartAdvanceUs;
+            virtualS3Count = 2;
+            restartNowUs = TK8710GetTimeUs();
+            while (restartTargetUs <= restartNowUs + request.guardUs) {
+                restartSlot3EndUs += framePeriodUs;
+                restartTargetUs = restartSlot3EndUs - request.restartAdvanceUs;
+                virtualS3Count++;
+            }
+            waitUs = (restartTargetUs > restartNowUs) ?
+                     (uint32_t)(restartTargetUs - restartNowUs) : 0;
+            TRM_LOG_WARN("TRM: ACM restart deferred to later S3 end: reason=%s "
+                         "slot3=%u us budget=%u us elapsed=%u us framePeriod=%u us "
+                         "virtualS3=%u",
+                         restartReason, slot3Us, TRM_ACM_CALIB_TIME_BUDGET_US,
+                         elapsedUs, framePeriodUs, virtualS3Count);
+        } else if (slot3Us > elapsedUs + request.restartAdvanceUs + request.guardUs) {
+            restartTargetUs = slot3EndUs - request.restartAdvanceUs;
+            restartSlot3EndUs = slot3EndUs;
+            {
+                uint64_t nowUs = TK8710GetTimeUs();
+                waitUs = (restartTargetUs > nowUs) ? (uint32_t)(restartTargetUs - nowUs) : 0;
+            }
+        } else {
+            TRM_LOG_WARN("TRM: ACM elapsed %u us exceeds slot3 window %u us, restart immediately "
+                         "(framePeriod=%u us, reason=%s)",
+                         elapsedUs, slot3Us, framePeriodUs, restartReason);
+            restartTargetUs = TK8710GetTimeUs();
+            restartSlot3EndUs = slot3EndUs;
+        }
     }
     targetOffsetUs = (restartTargetUs >= startUs) ?
                      (uint32_t)(restartTargetUs - startUs) : 0;
@@ -1374,11 +1391,13 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
         return TRM_ERR_DRIVER;
     }
 
-    triggerLateUs = TRM_WaitUntilUs(restartTargetUs);
+    triggerLateUs = externalSync ? 0 : TRM_WaitUntilUs(restartTargetUs);
     fastStartBeginUs = TK8710GetTimeUs();
     ret = TK8710FastStartTrigger(TK8710_MODE_MASTER);
     fastStartEndUs = TK8710GetTimeUs();
-    if (restartSlot3EndUs >= fastStartEndUs) {
+    if (externalSync) {
+        phaseMarginToS3EndUs = 0;
+    } else if (restartSlot3EndUs >= fastStartEndUs) {
         uint64_t marginUs = restartSlot3EndUs - fastStartEndUs;
         phaseMarginToS3EndUs = (marginUs > INT32_MAX) ? INT32_MAX : (int32_t)marginUs;
     } else {
@@ -1388,22 +1407,24 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     irqAfterStart = TK8710GetIrqStatus();
     TK8710GetS0PeriodStats(&s0AfterStartTimeUs, &s0AfterStartPeriodUs, &s0AfterStartCount);
     g_acmFastStartEndUs = fastStartEndUs;
-    g_acmS0PeriodBeforeUs = s0BeforePeriodUs;
-    if (virtualS3Count > 1 && s0BeforePeriodUs != 0 && framePeriodUs != 0) {
+    g_acmS0PeriodBeforeUs = externalSync ? 0 : s0BeforePeriodUs;
+    if (!externalSync && virtualS3Count > 1 && s0BeforePeriodUs != 0 &&
+        framePeriodUs != 0) {
         g_acmS0FirstExpectedPeriodUs =
             s0BeforePeriodUs + framePeriodUs * (virtualS3Count - 1);
     } else {
         g_acmS0FirstExpectedPeriodUs = 0;
     }
-    g_acmS0CountBefore = s0BeforeCount;
+    g_acmS0CountBefore = externalSync ? 0 : s0BeforeCount;
     g_acmS0MonitorSeq = 0;
-    g_acmS0MonitorRemaining = 4;
+    g_acmS0MonitorRemaining = externalSync ? 0 : 4;
     if (ret != TK8710_OK) {
         TRM_LOG_ERROR("TRM: Failed to trigger fast restart after ACM: %d", ret);
         g_acmCalibState.running = 0;
         return TRM_ERR_DRIVER;
     }
-    if (phaseMarginToS3EndUs < (int32_t)TRM_ACM_PHASE_MARGIN_WARN_US) {
+    if (!externalSync &&
+        phaseMarginToS3EndUs < (int32_t)TRM_ACM_PHASE_MARGIN_WARN_US) {
         TRM_LOG_WARN("TRM: ACM fast restart phase margin is low: margin=%d us "
                      "anchor=%s s2CbOffset=%d us targetByS0=%u us targetByS2=%u us "
                      "restartAdvance=%u us triggerCost=%u us",

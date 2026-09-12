@@ -25,7 +25,8 @@ PHY_SRC = \
 HAL_SRC = \
 	src/hal/hal_api.c \
 	src/hal/hal_cb.c \
-	src/hal/hal_status.c
+	src/hal/hal_status.c \
+	src/tk8710_pps_api.c
 
 TRM_V02_SRC = \
 	src/trm/trm_queue.c \

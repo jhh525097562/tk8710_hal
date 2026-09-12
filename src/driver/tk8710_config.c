@@ -50,6 +50,7 @@ static slotCfg_t g_slotCfg = {
     /* 时隙参数 */
     .rx_delay = 0,                        /* RX delay */
     .md_agc = 1024,                       /* DATA AGC长度 */
+    .local_sync = TK8710_SYNC_MODE_LOCAL, /* 保持未传入时的既有本地同步行为 */
     
     /* 时隙DAC参数 */
     .s0Cfg = {
