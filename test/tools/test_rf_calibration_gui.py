@@ -59,6 +59,15 @@ class FakeCalibrationHandler(socketserver.StreamRequestHandler):
                     "OK LOG seq=7 RX user=7 freq=125Hz rssi=-55 snr=18 "
                     "total=100 lost=3"
                 )
+            elif command == ["SUBSCRIBE", "LOG"]:
+                self.wfile.write(b"OK SUBSCRIBE LOG\n")
+                self.wfile.write(
+                    b"EVENT LOG seq=8 RX lost: crc_ok=0 crc_err=1 total=101 lost=4\n"
+                )
+                self.wfile.flush()
+                continue
+            elif command == ["UNSUBSCRIBE", "LOG"]:
+                response = "OK UNSUBSCRIBE LOG"
             elif command == ["QUIT"]:
                 self.wfile.write(b"OK BYE\n")
                 self.wfile.flush()
@@ -94,6 +103,7 @@ class NumberTests(unittest.TestCase):
 
     def test_extract_log_sequence(self):
         self.assertEqual(extract_log_sequence("OK LOG seq=17 RX user=0"), 17)
+        self.assertEqual(extract_log_sequence("EVENT LOG seq=18 RX lost"), 18)
         self.assertIsNone(extract_log_sequence("OK STATS total=1"))
 
 
@@ -141,6 +151,23 @@ class ClientTests(unittest.TestCase):
     def test_server_error_becomes_exception(self):
         with self.assertRaisesRegex(RuntimeError, "ERR INVALID_COMMAND"):
             self.client.command("UNKNOWN")
+
+    def test_subscribed_log_is_delivered_without_polling(self):
+        event = threading.Event()
+        received = []
+
+        def on_log(response):
+            received.append(response)
+            event.set()
+
+        self.client.set_log_callback(on_log)
+        self.assertEqual(self.client.subscribe_log(), "OK SUBSCRIBE LOG")
+        self.assertTrue(event.wait(1.0))
+        self.assertEqual(
+            received,
+            ["EVENT LOG seq=8 RX lost: crc_ok=0 crc_err=1 total=101 lost=4"],
+        )
+        self.assertEqual(self.client.unsubscribe_log(), "OK UNSUBSCRIBE LOG")
 
 
 class ServiceArgumentTests(unittest.TestCase):

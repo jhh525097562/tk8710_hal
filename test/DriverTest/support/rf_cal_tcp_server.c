@@ -21,6 +21,7 @@
 #define RF_CAL_COMMAND_MAX_LEN  512u
 #define RF_CAL_RESPONSE_MAX_LEN 1024u
 #define RF_CAL_RECV_BUFFER_LEN  512u
+#define RF_CAL_PUSH_BURST_MAX    64u
 
 static int rf_cal_text_equal(const char* left, const char* right)
 {
@@ -83,7 +84,7 @@ static size_t rf_cal_tokenize(char* command, char** tokens, size_t maxTokens)
 
 int RfCalProcessCommand(const char* command, char* response, size_t responseSize,
                         const RfCalTcpServerConfig* config,
-                        int* closeClient, int* shutdownServer)
+                        int* closeClient, int* shutdownServer, int* logSubscription)
 {
     char commandCopy[RF_CAL_COMMAND_MAX_LEN];
     char* tokens[4];
@@ -94,7 +95,7 @@ int RfCalProcessCommand(const char* command, char* response, size_t responseSize
     int ret;
 
     if (response == NULL || responseSize == 0 || config == NULL ||
-        closeClient == NULL || shutdownServer == NULL) {
+        closeClient == NULL || shutdownServer == NULL || logSubscription == NULL) {
         return -1;
     }
 
@@ -161,6 +162,30 @@ int RfCalProcessCommand(const char* command, char* response, size_t responseSize
         }
 
         snprintf(response, responseSize, "ERR LOG_UNAVAILABLE\n");
+        return 0;
+    }
+
+    if (rf_cal_text_equal(tokens[0], "SUBSCRIBE") && tokenCount == 2 &&
+        rf_cal_text_equal(tokens[1], "LOG")) {
+        if (config->getNextLog == NULL) {
+            snprintf(response, responseSize, "ERR LOG_SUBSCRIPTION_UNAVAILABLE\n");
+            return 0;
+        }
+        if (config->setLogSubscription != NULL) {
+            config->setLogSubscription(1, config->userData);
+        }
+        *logSubscription = 1;
+        snprintf(response, responseSize, "OK SUBSCRIBE LOG\n");
+        return 0;
+    }
+
+    if (rf_cal_text_equal(tokens[0], "UNSUBSCRIBE") && tokenCount == 2 &&
+        rf_cal_text_equal(tokens[1], "LOG")) {
+        if (config->setLogSubscription != NULL) {
+            config->setLogSubscription(0, config->userData);
+        }
+        *logSubscription = 0;
+        snprintf(response, responseSize, "OK UNSUBSCRIBE LOG\n");
         return 0;
     }
 
@@ -253,13 +278,51 @@ static int rf_cal_run_client(SOCKET clientSocket, const RfCalTcpServerConfig* co
     size_t lineLength = 0;
     int closeClient = 0;
     int shutdownServer = 0;
+    int logSubscription = 0;
 
     if (rf_cal_send_all(clientSocket, "OK RF_CAL_SERVER 1\n") != 0) {
         return 0;
     }
 
     while (!closeClient && *(config->running)) {
-        int received = recv(clientSocket, recvBuffer, sizeof(recvBuffer), 0);
+        fd_set readSet;
+        struct timeval timeout;
+        int selected;
+        int received;
+
+        if (logSubscription && config->getNextLog != NULL) {
+            uint32_t pushed = 0;
+            while (pushed < RF_CAL_PUSH_BURST_MAX &&
+                   (selected = config->getNextLog(response, sizeof(response),
+                                                  config->userData)) > 0) {
+                if (rf_cal_send_all(clientSocket, response) != 0) {
+                    closeClient = 1;
+                    break;
+                }
+                pushed++;
+            }
+            if (selected < 0) {
+                rf_cal_send_all(clientSocket, "ERR LOG_PUSH_FAILED\n");
+                closeClient = 1;
+            }
+            if (closeClient) {
+                break;
+            }
+        }
+
+        FD_ZERO(&readSet);
+        FD_SET(clientSocket, &readSet);
+        timeout.tv_sec = 0;
+        timeout.tv_usec = logSubscription ? 20000 : 200000;
+        selected = select(0, &readSet, NULL, NULL, &timeout);
+        if (selected == SOCKET_ERROR) {
+            break;
+        }
+        if (selected == 0) {
+            continue;
+        }
+
+        received = recv(clientSocket, recvBuffer, sizeof(recvBuffer), 0);
         if (received <= 0) {
             break;
         }
@@ -272,7 +335,7 @@ static int rf_cal_run_client(SOCKET clientSocket, const RfCalTcpServerConfig* co
             if (ch == '\n') {
                 lineBuffer[lineLength] = '\0';
                 RfCalProcessCommand(lineBuffer, response, sizeof(response), config,
-                                    &closeClient, &shutdownServer);
+                                    &closeClient, &shutdownServer, &logSubscription);
                 if (rf_cal_send_all(clientSocket, response) != 0) {
                     closeClient = 1;
                 }
@@ -295,6 +358,10 @@ static int rf_cal_run_client(SOCKET clientSocket, const RfCalTcpServerConfig* co
                 }
             }
         }
+    }
+
+    if (logSubscription && config->setLogSubscription != NULL) {
+        config->setLogSubscription(0, config->userData);
     }
 
     return shutdownServer;

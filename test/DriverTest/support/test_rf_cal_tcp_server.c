@@ -21,6 +21,8 @@ typedef struct {
     uint16_t addr;
     uint32_t value;
     int forceMismatch;
+    int nextLogAvailable;
+    int subscriptionEnabled;
 } FakeRegister;
 
 static int fake_read(uint16_t addr, uint32_t* value, void* userData)
@@ -32,6 +34,25 @@ static int fake_read(uint16_t addr, uint32_t* value, void* userData)
     }
     *value = reg->forceMismatch ? (reg->value ^ 1u) : reg->value;
     return 0;
+}
+
+static int fake_next_log(char* response, size_t responseSize, void* userData)
+{
+    FakeRegister* reg = (FakeRegister*)userData;
+
+    if (!reg->nextLogAvailable) {
+        return 0;
+    }
+    reg->nextLogAvailable = 0;
+    snprintf(response, responseSize,
+             "EVENT LOG seq=8 RX lost: crc_ok=0 crc_err=1 total=101 lost=4\n");
+    return 1;
+}
+
+static void fake_set_subscription(int enabled, void* userData)
+{
+    FakeRegister* reg = (FakeRegister*)userData;
+    reg->subscriptionEnabled = enabled;
 }
 
 static int fake_write(uint16_t addr, uint32_t value, void* userData)
@@ -68,9 +89,10 @@ static void expect_response(const char* command, const char* expected,
     char response[512];
     int closeClient;
     int shutdownServer;
+    int logSubscription = 0;
 
     if (RfCalProcessCommand(command, response, sizeof(response), config,
-                            &closeClient, &shutdownServer) != 0 ||
+                            &closeClient, &shutdownServer, &logSubscription) != 0 ||
         strcmp(response, expected) != 0) {
         fprintf(stderr, "Command test failed: [%s]\nExpected: [%s]Actual:   [%s]\n",
                 command, expected, response);
@@ -89,6 +111,8 @@ static void run_protocol_tests(void)
         .writeReg = fake_write,
         .getStats = fake_stats,
         .getLog = fake_log,
+        .getNextLog = fake_next_log,
+        .setLogSubscription = fake_set_subscription,
         .userData = &reg,
         .running = &running
     };
@@ -106,6 +130,16 @@ static void run_protocol_tests(void)
     expect_response("LOG",
                     "OK LOG seq=7 RX user=7 freq=125Hz rssi=-55 snr=18 total=100 lost=3\n",
                     &config);
+    expect_response("SUBSCRIBE LOG", "OK SUBSCRIBE LOG\n", &config);
+    if (!reg.subscriptionEnabled) {
+        fprintf(stderr, "Log subscription enable callback failed\n");
+        exit(1);
+    }
+    expect_response("UNSUBSCRIBE LOG", "OK UNSUBSCRIBE LOG\n", &config);
+    if (reg.subscriptionEnabled) {
+        fprintf(stderr, "Log subscription disable callback failed\n");
+        exit(1);
+    }
     expect_response("READ 0x10000", "ERR INVALID_ADDRESS\n", &config);
     expect_response("WRITE 0x08C8 xyz", "ERR INVALID_VALUE\n", &config);
     expect_response("UNKNOWN", "ERR INVALID_COMMAND\n", &config);
@@ -122,6 +156,9 @@ static void run_protocol_tests(void)
     expect_response("LOG", "ERR LOG_UNAVAILABLE\n", &config);
     config.getStats = fake_stats;
     config.getLog = fake_log;
+    config.getNextLog = NULL;
+    expect_response("SUBSCRIBE LOG", "ERR LOG_SUBSCRIPTION_UNAVAILABLE\n", &config);
+    config.getNextLog = fake_next_log;
 
     reg.forceMismatch = 1;
     expect_response("WRITE 0x08C8 0x12345678",
@@ -186,7 +223,7 @@ static void run_tcp_integration_test(void)
 {
     WSADATA wsaData;
     volatile int running = 1;
-    FakeRegister reg = {.addr = 0x08C8, .value = 0};
+    FakeRegister reg = {.addr = 0x08C8, .value = 0, .nextLogAvailable = 1};
     ServerThreadContext context = {
         .config = {
             .bindIp = RF_CAL_DEFAULT_BIND_IP,
@@ -195,6 +232,8 @@ static void run_tcp_integration_test(void)
             .writeReg = fake_write,
             .getStats = fake_stats,
             .getLog = fake_log,
+            .getNextLog = fake_next_log,
+            .setLogSubscription = fake_set_subscription,
             .userData = &reg,
             .running = &running
         },
@@ -252,6 +291,13 @@ static void run_tcp_integration_test(void)
                     "loss=3.00 last_user=7 last_rssi=-55 last_snr=18 last_freq=125\n");
     send_and_expect(clientSocket, "LOG\n",
                     "OK LOG seq=7 RX user=7 freq=125Hz rssi=-55 snr=18 total=100 lost=3\n");
+    send_and_expect(clientSocket, "SUBSCRIBE LOG\n", "OK SUBSCRIBE LOG\n");
+    if (recv_line(clientSocket, greeting, sizeof(greeting)) != 0 ||
+        strcmp(greeting,
+               "EVENT LOG seq=8 RX lost: crc_ok=0 crc_err=1 total=101 lost=4\n") != 0) {
+        fprintf(stderr, "TCP pushed log test failed\n");
+        exit(1);
+    }
     send_and_expect(clientSocket, "SHUTDOWN\n", "OK SHUTDOWN\n");
 
     closesocket(clientSocket);

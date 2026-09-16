@@ -15,6 +15,8 @@ typedef int (*RfCalRegReadFn)(uint16_t addr, uint32_t* value, void* userData);
 typedef int (*RfCalRegWriteFn)(uint16_t addr, uint32_t value, void* userData);
 typedef int (*RfCalStatsFn)(char* response, size_t responseSize, void* userData);
 typedef int (*RfCalLogFn)(char* response, size_t responseSize, void* userData);
+typedef int (*RfCalNextLogFn)(char* response, size_t responseSize, void* userData);
+typedef void (*RfCalLogSubscriptionFn)(int enabled, void* userData);
 
 typedef struct {
     const char* bindIp;
@@ -23,13 +25,15 @@ typedef struct {
     RfCalRegWriteFn writeReg;
     RfCalStatsFn getStats;
     RfCalLogFn getLog;
+    RfCalNextLogFn getNextLog;
+    RfCalLogSubscriptionFn setLogSubscription;
     void* userData;
     volatile int* running;
 } RfCalTcpServerConfig;
 
 int RfCalProcessCommand(const char* command, char* response, size_t responseSize,
                         const RfCalTcpServerConfig* config,
-                        int* closeClient, int* shutdownServer);
+                        int* closeClient, int* shutdownServer, int* logSubscription);
 
 int RfCalTcpServerRun(const RfCalTcpServerConfig* config);
 

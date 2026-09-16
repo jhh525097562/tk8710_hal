@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "hal_api.h"
 #include "tk8710_hal.h"
 #include "driver/tk8710_driver_api.h"
@@ -23,6 +27,7 @@
 #define RF_TEST_TONE_FREQ           335544u
 #define RF_TEST_TX_POWER_TONE_GAIN  0x40u
 #define RF_TEST_LOG_LINE_LEN        256u
+#define RF_TEST_LOG_QUEUE_CAPACITY  256u
 
 typedef enum {
     RF_TEST_SELECT_DC_REMOVAL = 0,
@@ -43,6 +48,22 @@ static volatile uint8_t g_lastSnr = 0;
 static volatile int32_t g_lastFreqHz = 0;
 static volatile uint32_t g_logSequence = 0;
 static char g_lastLogLine[RF_TEST_LOG_LINE_LEN] = "no_rx_log";
+
+#ifdef _WIN32
+typedef struct {
+    uint32_t sequence;
+    char line[RF_TEST_LOG_LINE_LEN];
+} RfTestLogEntry;
+
+static RfTestLogEntry g_logQueue[RF_TEST_LOG_QUEUE_CAPACITY];
+static uint32_t g_logQueueRead = 0;
+static uint32_t g_logQueueWrite = 0;
+static uint32_t g_logQueueCount = 0;
+static uint32_t g_logQueueDropped = 0;
+static uint8_t g_logSubscriptionEnabled = 0;
+static CRITICAL_SECTION g_logLock;
+static uint8_t g_logLockInitialized = 0;
+#endif
 
 #ifndef _WIN32
 static void signal_handler(int sig)
@@ -71,6 +92,7 @@ static int RfTestFormatStats(char* response, size_t responseSize, void* userData
     uint32_t periodLost;
     uint32_t totalCount;
     uint32_t totalLost;
+    uint32_t logDropped = 0;
     uint8_t hasLastSignal;
     uint8_t lastUser;
     int16_t lastRssi;
@@ -90,12 +112,19 @@ static int RfTestFormatStats(char* response, size_t responseSize, void* userData
     lastRssi = g_lastRssi;
     lastSnr = g_lastSnr;
     lastFreqHz = g_lastFreqHz;
+#ifdef _WIN32
+    if (g_logLockInitialized) {
+        EnterCriticalSection(&g_logLock);
+        logDropped = g_logQueueDropped;
+        LeaveCriticalSection(&g_logLock);
+    }
+#endif
     totalLoss = totalCount == 0 ? 0.0f : (float)totalLost * 100.0f / (float)totalCount;
 
     written = snprintf(response, responseSize,
                        "OK STATS mode=%u total=%u lost=%u period=%u period_lost=%u "
                        "loss=%.2f last_valid=%u last_user=%u last_rssi=%d "
-                       "last_snr=%u last_freq=%ld\n",
+                       "last_snr=%u last_freq=%ld log_dropped=%u\n",
                        (unsigned int)g_testSelect,
                        (unsigned int)totalCount,
                        (unsigned int)totalLost,
@@ -106,7 +135,8 @@ static int RfTestFormatStats(char* response, size_t responseSize, void* userData
                        (unsigned int)lastUser,
                        (int)lastRssi,
                        (unsigned int)lastSnr,
-                       (long)lastFreqHz);
+                       (long)lastFreqHz,
+                       (unsigned int)logDropped);
     if (written < 0 || (size_t)written >= responseSize) {
         return -1;
     }
@@ -121,14 +151,68 @@ static int RfTestFormatLog(char* response, size_t responseSize, void* userData)
 
     (void)userData;
 
+#ifdef _WIN32
+    if (g_logLockInitialized) {
+        EnterCriticalSection(&g_logLock);
+    }
+#endif
     sequence = g_logSequence;
     snprintf(line, sizeof(line), "%s", g_lastLogLine);
+#ifdef _WIN32
+    if (g_logLockInitialized) {
+        LeaveCriticalSection(&g_logLock);
+    }
+#endif
     written = snprintf(response, responseSize, "OK LOG seq=%u %s\n",
                        (unsigned int)sequence, line);
     if (written < 0 || (size_t)written >= responseSize) {
         return -1;
     }
     return 0;
+}
+
+static int RfTestPopLog(char* response, size_t responseSize, void* userData)
+{
+#ifdef _WIN32
+    RfTestLogEntry entry;
+    int written;
+
+    (void)userData;
+    EnterCriticalSection(&g_logLock);
+    if (g_logQueueCount == 0) {
+        LeaveCriticalSection(&g_logLock);
+        return 0;
+    }
+    entry = g_logQueue[g_logQueueRead];
+    g_logQueueRead = (g_logQueueRead + 1u) % RF_TEST_LOG_QUEUE_CAPACITY;
+    g_logQueueCount--;
+    LeaveCriticalSection(&g_logLock);
+
+    written = snprintf(response, responseSize, "EVENT LOG seq=%u %s\n",
+                       (unsigned int)entry.sequence, entry.line);
+    return (written < 0 || (size_t)written >= responseSize) ? -1 : 1;
+#else
+    (void)response;
+    (void)responseSize;
+    (void)userData;
+    return 0;
+#endif
+}
+
+static void RfTestSetLogSubscription(int enabled, void* userData)
+{
+#ifdef _WIN32
+    (void)userData;
+    EnterCriticalSection(&g_logLock);
+    g_logSubscriptionEnabled = enabled ? 1u : 0u;
+    g_logQueueRead = 0;
+    g_logQueueWrite = 0;
+    g_logQueueCount = 0;
+    LeaveCriticalSection(&g_logLock);
+#else
+    (void)enabled;
+    (void)userData;
+#endif
 }
 
 static void RfTestEmitLog(const char* format, ...)
@@ -141,8 +225,27 @@ static void RfTestEmitLog(const char* format, ...)
     va_end(args);
 
     line[sizeof(line) - 1u] = '\0';
+#ifdef _WIN32
+    if (g_logLockInitialized) {
+        EnterCriticalSection(&g_logLock);
+    }
+#endif
     snprintf(g_lastLogLine, sizeof(g_lastLogLine), "%s", line);
     g_logSequence++;
+#ifdef _WIN32
+    if (g_logLockInitialized) {
+        if (g_logSubscriptionEnabled && g_logQueueCount < RF_TEST_LOG_QUEUE_CAPACITY) {
+            RfTestLogEntry* entry = &g_logQueue[g_logQueueWrite];
+            entry->sequence = g_logSequence;
+            snprintf(entry->line, sizeof(entry->line), "%s", line);
+            g_logQueueWrite = (g_logQueueWrite + 1u) % RF_TEST_LOG_QUEUE_CAPACITY;
+            g_logQueueCount++;
+        } else if (g_logSubscriptionEnabled) {
+            g_logQueueDropped++;
+        }
+        LeaveCriticalSection(&g_logLock);
+    }
+#endif
     printf("%s\n", line);
 }
 
@@ -368,6 +471,7 @@ static int ConfigureRxSensitivity(int rateMode, uint32_t frequency)
 
     memset(&slotCfg, 0, sizeof(slotCfg));
     slotCfg.msMode = TK8710_MODE_SLAVE;
+    slotCfg.local_sync = TK8710_SYNC_MODE_LOCAL;
     slotCfg.plCrcEn = 1;
     slotCfg.brdUserNum = 0;
     slotCfg.antEn = 0x1;
@@ -685,6 +789,8 @@ int main(int argc, char* argv[])
 
 #ifdef _WIN32
     if (tcpMode) {
+        InitializeCriticalSection(&g_logLock);
+        g_logLockInitialized = 1;
         RfCalTcpServerConfig tcpConfig = {
             .bindIp = tcpBindIp,
             .port = tcpPort,
@@ -692,6 +798,8 @@ int main(int argc, char* argv[])
             .writeReg = RfTestWriteRegister,
             .getStats = RfTestFormatStats,
             .getLog = RfTestFormatLog,
+            .getNextLog = RfTestPopLog,
+            .setLogSubscription = RfTestSetLogSubscription,
             .userData = NULL,
             .running = &g_running
         };
@@ -709,5 +817,11 @@ int main(int argc, char* argv[])
     printf("Final stats:\n");
     PrintStats();
     TK8710PrintIrqTimeStats();
+#ifdef _WIN32
+    if (g_logLockInitialized) {
+        DeleteCriticalSection(&g_logLock);
+        g_logLockInitialized = 0;
+    }
+#endif
     return ret == 0 ? 0 : 1;
 }

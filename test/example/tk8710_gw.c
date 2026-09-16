@@ -412,7 +412,8 @@ static int OpenRfI2cBus(char* device_path, size_t path_size)
 #endif
 
 /**
- * @brief Read eight RF TX DC words over I2C and save I/Q values to txadc.txt.
+ * @brief Refresh TX DC only when all eight RF modules contain calibration data.
+ * A raw all-zero or all-FF word on any module keeps the existing board calibration.
  */
 static int SaveTxDcFromRfRam(void)
 {
@@ -422,6 +423,7 @@ static int SaveTxDcFromRfRam(void)
 #else
     uint32_t tx_dc_data[TK8710_MAX_ANTENNAS];
     char device_path[32];
+    char temporary_path[] = TK8710_TX_DC_FILE ".XXXXXX";
     FILE* file;
     int fd;
     int i;
@@ -444,14 +446,32 @@ static int SaveTxDcFromRfRam(void)
     }
     close(fd);
 
+    /* Check raw words before sanitizing components or opening any output file.
+     * Either unprogrammed marker selects the existing calibration for all RFs. */
+    for (i = 0; i < TK8710_MAX_ANTENNAS; i++) {
+        if (tx_dc_data[i] == 0U || tx_dc_data[i] == UINT32_MAX) {
+            printf("RF%d TX DC is not stored (raw=0x%08X); keeping board calibration %s\n",
+                   i, tx_dc_data[i], TK8710_TX_DC_FILE);
+            return 0;
+        }
+    }
+
     if (TK8710_MKDIR(TK8710_TX_DC_DIR) != 0 && errno != EEXIST) {
         printf("Failed to create %s: %s\n", TK8710_TX_DC_DIR, strerror(errno));
         return -1;
     }
 
-    file = fopen(TK8710_TX_DC_FILE, "w");
+    /* Commit all eight channels together; preserve the old file on failure. */
+    fd = mkstemp(temporary_path);
+    if (fd < 0) {
+        printf("Failed to create TX DC temporary file: %s\n", strerror(errno));
+        return -1;
+    }
+    file = fdopen(fd, "w");
     if (file == NULL) {
         printf("Failed to open %s: %s\n", TK8710_TX_DC_FILE, strerror(errno));
+        close(fd);
+        unlink(temporary_path);
         return -1;
     }
 
@@ -471,14 +491,25 @@ static int SaveTxDcFromRfRam(void)
         if (fprintf(file, "0x%04X, 0x%04X\n", dc_i, dc_q) < 0) {
             printf("Failed to write %s: %s\n", TK8710_TX_DC_FILE, strerror(errno));
             fclose(file);
+            unlink(temporary_path);
             return -1;
         }
         printf("RF%d TX DC: raw=0x%08X, I=0x%04X, Q=0x%04X\n",
                i, tx_dc_data[i], dc_i, dc_q);
     }
 
+    int write_ok = fflush(file) == 0 && fchmod(fd, 0644) == 0 && fsync(fd) == 0;
     if (fclose(file) != 0) {
+        write_ok = 0;
+    }
+    if (!write_ok) {
         printf("Failed to close %s: %s\n", TK8710_TX_DC_FILE, strerror(errno));
+        unlink(temporary_path);
+        return -1;
+    }
+    if (rename(temporary_path, TK8710_TX_DC_FILE) != 0) {
+        printf("Failed to replace %s: %s\n", TK8710_TX_DC_FILE, strerror(errno));
+        unlink(temporary_path);
         return -1;
     }
 
@@ -2031,9 +2062,9 @@ int main(int argc, char* argv[])
     printf("Register 0xA064 value: 0x%08X\n", g_reg_a064_value);
     printf("Driver log level: %s\n", DriverLogLevelName(g_driver_log_level));
     printf("TRM log level: %s\n", TRM_LogGetLevelName(g_trm_log_level));
-    // if (SaveTxDcFromRfRam() != 0) {
-    //     printf("Warning: failed to refresh %s from RF RAM\n", TK8710_TX_DC_FILE);
-    // }
+    if (SaveTxDcFromRfRam() != 0) {
+        printf("Warning: RF TX DC refresh failed; keeping existing %s\n", TK8710_TX_DC_FILE);
+    }
 
     // Set CPU affinity to core 2
     if (set_cpu_affinity(2) < 0) {

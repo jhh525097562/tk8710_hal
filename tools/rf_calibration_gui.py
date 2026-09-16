@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import queue
 import re
 import socket
 import subprocess
@@ -22,7 +23,7 @@ DEFAULT_REGISTER = 0x08C8
 SERVER_GREETING = "OK RF_CAL_SERVER 1"
 MAX_RESPONSE_LENGTH = 1024
 AUTO_LOG_REFRESH_MS = 1000
-LOG_RESPONSE_RE = re.compile(r"^OK LOG seq=(\d+)\b")
+LOG_RESPONSE_RE = re.compile(r"^(?:OK|EVENT) LOG seq=(\d+)\b")
 STARTUP_LOG_NAME = "TK8710_RF_Test_GUI_startup.log"
 
 
@@ -134,6 +135,9 @@ class RfCalibrationClient:
         self._socket: Optional[socket.socket] = None
         self._reader = None
         self._lock = threading.Lock()
+        self._responses: queue.Queue[object] = queue.Queue()
+        self._receiver: Optional[threading.Thread] = None
+        self._log_callback: Optional[Callable[[str], None]] = None
 
     @property
     def connected(self) -> bool:
@@ -141,6 +145,7 @@ class RfCalibrationClient:
 
     def connect(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> str:
         self.close()
+        self._responses = queue.Queue()
         sock = socket.create_connection((host, port), timeout=self.timeout)
         sock.settimeout(self.timeout)
         reader = sock.makefile("rb")
@@ -150,6 +155,8 @@ class RfCalibrationClient:
             greeting = self._readline()
             if greeting != SERVER_GREETING:
                 raise RuntimeError(f"服务端握手响应异常: {greeting}")
+            self._receiver = threading.Thread(target=self._receive_loop, daemon=True)
+            self._receiver.start()
             return greeting
         except Exception:
             self.close()
@@ -160,6 +167,7 @@ class RfCalibrationClient:
         sock = self._socket
         self._reader = None
         self._socket = None
+        self._receiver = None
         if reader is not None:
             try:
                 reader.close()
@@ -170,6 +178,23 @@ class RfCalibrationClient:
                 sock.close()
             except OSError:
                 pass
+
+    def _receive_loop(self) -> None:
+        try:
+            while self._socket is not None:
+                line = self._readline()
+                if line.startswith("EVENT LOG "):
+                    callback = self._log_callback
+                    if callback is not None:
+                        callback(line)
+                    continue
+                self._responses.put(line)
+        except Exception as exc:
+            if self._socket is not None:
+                self._responses.put(exc)
+
+    def set_log_callback(self, callback: Optional[Callable[[str], None]]) -> None:
+        self._log_callback = callback
 
     def _readline(self) -> str:
         if self._reader is None:
@@ -186,7 +211,13 @@ class RfCalibrationClient:
             if self._socket is None:
                 raise RuntimeError("尚未连接TCP服务")
             self._socket.sendall((command + "\n").encode("ascii"))
-            response = self._readline()
+            try:
+                result = self._responses.get(timeout=self.timeout)
+            except queue.Empty as exc:
+                raise TimeoutError("等待服务端响应超时") from exc
+            if isinstance(result, Exception):
+                raise result
+            response = str(result)
             if response.startswith("ERR "):
                 raise RuntimeError(response)
             if not response.startswith("OK "):
@@ -204,6 +235,12 @@ class RfCalibrationClient:
 
     def get_log(self) -> str:
         return self.command("LOG")
+
+    def subscribe_log(self) -> str:
+        return self.command("SUBSCRIBE LOG")
+
+    def unsubscribe_log(self) -> str:
+        return self.command("UNSUBSCRIBE LOG")
 
     def read_register(self, address: int) -> int:
         response = self.command(f"READ 0x{address:04X}")
@@ -493,10 +530,16 @@ class RfCalibrationApp:
         return True
 
     def _toggle_auto_log_refresh(self) -> None:
-        if self.auto_log_var.get():
-            self._schedule_auto_log_refresh()
-        else:
-            self._cancel_auto_log_refresh()
+        client = self.client
+        if client is None or not client.connected:
+            return
+
+        def task() -> object:
+            if self.auto_log_var.get():
+                return client.subscribe_log()
+            return client.unsubscribe_log()
+
+        self._run_async("更新日志订阅", task, lambda response: self._log(str(response)))
 
     def _schedule_auto_log_refresh(self) -> None:
         if self._auto_log_after_id is not None or not self._auto_log_enabled():
@@ -581,8 +624,13 @@ class RfCalibrationApp:
             old_client.close()
         if client is None:
             self.root.after(0, self._cancel_auto_log_refresh)
-        else:
-            self.root.after(0, self._schedule_auto_log_refresh)
+
+    def _handle_pushed_log(self, response: str) -> None:
+        self.root.after(0, lambda: self._complete_pushed_log(response))
+
+    def _complete_pushed_log(self, response: str) -> None:
+        if self.auto_log_var.get() and self._record_auto_log_response(response):
+            self._log(response)
 
     def _require_client(self) -> RfCalibrationClient:
         if self.client is None or not self.client.connected:
@@ -599,7 +647,10 @@ class RfCalibrationApp:
         def task() -> object:
             client = RfCalibrationClient()
             greeting = client.connect(host, port)
+            client.set_log_callback(self._handle_pushed_log)
             self._replace_client(client)
+            if self.auto_log_var.get():
+                client.subscribe_log()
             self._set_status(f"已连接 {host}:{port}")
             self._log(greeting)
             return greeting
