@@ -340,13 +340,13 @@ static void ProcessChannelCorrelations(const TRM_RxDataList* rx_data_list,
 }
 
 /**
- * @brief Read one uint32_t TX DC word from an RF module over I2C.
+ * @brief Read one TX DC I/Q word from an RF module over I2C.
  */
 #ifndef _WIN32
 static int ReadRfTxDcWord(int fd, uint8_t slave_addr, uint32_t* value)
 {
     uint8_t offset = TK8710_RF_DC_RAM_OFFSET;
-    uint8_t data[sizeof(uint32_t)];
+    uint8_t data[sizeof(uint32_t) + 1U];
     struct i2c_msg messages[2];
     struct i2c_rdwr_ioctl_data transfer;
 
@@ -369,11 +369,11 @@ static int ReadRfTxDcWord(int fd, uint8_t slave_addr, uint32_t* value)
         return -1;
     }
 
-    /* RF RAM stores the uint32_t word in little-endian byte order. */
-    *value = (uint32_t)data[0] |
-             ((uint32_t)data[1] << 8) |
-             ((uint32_t)data[2] << 16) |
-             ((uint32_t)data[3] << 24);
+    /* Skip the first returned byte. Q and I are each little-endian uint16_t. */
+    *value = (uint32_t)data[1] |
+             ((uint32_t)data[2] << 8) |
+             ((uint32_t)data[3] << 16) |
+             ((uint32_t)data[4] << 24);
     return 0;
 }
 
