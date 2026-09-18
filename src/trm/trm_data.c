@@ -34,7 +34,7 @@ extern uint32_t g_trmMaxFrameCount;
 #define TX_DATA_MAX_LEN 520       /* 最大发送数据长度 */
 #define BEAM_RELEASE_QUEUE_SIZE 2048  /* 波束RAM释放队列大小 */
 #define MAX_PENDING_USERS 128      /* 最大待发送用户数量 */
-#define TRM_DEFAULT_BROADCAST_TX_POWER 31U
+#define TRM_DEFAULT_BROADCAST_TX_POWER 52U
 
 /* 发送数据项 */
 typedef struct {
