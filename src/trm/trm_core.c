@@ -21,6 +21,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
+#include "trm_acm_pps.h"
+
+static TrmAcmPpsClock g_acmPpsClock;
+static uint64_t g_acmExpectedRestartS0Us;
+static uint32_t g_acmFirstRateS0Us;
+
+int TRM_SetAcmPpsSchedule(uint32_t frame_count, uint8_t rate_count)
+{
+    if ((frame_count == 0) != (rate_count == 0) || rate_count > 4) {
+        return TRM_ERR_PARAM;
+    }
+    memset(&g_acmPpsClock, 0, sizeof(g_acmPpsClock));
+    g_acmExpectedRestartS0Us = 0;
+    g_acmFirstRateS0Us = 0;
+    g_acmPpsClock.cycle_count = frame_count;
+    g_acmPpsClock.rate_count = rate_count;
+    TRM_LOG_INFO("TRM: ACM PPS schedule reset: cycles=%u rates=%u", frame_count, rate_count);
+    return TRM_OK;
+}
 
 /* IPC通信头文件 - 仅在RK3506平台需要 */
 #ifdef PLATFORM_RK3506
@@ -173,6 +192,9 @@ int TRM_Init(const TRM_InitConfig* config)
     
     /* 清零上下文 */
     memset(&g_trmCtx, 0, sizeof(g_trmCtx));
+    memset(&g_acmPpsClock, 0, sizeof(g_acmPpsClock));
+    g_acmExpectedRestartS0Us = 0;
+    g_acmFirstRateS0Us = 0;
     
     /* 保存配置 */
     memcpy(&g_trmCtx.config, config, sizeof(TRM_InitConfig));
@@ -621,6 +643,23 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
     
     switch (irqResult->irq_type) {
         case TK8710_IRQ_S0:
+            if (g_acmExpectedRestartS0Us) {
+                uint64_t now = TK8710GetTimeUs();
+                uint64_t delta = now > g_acmExpectedRestartS0Us ?
+                    now - g_acmExpectedRestartS0Us : g_acmExpectedRestartS0Us - now;
+                TRM_LOG_INFO("TRM: ACM first S0 after PPS restart: error=%llu us",
+                             (unsigned long long)delta);
+                if (delta > TRM_ACM_S0_PERIOD_WARN_US) {
+                    TRM_LOG_ERROR("TRM: ACM PPS restart phase mismatch; requesting shutdown");
+                    g_acmShutdownRequested = 1;
+                }
+                g_acmExpectedRestartS0Us = 0;
+            }
+            if (g_acmPpsClock.cycle_count &&
+                TrmAcmPpsObserveS0(&g_acmPpsClock, irqResult->currentRateIndex) != 0) {
+                TRM_LOG_ERROR("TRM: ACM PPS frame anchor lost; requesting shutdown");
+                g_acmShutdownRequested = 1;
+            }
             slotType = 0; slotIndex = 0;  /* BCN时隙 */
             break;
         case TK8710_IRQ_S2:
@@ -1176,11 +1215,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     int calibRet;
     int ret;
 
-    if (!g_acmCalibState.pending || g_acmCalibState.running) {
-        return TRM_ERR_STATE;
-    }
-
-    if (g_trmMaxFrameCount == 0 || TRM_GetSuperFramePosition() != g_trmMaxFrameCount) {
+    if (g_acmShutdownRequested || !g_acmCalibState.pending || g_acmCalibState.running) {
         return TRM_ERR_STATE;
     }
 
@@ -1199,6 +1234,16 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     memcpy(&slotCfgBeforeAcm, slotCfg, sizeof(slotCfgBeforeAcm));
     externalSync = slotCfgBeforeAcm.local_sync == TK8710_SYNC_MODE_EXTERNAL;
 
+    if (externalSync) {
+        if (irqResult == NULL || g_acmPpsClock.rate_count != slotCfg->rateCount ||
+            !TrmAcmPpsIsLastFrame(&g_acmPpsClock, irqResult->currentRateIndex)) {
+            return TRM_ERR_STATE;
+        }
+    } else if (g_trmMaxFrameCount == 0 ||
+               TRM_GetSuperFramePosition() != g_trmMaxFrameCount) {
+        return TRM_ERR_STATE;
+    }
+
     slot3Us = TRM_GetAcmSlot3WindowUs(slotCfg, irqResult);
     if (slot3Us == 0) {
         TRM_LOG_WARN("TRM: ACM calibration rejected, slot3 window is unknown");
@@ -1210,8 +1255,6 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     }
 
     request = g_acmCalibState.request;
-    g_acmCalibState.pending = 0;
-    g_acmCalibState.running = 1;
 
     acmParam.calibCount = request.calibCount;
     acmParam.snrThreshold = request.snrThreshold;
@@ -1267,6 +1310,24 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
             (uint32_t)(slot3EndByS0Us - request.restartAdvanceUs - startUs);
     }
 
+    if (externalSync) {
+        uint64_t now = TK8710GetTimeUs();
+        uint64_t budget = (uint64_t)TRM_ACM_CALIB_TIME_BUDGET_US * request.calibCount +
+            request.guardUs + request.restartAdvanceUs;
+        if (!haveS0Anchor || !TrmAcmPpsHasTime(now, slot3EndUs, budget)) {
+            TRM_LOG_WARN("TRM: ACM waits for PPS-final S3 with enough time: budget=%llu us",
+                         (unsigned long long)budget);
+            return TRM_ERR_STATE;
+        }
+        TRM_LOG_INFO("TRM: ACM PPS-final frame: cycle=%u/%u rate=%u/%u remaining=%llu us",
+            g_acmPpsClock.cycle_index + 1, g_acmPpsClock.cycle_count,
+            irqResult->currentRateIndex + 1, g_acmPpsClock.rate_count,
+            (unsigned long long)(slot3EndUs - now));
+        g_acmFirstRateS0Us = TRM_GetSlotConfigTimeUs(&slotCfg->s0Cfg[0]);
+    }
+    g_acmCalibState.pending = 0;
+    g_acmCalibState.running = 1;
+
     TRM_LOG_INFO("TRM: ACM calibration starts at last-frame S2 end, slot3 window=%u us, "
                  "framePeriod=%u us, s0PeriodBefore=%u us, s0CountBefore=%u, "
                  "anchor=%s, s2CbOffset=%d us, targetByS0=%u us targetByS2=%u us, "
@@ -1301,6 +1362,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     restartSlot3EndUs = slot3EndUs;
 
     if (calibRet < 0) {
+        if (externalSync) g_acmShutdownRequested = 1;
         TRM_LOG_ERROR("TRM: ACM calibration failed: ret=%d elapsed=%u us", calibRet, elapsedUs);
         g_acmCalibState.running = 0;
         return TRM_ERR_DRIVER;
@@ -1320,6 +1382,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     ret = TRM_RefreshAcmSlotConfig(&slotCfgBeforeAcm);
     if (ret != TK8710_OK) {
         TRM_LOG_ERROR("TRM: Failed to refresh slot config after ACM: %d", ret);
+        if (externalSync) g_acmShutdownRequested = 1;
         g_acmCalibState.running = 0;
         return TRM_ERR_DRIVER;
     }
@@ -1334,7 +1397,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
 
     if (externalSync) {
         restartTargetUs = TK8710GetTimeUs();
-        restartSlot3EndUs = restartTargetUs;
+        restartSlot3EndUs = slot3EndUs;
         restartReason = "external-pps";
         restartAnchor = "external-pps";
         TRM_LOG_INFO("TRM: ACM external-sync restart will trigger immediately and wait for PPS");
@@ -1384,17 +1447,38 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
 
     g_acmCalibState.lastWaitUs = waitUs;
 
+    /* Select the first rate before arming hardware for the imminent PPS. */
+    if (externalSync && TK8710AdvanceRateAfterS3() != TK8710_OK) {
+        TRM_LOG_ERROR("TRM: Failed to prepare first PPS rate; requesting shutdown");
+        g_acmCalibState.running = 0;
+        g_acmShutdownRequested = 1;
+        return TRM_ERR_DRIVER;
+    }
+
     ret = TK8710FastStartPrepare(TK8710_MODE_MASTER, TK8710_WORK_MODE_CONTINUOUS);
     if (ret != TK8710_OK) {
         TRM_LOG_ERROR("TRM: Failed to prepare fast restart after ACM: %d", ret);
+        if (externalSync) g_acmShutdownRequested = 1;
         g_acmCalibState.running = 0;
         return TRM_ERR_DRIVER;
     }
 
     triggerLateUs = externalSync ? 0 : TRM_WaitUntilUs(restartTargetUs);
+    if (externalSync && !TrmAcmPpsHasTime(TK8710GetTimeUs(), slot3EndUs, request.guardUs)) {
+        TRM_LOG_ERROR("TRM: ACM missed PPS restart deadline; requesting shutdown without frame advance");
+        g_acmCalibState.running = 0;
+        g_acmShutdownRequested = 1;
+        return TRM_ERR_DRIVER;
+    }
     fastStartBeginUs = TK8710GetTimeUs();
     ret = TK8710FastStartTrigger(TK8710_MODE_MASTER);
     fastStartEndUs = TK8710GetTimeUs();
+    if (externalSync && fastStartEndUs >= slot3EndUs) {
+        TRM_LOG_ERROR("TRM: ACM trigger crossed PPS deadline; requesting shutdown without frame advance");
+        g_acmCalibState.running = 0;
+        g_acmShutdownRequested = 1;
+        return TRM_ERR_DRIVER;
+    }
     if (externalSync) {
         phaseMarginToS3EndUs = 0;
     } else if (restartSlot3EndUs >= fastStartEndUs) {
@@ -1420,6 +1504,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     g_acmS0MonitorRemaining = externalSync ? 0 : 4;
     if (ret != TK8710_OK) {
         TRM_LOG_ERROR("TRM: Failed to trigger fast restart after ACM: %d", ret);
+        if (externalSync) g_acmShutdownRequested = 1;
         g_acmCalibState.running = 0;
         return TRM_ERR_DRIVER;
     }
@@ -1434,7 +1519,9 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
                      (uint32_t)(fastStartEndUs - fastStartBeginUs));
     }
 
-    for (frameAdvanceIndex = 0; frameAdvanceIndex < virtualS3Count; frameAdvanceIndex++) {
+    if (externalSync) g_acmExpectedRestartS0Us = slot3EndUs + g_acmFirstRateS0Us;
+    for (frameAdvanceIndex = externalSync ? 1 : 0;
+         frameAdvanceIndex < virtualS3Count; frameAdvanceIndex++) {
         ret = TK8710AdvanceRateAfterS3();
         if (ret != TK8710_OK) {
             TRM_LOG_ERROR("TRM: Failed to advance rate after ACM: %d", ret);

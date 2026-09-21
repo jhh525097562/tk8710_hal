@@ -358,16 +358,22 @@ int TRM_GetStats(TRM_Stats* stats);
 uint32_t TRM_GetCurrentFrame(void);
 
 /**
- * @brief 请求在超帧最后一帧slot2结束后执行一次ACM校准
+ * @brief 请求ACM；本地同步在业务超帧末帧执行，外部同步在PPS周期末帧执行
  * @param request 校准请求参数，NULL时使用默认参数
  * @return TRM_OK成功，其他失败
  */
 int TRM_RequestAcmCalibration(const TRM_AcmCalibRequest* request);
 
+/* Configure while stopped, after TRM_Init and before external PPS start.
+ * frame_count is the calculator's count of complete rate cycles per PPS.
+ * Passing 0,0 disables this schedule. Reset before a new hardware start or NS
+ * reconfiguration, not during the internal ACM fast-restart sequence. */
+int TRM_SetAcmPpsSchedule(uint32_t frame_count, uint8_t rate_count);
+
 int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status);
 
 /**
- * @brief 查询是否因连续ACM校准失败请求退出程序
+ * @brief 查询ACM连续失败、PPS调度失步或重启超时是否请求退出程序
  * @return 1=请求退出，0=继续运行
  */
 uint8_t TRM_IsShutdownRequested(void);

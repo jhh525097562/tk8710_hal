@@ -1159,7 +1159,7 @@ int main(int argc, char* argv[])
     printf("配置单Tone信号...\n");
     TxToneConfig txToneConfig = {
         .freq = 335544,    /* Tone频点:  */
-        .gain = 0x0            /* Tone增益: 20 */
+        .gain = 0x40            /* Tone增益: 20 */
     };
     
     ret = TK8710DebugCtrl(TK8710_DBG_TYPE_TX_TONE, TK8710_DBG_OPT_SET, 

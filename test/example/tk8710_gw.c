@@ -1635,6 +1635,11 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     //     printf("单天线接收模式配置失败: ret=%d\n", ret);
     // }
 
+    if (TRM_SetAcmPpsSchedule(use_external_sync ? multiSlotOutput.frameCount : 0,
+            use_external_sync ? slotCfg.rateCount : 0) != TRM_OK) {
+        fprintf(stderr, "Failed to configure ACM PPS schedule\n");
+        return -1;
+    }
     /* 12. 调用 TK8710HalStart 启动工作 */
     TK8710HalError halRet_start = TK8710HalStart();
     if (halRet_start != TK8710_HAL_OK) {
@@ -2256,7 +2261,7 @@ runtime_loop:
             uint32_t failure_count = TRM_GetAcmConsecutiveFailureCount();
 
             fprintf(stderr,
-                    "FATAL: ACM calibration failed %u consecutive times; "
+                    "FATAL: ACM shutdown requested (consecutive calibration failures=%u); "
                     "stopping gateway safely.\n",
                     failure_count);
             g_fatal_error = 1;
