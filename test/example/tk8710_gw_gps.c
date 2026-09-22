@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "tk8710_gw_gps.h"
+#include "trm/trm_pps_monitor.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -461,6 +462,15 @@ GwGpsAction GwGpsUpdateMonitor(GwGpsManager* manager, uint8_t query_ok,
     }
 
     if (manager->mode == GW_GPS_MODE_EXTERNAL_ACTIVE) {
+        /* Do not let the UART's three-check policy preempt five missing output
+         * pulses. Other GPS/UART failures retain their existing policy. */
+        if (query_ok && status && TrmPpsMonitorMissing() &&
+            status->gps_online && status->fix_valid && status->rmc_status == 'A' &&
+            !status->bad_period && status->period == manager->expected_period_s &&
+            strcmp(status->state, "ERROR") != 0 && !status->pps_seen) {
+            manager->consecutive_abnormal = 0;
+            return GW_GPS_ACTION_NONE;
+        }
         if (query_ok && GwGpsFullHealthy(status, manager->expected_period_s)) {
             manager->consecutive_abnormal = 0;
             return GW_GPS_ACTION_NONE;

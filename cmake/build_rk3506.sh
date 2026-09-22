@@ -155,6 +155,13 @@ else
     exit 1
 fi
 
+arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} \
+    -c src/trm/trm_pps_monitor.c -o ${BUILD_DIR}/trm_pps_monitor.o
+if [ $? -ne 0 ]; then
+    echo "trm_pps_monitor build failed"
+    exit 1
+fi
+
 arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
     -c src/trm/trm_data.c \
     -o ${BUILD_DIR}/trm_data.o
@@ -375,6 +382,7 @@ ar rcs ${BUILD_DIR}/libtk8710_hal_complete.a \
     ${BUILD_DIR}/hal_cb.o \
     ${BUILD_DIR}/hal_status.o \
     ${BUILD_DIR}/tk8710_pps_api.o \
+    ${BUILD_DIR}/trm_pps_monitor.o \
     ${BUILD_DIR}/phy_api.o \
     ${BUILD_DIR}/phy_irq.o \
     ${BUILD_DIR}/phy_regs.o \

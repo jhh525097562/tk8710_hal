@@ -31,6 +31,7 @@
 #include "tk8710_scan_ipc_server.h"  /* Web扫频IPC服务 */
 #include "tk8710_noise_api.h"           /* 噪底能量计算 API */
 #include "tk8710_gw_gps.h"
+#include "trm/trm_pps_monitor.h"
 #ifdef PLATFORM_RK3506
 #include "tk8710_gw_rf_status.h"
 #endif
@@ -1347,6 +1348,7 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
                 rename("/var/run/tk8710_gps_policy.tmp", "/var/run/tk8710_gps_policy");
         }
     }
+    TrmPpsMonitorStop();
     GwGpsClose(&g_gps_manager);
     GwGpsUseLocalWithoutRecovery(&g_gps_manager);
     if (config->gps_enable) {
@@ -1639,6 +1641,26 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
             use_external_sync ? slotCfg.rateCount : 0) != TRM_OK) {
         fprintf(stderr, "Failed to configure ACM PPS schedule\n");
         return -1;
+    }
+    if (use_external_sync) {
+        TrmPpsConfig pps_monitor = {
+            .cycle_us = multiSlotOutput.framePeriod,
+            .cycles = multiSlotOutput.frameCount,
+            .super_frames = (uint32_t)config->tdd_num,
+            .rates = slotCfg.rateCount
+        };
+        for (uint8_t i = 0; i < pps_monitor.rates; ++i) {
+            const TRM_RateSlotConfig* rate = &multiSlotOutput.rateConfigs[i];
+            pps_monitor.s0_us[i] = rate->bcnSlotLen;
+            pps_monitor.frame_us[i] = rate->bcnSlotLen + rate->brdSlotLen +
+                                      rate->ulSlotLen + rate->dlSlotLen;
+        }
+        if (TrmPpsMonitorStart(&pps_monitor) != 0) {
+            fprintf(stderr, "FATAL: cannot monitor AG32 PPS on gpiochip1/18\n");
+            return -1;
+        }
+    } else {
+        TrmPpsMonitorStop();
     }
     /* 12. 调用 TK8710HalStart 启动工作 */
     TK8710HalError halRet_start = TK8710HalStart();
@@ -2396,6 +2418,7 @@ shutdown:
     }
     printf("核间通信已停止\n");
 
+    TrmPpsMonitorStop();
     GwGpsClose(&g_gps_manager);
     TK8710HalReset();
     if (ClearRuntimeStatusFiles() != 0) {

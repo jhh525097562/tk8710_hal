@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include "trm_acm_pps.h"
+#include "trm/trm_pps_monitor.h"
 
 static TrmAcmPpsClock g_acmPpsClock;
 static uint64_t g_acmExpectedRestartS0Us;
@@ -92,7 +93,7 @@ static volatile uint32_t g_sweepCaptureFreq = 0;
 
 /* 周期校准间隔（分钟），设置为0时禁用周期校准。 */
 #ifndef TRM_ACM_PERIODIC_INTERVAL_MINUTES
-#define TRM_ACM_PERIODIC_INTERVAL_MINUTES 60
+#define TRM_ACM_PERIODIC_INTERVAL_MINUTES 1
 #endif
 #define TRM_ACM_PERIODIC_CALIB_COUNT      1U
 #define TRM_ACM_PERIODIC_SNR_THRESHOLD    24U
@@ -267,6 +268,7 @@ int TRM_Init(const TRM_InitConfig* config)
 
 int TRM_Deinit(void)
 {
+    TrmPpsMonitorStop();
     if (g_trmCtx.state == TRM_STATE_UNINIT) {
         TRM_LOG_WARN("TRM未初始化，无需清理");
         return TRM_OK;
@@ -407,7 +409,7 @@ int TRM_GetAcmCalibrationStatus(TRM_AcmCalibStatus* status)
 
 uint8_t TRM_IsShutdownRequested(void)
 {
-    return g_acmShutdownRequested;
+    return g_acmShutdownRequested || TrmPpsMonitorFailed();
 }
 
 uint32_t TRM_GetAcmConsecutiveFailureCount(void)
@@ -643,7 +645,7 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
     
     switch (irqResult->irq_type) {
         case TK8710_IRQ_S0:
-            if (g_acmExpectedRestartS0Us) {
+            if (g_acmExpectedRestartS0Us && !TrmPpsMonitorActive()) {
                 uint64_t now = TK8710GetTimeUs();
                 uint64_t delta = now > g_acmExpectedRestartS0Us ?
                     now - g_acmExpectedRestartS0Us : g_acmExpectedRestartS0Us - now;
@@ -659,6 +661,10 @@ static void TRM_OnDriverSlotEndAdapter(TK8710IrqResult* irqResult)
                 TrmAcmPpsObserveS0(&g_acmPpsClock, irqResult->currentRateIndex) != 0) {
                 TRM_LOG_ERROR("TRM: ACM PPS frame anchor lost; requesting shutdown");
                 g_acmShutdownRequested = 1;
+            }
+            if (TrmPpsMonitorActive()) {
+                TrmPpsMonitorS0(g_acmPpsClock.cycle_index, irqResult->currentRateIndex,
+                               TRM_GetSuperFramePosition());
             }
             slotType = 0; slotIndex = 0;  /* BCN时隙 */
             break;
@@ -1210,6 +1216,7 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     uint8_t retryNextSuperFrame = 0;
     uint8_t haveS0Anchor = 0;
     uint8_t externalSync = 0;
+    uint64_t gpioDeadlineUs = 0;
     const char* restartReason = "current-slot3";
     const char* restartAnchor = "s2-only";
     int calibRet;
@@ -1238,6 +1245,10 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
         if (irqResult == NULL || g_acmPpsClock.rate_count != slotCfg->rateCount ||
             !TrmAcmPpsIsLastFrame(&g_acmPpsClock, irqResult->currentRateIndex)) {
             return TRM_ERR_STATE;
+        }
+        if (TrmPpsMonitorActive()) {
+            gpioDeadlineUs = TrmPpsMonitorDeadline();
+            if (!gpioDeadlineUs) return TRM_ERR_STATE;
         }
     } else if (g_trmMaxFrameCount == 0 ||
                TRM_GetSuperFramePosition() != g_trmMaxFrameCount) {
@@ -1314,7 +1325,13 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
         uint64_t now = TK8710GetTimeUs();
         uint64_t budget = (uint64_t)TRM_ACM_CALIB_TIME_BUDGET_US * request.calibCount +
             request.guardUs + request.restartAdvanceUs;
-        if (!haveS0Anchor || !TrmAcmPpsHasTime(now, slot3EndUs, budget)) {
+        if (gpioDeadlineUs) {
+            uint64_t mono_now = TrmPpsMonotonicUs();
+            if (!TrmAcmPpsHasTime(mono_now, gpioDeadlineUs, budget)) return TRM_ERR_STATE;
+            /* Convert only a duration for legacy logs; GPIO guards stay monotonic. */
+            slot3EndUs = now + (gpioDeadlineUs - mono_now);
+        }
+        if ((!gpioDeadlineUs && !haveS0Anchor) || !TrmAcmPpsHasTime(now, slot3EndUs, budget)) {
             TRM_LOG_WARN("TRM: ACM waits for PPS-final S3 with enough time: budget=%llu us",
                          (unsigned long long)budget);
             return TRM_ERR_STATE;
@@ -1464,16 +1481,20 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
     }
 
     triggerLateUs = externalSync ? 0 : TRM_WaitUntilUs(restartTargetUs);
-    if (externalSync && !TrmAcmPpsHasTime(TK8710GetTimeUs(), slot3EndUs, request.guardUs)) {
+    if (externalSync && !(gpioDeadlineUs ?
+        TrmAcmPpsHasTime(TrmPpsMonotonicUs(), gpioDeadlineUs, request.guardUs) :
+        TrmAcmPpsHasTime(TK8710GetTimeUs(), slot3EndUs, request.guardUs))) {
         TRM_LOG_ERROR("TRM: ACM missed PPS restart deadline; requesting shutdown without frame advance");
         g_acmCalibState.running = 0;
         g_acmShutdownRequested = 1;
         return TRM_ERR_DRIVER;
     }
     fastStartBeginUs = TK8710GetTimeUs();
+    if (gpioDeadlineUs) TrmPpsMonitorArmRestart();
     ret = TK8710FastStartTrigger(TK8710_MODE_MASTER);
     fastStartEndUs = TK8710GetTimeUs();
-    if (externalSync && fastStartEndUs >= slot3EndUs) {
+    if (externalSync && (gpioDeadlineUs ? TrmPpsMonotonicUs() >= gpioDeadlineUs :
+                                         fastStartEndUs >= slot3EndUs)) {
         TRM_LOG_ERROR("TRM: ACM trigger crossed PPS deadline; requesting shutdown without frame advance");
         g_acmCalibState.running = 0;
         g_acmShutdownRequested = 1;
@@ -1519,7 +1540,8 @@ static int TRM_TryRunAcmCalibrationAtS2(TK8710IrqResult* irqResult)
                      (uint32_t)(fastStartEndUs - fastStartBeginUs));
     }
 
-    if (externalSync) g_acmExpectedRestartS0Us = slot3EndUs + g_acmFirstRateS0Us;
+    if (externalSync && !TrmPpsMonitorActive())
+        g_acmExpectedRestartS0Us = slot3EndUs + g_acmFirstRateS0Us;
     for (frameAdvanceIndex = externalSync ? 1 : 0;
          frameAdvanceIndex < virtualS3Count; frameAdvanceIndex++) {
         ret = TK8710AdvanceRateAfterS3();

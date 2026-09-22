@@ -29,6 +29,7 @@ DRIVER_SRC = src/driver/tk8710_core.c \
              src/driver/tk8710_irq.c \
              src/driver/tk8710_config.c
 TRM_SRC = src/trm/trm_core.c \
+          src/trm/trm_pps_monitor.c \
           src/trm/trm_beam.c \
           src/trm/trm_data.c \
           src/trm/trm_satellite.c \
@@ -80,6 +81,9 @@ $(BUILD_DIR)/port_rk3506.o: port/rk3506/port_rk3506.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD_DIR)/trm_core.o: src/trm/trm_core.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(BUILD_DIR)/trm_pps_monitor.o: src/trm/trm_pps_monitor.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(BUILD_DIR)/trm_beam.o: src/trm/trm_beam.c | $(BUILD_DIR)
