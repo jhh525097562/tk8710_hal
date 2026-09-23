@@ -1,0 +1,106 @@
+<div class="panel">
+  <div class="panel-header">日志导出</div>
+  <div class="panel-body" style="padding:18px 20px">
+    <p>按类型选择日志，后台打包为一个压缩文件。导出不会删除原始日志。</p>
+    <div id="log-types" style="display:flex;flex-wrap:wrap;gap:14px;margin:16px 0">
+      <label><input type="checkbox" value="web" checked> Web服务</label>
+      <label><input type="checkbox" value="mqtt" checked> MQTT通信</label>
+      <label><input type="checkbox" value="tk8710" checked> TK8710网关</label>
+      <label><input type="checkbox" value="daemon"> 守护进程</label>
+      <label><input type="checkbox" value="system"> 系统日志</label>
+      <label><input type="checkbox" value="upgrade"> 升级日志</label>
+      <label><input type="checkbox" value="business"> 业务归档</label>
+    </div>
+    <div class="log-export-actions">
+      <button type="button" class="btn" id="log-all-types">全部类型</button>
+      <button type="button" class="btn" id="log-refresh">刷新列表</button>
+      <button type="button" class="btn" id="log-export-btn" disabled>导出所选日志</button>
+      <a class="btn hidden" id="log-package-download">下载压缩包</a>
+    </div>
+    <p id="log-selection-summary">正在读取日志列表…</p>
+    <div id="log-export-message" role="status" aria-live="polite"></div>
+    <div class="log-export-table-wrap" style="max-height:360px;overflow:auto;margin-top:12px">
+      <table class="log-export-table">
+        <thead><tr><th class="log-export-checkbox-cell"><input type="checkbox" id="log-select-all" aria-label="选择全部文件"></th><th>类型</th><th>文件名</th><th>大小</th><th>修改时间</th></tr></thead>
+        <tbody id="log-export-table-body"></tbody>
+      </table>
+    </div>
+    <p style="font-size:13px;color:#667085;margin-top:12px">每次最多512个文件、128MiB。系统启动日志在导出时采集；缺失或变化的文件会记录在包内清单中。</p>
+  </div>
+</div>
+<script>
+(function () {
+  var files = [], busy = false, requestNumber = 0, timer = null, alive = true;
+  var names = {web:'Web服务',mqtt:'MQTT通信',tk8710:'TK8710网关',daemon:'守护进程',system:'系统日志',upgrade:'升级日志',business:'业务归档'};
+  function node(id) { return document.getElementById(id); }
+  function types() { return Array.from(document.querySelectorAll('#log-types input:checked')).map(function(x){return x.value;}); }
+  function selected() { return Array.from(document.querySelectorAll('.log-file-choice:checked')).map(function(x){return files[Number(x.value)];}); }
+  function size(n) { return n < 1024 ? n+' B' : n < 1048576 ? (n/1024).toFixed(1)+' KiB' : (n/1048576).toFixed(1)+' MiB'; }
+  function message(text, error) { node('log-export-message').textContent=text;node('log-export-message').style.color=error?'#b42318':'#345b83'; }
+  function updateSelection() {
+    var entries=selected(), total=entries.reduce(function(n,f){return n+f.size;},0);
+    node('log-selection-summary').textContent='已选 '+entries.length+' 个文件，现有文件合计 '+size(total);
+    node('log-export-btn').disabled=busy || entries.length===0;
+    node('log-select-all').checked=files.length>0 && entries.length===files.length;
+    node('log-select-all').indeterminate=entries.length>0 && entries.length<files.length;
+  }
+  function setBusy(value) {
+    busy=value;
+    document.querySelectorAll('#log-types input, .log-file-choice, #log-select-all, #log-all-types, #log-refresh').forEach(function(x){x.disabled=value;});
+    updateSelection();
+  }
+  function render(list) {
+    files=list;var body=node('log-export-table-body');body.textContent='';
+    list.forEach(function(f,i) {
+      var tr=document.createElement('tr'), td=document.createElement('td'), input=document.createElement('input');
+      input.type='checkbox';input.className='log-file-choice';input.value=i;input.checked=true;input.disabled=busy;input.onchange=updateSelection;
+      td.className='log-export-checkbox-cell';td.appendChild(input);tr.appendChild(td);
+      [names[f.type]||f.type,f.name,f.id==='system/dmesg.txt'?'导出时采集':size(f.size),f.mtime].forEach(function(text){var cell=document.createElement('td');cell.textContent=text;tr.appendChild(cell);});
+      body.appendChild(tr);
+    });updateSelection();
+  }
+  function jsonFetch(url,options) {
+    return fetch(url,options).then(function(r) {
+      if(r.redirected)throw new Error('登录已失效，请重新登录');
+      return r.json().then(function(j){if(!r.ok)throw new Error(j.message||('HTTP '+r.status));return j;});
+    });
+  }
+  function load() {
+    if(busy)return;var chosen=types(),seq=++requestNumber;
+    if(!chosen.length){render([]);message('请选择日志类型。');return;}
+    message('正在读取日志列表…');node('log-export-btn').disabled=true;
+    jsonFetch('/api/logs?types='+encodeURIComponent(chosen.join(',')),{cache:'no-store'}).then(function(j) {
+      if(!alive || seq!==requestNumber)return;
+      render(j.files||[]);
+      var empty=(j.categories||[]).filter(function(c){return c.count===0;}).map(function(c){return c.label;});
+      message((j.truncated?'文件超过512个，列表仅展示部分，请缩小类型范围。 ':'')+(empty.length?'暂无日志：'+empty.join('、'):'已加载日志，可调整文件选择后导出。'));
+    }).catch(function(e){if(alive && seq===requestNumber){render([]);message(e.message,true);}});
+  }
+  function poll(id) {
+    jsonFetch('/api/log_export/status?id='+encodeURIComponent(id),{cache:'no-store'}).then(function(j) {
+      if(!alive)return;
+      if(j.status==='working') {
+        message(j.completed<j.total?'正在准备日志 '+j.completed+'/'+j.total+'…':'正在压缩日志，请稍候…');
+        timer=setTimeout(function(){poll(id);},1000);
+      } else {
+        setBusy(false);sessionStorage.removeItem('gateway-log-export');
+        if(j.status==='ready') {
+          var link=node('log-package-download');link.href='/api/log_export/download?id='+encodeURIComponent(id);link.classList.remove('hidden');
+          message('打包完成：'+j.exported+' 个文件'+(j.skipped?'，'+j.skipped+' 个文件无法读取，详情见manifest.json':'')+'。请点击“下载压缩包”。');
+        } else message(j.message||'导出失败，请重试。',true);
+      }
+    }).catch(function(e){if(alive){setBusy(false);sessionStorage.removeItem('gateway-log-export');message(e.message+'；刷新页面可重新检查任务。',true);}});
+  }
+  node('log-export-btn').onclick=function() {
+    var ids=selected().map(function(f){return f.id;});if(!ids.length||busy)return;
+    setBusy(true);node('log-package-download').classList.add('hidden');message('正在创建导出任务…');
+    jsonFetch('/api/log_export/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({types:types().join(','),files:ids})}).then(function(j){sessionStorage.setItem('gateway-log-export',j.id);poll(j.id);}).catch(function(e){setBusy(false);message(e.message,true);});
+  };
+  node('log-select-all').onchange=function(){var checked=this.checked;document.querySelectorAll('.log-file-choice').forEach(function(x){x.checked=checked;});updateSelection();};
+  node('log-all-types').onclick=function(){document.querySelectorAll('#log-types input').forEach(function(x){x.checked=true;});load();};
+  node('log-refresh').onclick=load;
+  document.querySelectorAll('#log-types input').forEach(function(x){x.onchange=load;});
+  window.addEventListener('pagehide',function(){alive=false;if(timer)clearTimeout(timer);});
+  load();var active=sessionStorage.getItem('gateway-log-export');if(active){setBusy(true);poll(active);}
+})();
+</script>

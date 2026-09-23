@@ -1,0 +1,6 @@
+{
+  "run_id": "ns-scan-20260911-171436",
+  "passed": false,
+  "error": "Original MQTT did not stop",
+  "config_restored": true
+}

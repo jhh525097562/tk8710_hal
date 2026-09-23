@@ -1,0 +1,32 @@
+{
+  "initial": {
+    "hostname": "TurMassLink",
+    "model": "RK3506b2",
+    "arch": "ARMv7",
+    "device_coords": "",
+    "firmware_version": "mqtt_spi_v1.0.0",
+    "kernel_version": "6.1",
+    "local_time": "2026-09-11 17:18:00",
+    "uptime": "101h 39m 50s",
+    "load_avg": [
+      0.07,
+      0.08,
+      0.08
+    ],
+    "app_version": "web_v1.0.0",
+    "disk_percent": 4,
+    "disk_used": 38,
+    "disk_total": 967,
+    "mem_percent": 29,
+    "mem_used": 139,
+    "mem_total": 478,
+    "tk8710_gw": {
+      "running": false,
+      "uptime_s": null
+    },
+    "rfstatus": null,
+    "gps_enabled": null
+  },
+  "missing_state_pass": true,
+  "restored_web": "/userdata/web_server"
+}

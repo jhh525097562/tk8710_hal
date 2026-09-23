@@ -1,0 +1,17 @@
+/.private/
+/local.env
+**/__pycache__/
+**/build_arm/
+**/build_sdk/
+**/remote_logs/
+**/logs/
+**/backup/
+*.o
+*.pyc
+*.log
+*.img
+*.rar
+*.bak
+*.bak[0-9]*
+*.generated.toml
+*.private.pem

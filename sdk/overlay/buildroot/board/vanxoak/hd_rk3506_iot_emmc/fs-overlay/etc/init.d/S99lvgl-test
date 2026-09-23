@@ -1,0 +1,24 @@
+#!/bin/bash
+
+case "$1" in
+        start)
+                if [ -f "/mnt/udisk/rk3506_lvgl_test" ]; then
+                        echo "start rk3506 lvgl test"
+			killall lv_demo
+			cp /mnt/udisk/rk3506_lvgl_test /tmp/rk3506_lvgl_test
+                        /tmp/rk3506_lvgl_test &
+                fi
+		;;
+        stop)
+                echo "stop rk3506 lvgl test"
+                ;;
+        restart|reload)
+                $0 stop
+                $0 start
+                ;;
+        *)
+                echo "Usage: $0 {start|stop|restart}"
+                exit 1
+esac
+
+exit 0

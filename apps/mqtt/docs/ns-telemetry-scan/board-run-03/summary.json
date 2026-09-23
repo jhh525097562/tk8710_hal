@@ -1,0 +1,11 @@
+{
+  "run_id": "ns-scan-20260910-123222",
+  "mqtt_bridge_sha256": "8690751a4593dc45ebbc1bb06868516a2860da4b2398bce468fea8851823ce30",
+  "tk8710_gw_sha256": "a7ce7927ef3ad3b34a90d80d2977110490cf9692d2b303af7c489aac9b7c563b",
+  "passed": false,
+  "error": "'list' object has no attribute 'get'",
+  "forced_stop": [
+    1837
+  ],
+  "config_restored": true
+}

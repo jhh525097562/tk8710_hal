@@ -1,0 +1,694 @@
+<div class="rf-layout">
+  <div class="rf-card">
+    <div class="rf-card-header">扫频</div>
+    <div class="rf-card-body">
+      <div class="rf-form-row">
+        <div class="rf-form-item">
+          <label class="rf-form-label" for="rf-scan-start">开始频率</label>
+          <input class="form-input rf-form-input" id="rf-scan-start" type="text" value="470M">
+        </div>
+        <div class="rf-form-item">
+          <label class="rf-form-label" for="rf-scan-stop">停止频率</label>
+          <input class="form-input rf-form-input" id="rf-scan-stop" type="text" value="510M">
+        </div>
+        <div class="rf-form-item rf-form-item--mode">
+          <label class="rf-form-label" for="rf-scan-mode">模式</label>
+          <select class="form-input rf-form-input" id="rf-scan-mode">
+            <option value="62.5k">62.5k</option>
+            <option value="125k">125k</option>
+            <option value="250k">250k</option>
+            <option value="500k" selected>500k</option>
+          </select>
+        </div>
+        <div class="rf-action-wrap">
+          <button type="button" class="btn" id="rf-scan-trigger">开始扫频</button>
+        </div>
+      </div>
+      <div class="rf-result-note" id="rf-scan-summary">请输入频点范围后开始扫频。</div>
+      <div class="rf-chart-stats" id="rf-chart-stats" hidden>
+        <div class="rf-chart-stat"><span>最低噪声</span><strong id="rf-chart-min">--</strong></div>
+        <div class="rf-chart-stat"><span>平均噪声</span><strong id="rf-chart-avg">--</strong></div>
+        <div class="rf-chart-stat"><span>最高噪声</span><strong id="rf-chart-max">--</strong></div>
+      </div>
+      <div class="rf-chart-wrap">
+        <div class="rf-chart-placeholder" id="rf-scan-placeholder">等待开始扫频</div>
+        <canvas id="rf-scan-chart" class="rf-chart-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="rf-card">
+    <div class="rf-card-header">ACM校准</div>
+    <div class="rf-card-body">
+      <div class="rf-toolbar">
+        <div class="rf-result-note" id="rf-acm-summary">点击按钮执行静态校准演示。</div>
+        <button type="button" class="btn" id="rf-acm-trigger">开始校准</button>
+      </div>
+      <div class="rf-channel-grid" id="rf-channel-grid"></div>
+    </div>
+  </div>
+
+  <div class="rf-card">
+    <div class="rf-card-header rf-card-header--split">
+      <span>TurMass数据统计</span>
+      <button type="button" class="btn rf-reset-btn" id="rf-stats-reset">清零</button>
+    </div>
+    <div class="rf-card-body">
+      <div class="rf-stats-grid">
+        <div class="rf-stat-box">
+          <div class="rf-stat-title">下行数据</div>
+          <div class="rf-stat-value" id="rf-stat-downlink">--</div>
+        </div>
+        <div class="rf-stat-box">
+          <div class="rf-stat-title">上行数据</div>
+          <div class="rf-stat-value" id="rf-stat-uplink">--</div>
+        </div>
+      </div>
+      <div class="rf-result-note" id="rf-stats-summary">从 /var/run/mqtt_stats.json 读取统计值。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var scanPoints = [];
+  var acmChannels = [];
+  var statsTimerId = null;
+  var statsInFlight = false;
+  var stopped = false;
+  var lastStats = null;
+  var scanStatusTimerId = null;
+  var scanAnimationTimerId = null;
+  var scanBusy = false;
+  var scanAnimationStep = 0;
+  var acmStatusTimerId = null;
+  var acmAnimationTimerId = null;
+  var acmBusy = false;
+  var acmAnimationStep = 0;
+
+  function fetchJsonWithTimeout(url, options, timeoutMs) {
+    if (typeof AbortController === 'undefined') {
+      return fetch(url, options || {}).then(function(r){ return r.json(); });
+    }
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function(){ controller.abort(); }, timeoutMs);
+    var opts = options || {};
+    opts.signal = controller.signal;
+    return fetch(url, opts).then(function(r){ return r.json(); }).finally(function(){
+      clearTimeout(timeoutId);
+    });
+  }
+
+  function setText(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.innerText = text;
+  }
+
+  function setScanButtonBusy(busy) {
+    var button = document.getElementById('rf-scan-trigger');
+    scanBusy = busy;
+    if (!button) return;
+    button.disabled = busy;
+    if (busy) button.classList.add('rf-btn-disabled');
+    else button.classList.remove('rf-btn-disabled');
+  }
+
+  function showChartPlaceholder(text) {
+    var placeholder = document.getElementById('rf-scan-placeholder');
+    var canvas = document.getElementById('rf-scan-chart');
+    if (placeholder) {
+      placeholder.style.display = 'flex';
+      placeholder.innerText = text;
+    }
+    if (canvas) {
+      canvas.style.display = 'none';
+    }
+  }
+
+  function hideChartPlaceholder() {
+    var placeholder = document.getElementById('rf-scan-placeholder');
+    var canvas = document.getElementById('rf-scan-chart');
+    if (placeholder) placeholder.style.display = 'none';
+    if (canvas) canvas.style.display = 'block';
+  }
+
+  function normalizeFreqInput(value) {
+    if (value == null) return '';
+    var cleaned = String(value).replace(/\s+/g, '').replace(/mhz/ig, 'M');
+    if (!cleaned) return '';
+    if (/m$/i.test(cleaned)) cleaned = cleaned.slice(0, -1);
+    var parsed = parseFloat(cleaned);
+    if (!isFinite(parsed)) return '';
+    return parsed.toFixed(1) + 'M';
+  }
+
+  function parseFreqValue(value) {
+    var normalized = normalizeFreqInput(value);
+    if (!normalized) return NaN;
+    return parseFloat(normalized);
+  }
+
+  function parseModeValue(value) {
+    var allowed = ['62.5k', '125k', '250k', '500k'];
+    if (value == null || value === '') return '';
+    var normalized = String(value).trim();
+    return allowed.indexOf(normalized) >= 0 ? normalized : '';
+  }
+
+  function drawScanChart() {
+    var canvas = document.getElementById('rf-scan-chart');
+    if (!canvas) return;
+    if (!scanPoints || !scanPoints.length) {
+      showChartPlaceholder('暂无扫频结果');
+      return;
+    }
+
+    hideChartPlaceholder();
+
+    var rect = canvas.getBoundingClientRect();
+    var width = Math.max(320, Math.round(rect.width || canvas.clientWidth || 720));
+    var height = Math.max(220, Math.round(rect.height || canvas.clientHeight || 260));
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    if (ctx.setTransform) ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+
+    ctx.clearRect(0, 0, width, height);
+
+    var values = [];
+    for (var valueIndex = 0; valueIndex < scanPoints.length; valueIndex++) {
+      var value = Number(scanPoints[valueIndex].rssi);
+      if (isFinite(value)) values.push(value);
+    }
+    if (!values.length) {
+      showChartPlaceholder('扫频结果中没有有效噪声值');
+      return;
+    }
+
+    var rawMin = Math.min.apply(null, values);
+    var rawMax = Math.max.apply(null, values);
+    var range = rawMax - rawMin;
+    var scalePadding = Math.max(2, range * 0.15);
+    if (range < 1) scalePadding = 5;
+    var yMin = Math.floor((rawMin - scalePadding) / 5) * 5;
+    var yMax = Math.ceil((rawMax + scalePadding) / 5) * 5;
+    if (yMax <= yMin) yMax = yMin + 10;
+
+    var paddingLeft = width < 520 ? 46 : 58;
+    var paddingRight = width < 520 ? 12 : 24;
+    var paddingTop = 20;
+    var paddingBottom = 42;
+    var chartWidth = width - paddingLeft - paddingRight;
+    var chartHeight = height - paddingTop - paddingBottom;
+
+    for (var i = 0; i <= 5; i++) {
+      var ratio = i / 5;
+      var y = paddingTop + chartHeight * ratio;
+      ctx.beginPath();
+      ctx.strokeStyle = i === 5 ? '#cbd9e8' : '#e7eef7';
+      ctx.lineWidth = 1;
+      ctx.moveTo(paddingLeft, y);
+      ctx.lineTo(width - paddingRight, y);
+      ctx.stroke();
+
+      ctx.fillStyle = '#70839a';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText((yMax - (yMax - yMin) * ratio).toFixed(0), paddingLeft - 9, y);
+    }
+
+    ctx.save();
+    ctx.translate(13, paddingTop + chartHeight / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = '#70839a';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('噪声 (dBm)', 0, 0);
+    ctx.restore();
+
+    var pointX = function(index) {
+      return paddingLeft + (scanPoints.length === 1 ? chartWidth / 2 : chartWidth * index / (scanPoints.length - 1));
+    };
+    var pointY = function(rssi) {
+      return paddingTop + (yMax - Number(rssi)) / (yMax - yMin) * chartHeight;
+    };
+
+    var tickCount = Math.max(2, Math.min(9, Math.floor(chartWidth / 115) + 1));
+    var usedTicks = {};
+    ctx.fillStyle = '#52677f';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (var tick = 0; tick < tickCount; tick++) {
+      var tickIndex = Math.round(tick * (scanPoints.length - 1) / (tickCount - 1));
+      if (usedTicks[tickIndex]) continue;
+      usedTicks[tickIndex] = true;
+      var tickX = pointX(tickIndex);
+      ctx.beginPath();
+      ctx.strokeStyle = '#cbd9e8';
+      ctx.moveTo(tickX, paddingTop + chartHeight);
+      ctx.lineTo(tickX, paddingTop + chartHeight + 5);
+      ctx.stroke();
+      ctx.fillText(scanPoints[tickIndex].freq, tickX, paddingTop + chartHeight + 10);
+    }
+
+    var gradient = ctx.createLinearGradient(0, paddingTop, 0, paddingTop + chartHeight);
+    gradient.addColorStop(0, 'rgba(43, 114, 205, 0.28)');
+    gradient.addColorStop(1, 'rgba(43, 114, 205, 0.03)');
+    ctx.beginPath();
+    ctx.moveTo(pointX(0), paddingTop + chartHeight);
+    for (var j = 0; j < scanPoints.length; j++) ctx.lineTo(pointX(j), pointY(scanPoints[j].rssi));
+    ctx.lineTo(pointX(scanPoints.length - 1), paddingTop + chartHeight);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    ctx.beginPath();
+    for (var lineIndex = 0; lineIndex < scanPoints.length; lineIndex++) {
+      var lineX = pointX(lineIndex);
+      var lineY = pointY(scanPoints[lineIndex].rssi);
+      if (lineIndex === 0) ctx.moveTo(lineX, lineY);
+      else ctx.lineTo(lineX, lineY);
+    }
+    ctx.strokeStyle = '#2b72cd';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    if (scanPoints.length <= 20) {
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#2b72cd';
+      ctx.lineWidth = 2;
+      for (var markerIndex = 0; markerIndex < scanPoints.length; markerIndex++) {
+        ctx.beginPath();
+        ctx.arc(pointX(markerIndex), pointY(scanPoints[markerIndex].rssi), 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+  }
+
+  function renderScanStats(points) {
+    var stats = document.getElementById('rf-chart-stats');
+    if (!stats || !points || !points.length) {
+      if (stats) stats.hidden = true;
+      return;
+    }
+    var minPoint = points[0];
+    var maxPoint = points[0];
+    var sum = 0;
+    for (var i = 0; i < points.length; i++) {
+      if (Number(points[i].rssi) < Number(minPoint.rssi)) minPoint = points[i];
+      if (Number(points[i].rssi) > Number(maxPoint.rssi)) maxPoint = points[i];
+      sum += Number(points[i].rssi);
+    }
+    setText('rf-chart-min', minPoint.rssi + ' dBm · ' + minPoint.freq);
+    setText('rf-chart-avg', (sum / points.length).toFixed(1) + ' dBm');
+    setText('rf-chart-max', maxPoint.rssi + ' dBm · ' + maxPoint.freq);
+    stats.hidden = false;
+  }
+
+  function renderAcmChannels() {
+    var container = document.getElementById('rf-channel-grid');
+    if (!container) return;
+    if (!acmChannels.length) {
+      container.innerHTML = '';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < acmChannels.length; i++) {
+      var item = acmChannels[i];
+      var levelClass = item.status === '异常' ? 'rf-channel-status--bad' : 'rf-channel-status--good';
+      html += '<div class="rf-channel-card">'
+        + '<div class="rf-channel-title">通道' + item.channel + '</div>'
+        + '<div class="rf-channel-status ' + levelClass + '">' + item.status + '</div>'
+        + '</div>';
+    }
+    container.innerHTML = html;
+  }
+
+  function setAcmButtonBusy(busy) {
+    var button = document.getElementById('rf-acm-trigger');
+    acmBusy = busy;
+    if (!button) return;
+    button.disabled = busy;
+    if (busy) button.classList.add('rf-btn-disabled');
+    else button.classList.remove('rf-btn-disabled');
+  }
+
+  function stopAcmAnimation() {
+    if (acmAnimationTimerId) {
+      clearInterval(acmAnimationTimerId);
+      acmAnimationTimerId = null;
+    }
+    acmAnimationStep = 0;
+  }
+
+  function startAcmAnimation() {
+    stopAcmAnimation();
+    acmAnimationTimerId = setInterval(function(){
+      var dots = '';
+      acmAnimationStep = (acmAnimationStep + 1) % 4;
+      for (var i = 0; i < acmAnimationStep; i++) dots += '.';
+      setText('rf-acm-summary', 'ACM校准中' + dots);
+    }, 500);
+  }
+
+  function clearAcmStatusTimer() {
+    if (acmStatusTimerId) {
+      clearTimeout(acmStatusTimerId);
+      acmStatusTimerId = null;
+    }
+  }
+
+  function finishAcmError(message) {
+    clearAcmStatusTimer();
+    stopAcmAnimation();
+    setAcmButtonBusy(false);
+    setText('rf-acm-summary', message);
+  }
+
+  function finishAcmSuccess(channels, summary) {
+    clearAcmStatusTimer();
+    stopAcmAnimation();
+    setAcmButtonBusy(false);
+    acmChannels = channels || [];
+    setText('rf-acm-summary', summary);
+    renderAcmChannels();
+  }
+
+  function scheduleAcmStatusPoll(delayMs) {
+    clearAcmStatusTimer();
+    acmStatusTimerId = setTimeout(pollAcmStatus, delayMs);
+  }
+
+  function loadAcmResult() {
+    fetchJsonWithTimeout('/api/rf_acm/result', { cache: 'no-store' }, 4000).then(function(res){
+      if (!res || res.status !== 'ok' || !res.data || !res.data.channels || !res.data.channels.length) {
+        throw new Error(res && res.message ? res.message : 'invalid acm result');
+      }
+      var channels = [];
+      for (var i = 0; i < res.data.channels.length; i++) {
+        var item = res.data.channels[i];
+        channels.push({
+          channel: item.channel,
+          status: item.status === 'error' ? '异常' : '正常'
+        });
+      }
+      finishAcmSuccess(channels, 'ACM校准完成：共 ' + (res.data.count || channels.length) + ' 个通道');
+    }).catch(function(err){
+      finishAcmError(err && err.message ? err.message : 'ACM结果格式错误或结果文件不可用');
+    });
+  }
+
+  function pollAcmStatus() {
+    if (!acmBusy || stopped) return;
+    fetchJsonWithTimeout('/api/rf_acm/status', { cache: 'no-store' }, 4000).then(function(res){
+      var data = res && res.data ? res.data : null;
+      if (!res || res.status !== 'ok' || !data) throw new Error('invalid acm status');
+      if (data.state === 'done' && data.result_ready) {
+        setText('rf-acm-summary', data.message || 'ACM校准完成');
+        loadAcmResult();
+        return;
+      }
+      if (data.state === 'failed' || data.state === 'error') {
+        finishAcmError(data.message || 'ACM校准失败');
+        return;
+      }
+      setText('rf-acm-summary', data.message || 'ACM校准中');
+      scheduleAcmStatusPoll(1000);
+    }).catch(function(){
+      finishAcmError('ACM状态读取失败，请检查服务端运行状态');
+    });
+  }
+
+  function startAcm() {
+    if (acmBusy) return;
+    setAcmButtonBusy(true);
+    setText('rf-acm-summary', 'ACM启动中');
+    startAcmAnimation();
+    fetchJsonWithTimeout('/api/rf_acm/start', {
+      method: 'POST',
+      cache: 'no-store'
+    }, 4000).then(function(res){
+      if (!res) throw new Error('empty response');
+      if (res.status === 'ok' || res.status === 'busy') {
+        setText('rf-acm-summary', res.message || 'ACM任务已受理');
+        scheduleAcmStatusPoll(800);
+        return;
+      }
+      throw new Error(res.message || 'acm start failed');
+    }).catch(function(err){
+      finishAcmError(err && err.message ? err.message : 'ACM启动失败');
+    });
+  }
+
+  function renderStats(payload) {
+    var data = payload && payload.data ? payload.data : payload;
+    var downlink = data && data.mqtt_sub_msg_count != null ? data.mqtt_sub_msg_count : '--';
+    var uplink = data && data.spi_data_total_count != null ? data.spi_data_total_count : '--';
+    setText('rf-stat-downlink', String(downlink));
+    setText('rf-stat-uplink', String(uplink));
+    setText('rf-stats-summary', '最近更新: ' + new Date().toLocaleTimeString());
+  }
+
+  function scheduleStats(delayMs) {
+    if (statsTimerId) clearTimeout(statsTimerId);
+    statsTimerId = setTimeout(loadStats, delayMs);
+  }
+
+  function loadStats() {
+    if (stopped || document.hidden) return;
+    if (statsInFlight) {
+      scheduleStats(500);
+      return;
+    }
+    statsInFlight = true;
+    function finishCycle() {
+      statsInFlight = false;
+      if (stopped || document.hidden) return;
+      scheduleStats(5000);
+    }
+    fetchJsonWithTimeout('/api/rf_stats', { cache: 'no-store' }, 4000).then(function(res){
+      if (res && res.status === 'ok') {
+        lastStats = res;
+        renderStats(res);
+      } else if (lastStats) {
+        renderStats(lastStats);
+      } else {
+        setText('rf-stats-summary', '统计数据暂不可用');
+      }
+      finishCycle();
+    }).catch(function(){
+      if (lastStats) {
+        renderStats(lastStats);
+      } else {
+        setText('rf-stats-summary', '统计数据读取失败');
+      }
+      finishCycle();
+    });
+  }
+
+  function resetStats() {
+    if (!confirm('确认清零 TurMass 数据统计吗？')) return;
+    fetchJsonWithTimeout('/api/rf_stats/reset', { method: 'POST', cache: 'no-store' }, 4000).then(function(res){
+      if (!res || res.status !== 'ok') throw new Error('reset failed');
+      lastStats = res;
+      renderStats(res);
+      setText('rf-stats-summary', '统计已清零');
+    }).catch(function(){
+      alert('清零失败，请检查文件权限或后台服务状态');
+    });
+  }
+
+  function stopScanAnimation() {
+    if (scanAnimationTimerId) {
+      clearInterval(scanAnimationTimerId);
+      scanAnimationTimerId = null;
+    }
+    scanAnimationStep = 0;
+  }
+
+  function startScanAnimation() {
+    stopScanAnimation();
+    scanAnimationTimerId = setInterval(function(){
+      var dots = '';
+      scanAnimationStep = (scanAnimationStep + 1) % 4;
+      for (var i = 0; i < scanAnimationStep; i++) dots += '.';
+      showChartPlaceholder('扫频中' + dots);
+    }, 500);
+  }
+
+  function clearScanStatusTimer() {
+    if (scanStatusTimerId) {
+      clearTimeout(scanStatusTimerId);
+      scanStatusTimerId = null;
+    }
+  }
+
+  function finishScanError(message) {
+    clearScanStatusTimer();
+    stopScanAnimation();
+    setScanButtonBusy(false);
+    setText('rf-scan-summary', message);
+    if (!scanPoints.length) showChartPlaceholder(message);
+  }
+
+  function finishScanSuccess(points, summary) {
+    clearScanStatusTimer();
+    stopScanAnimation();
+    setScanButtonBusy(false);
+    scanPoints = points || [];
+    setText('rf-scan-summary', summary);
+    renderScanStats(scanPoints);
+    drawScanChart();
+  }
+
+  function scheduleScanStatusPoll(delayMs) {
+    clearScanStatusTimer();
+    scanStatusTimerId = setTimeout(pollScanStatus, delayMs);
+  }
+
+  function loadScanResult() {
+    fetchJsonWithTimeout('/api/rf_scan/result', { cache: 'no-store' }, 4000).then(function(res){
+      if (!res || res.status !== 'ok' || !res.data || !res.data.points || !res.data.points.length) {
+        throw new Error(res && res.message ? res.message : 'invalid result');
+      }
+      finishScanSuccess(res.data.points, '扫频完成：' + (res.data.freq_start || '-') + ' - ' + (res.data.freq_stop || '-') + '，共 ' + (res.data.count || res.data.points.length) + ' 个频点');
+    }).catch(function(err){
+      finishScanError(err && err.message ? err.message : '扫频结果格式错误或结果文件不可用');
+    });
+  }
+
+  function pollScanStatus() {
+    if (!scanBusy || stopped) return;
+    fetchJsonWithTimeout('/api/rf_scan/status', { cache: 'no-store' }, 4000).then(function(res){
+      var data = res && res.data ? res.data : null;
+      if (!res || res.status !== 'ok' || !data) throw new Error('invalid status');
+      if (data.state === 'done' && data.result_ready) {
+        setText('rf-scan-summary', data.message || '扫频完成');
+        loadScanResult();
+        return;
+      }
+      if (data.state === 'failed' || data.state === 'error') {
+        finishScanError(data.message || '扫频失败');
+        return;
+      }
+      setText('rf-scan-summary', data.message || '扫频中');
+      scheduleScanStatusPoll(1000);
+    }).catch(function(){
+      finishScanError('扫频状态读取失败，请检查服务端运行状态');
+    });
+  }
+
+  function startRfScan() {
+    if (scanBusy) return;
+    var start = document.getElementById('rf-scan-start');
+    var stop = document.getElementById('rf-scan-stop');
+    var mode = document.getElementById('rf-scan-mode');
+    var startValue = start ? start.value : '';
+    var stopValue = stop ? stop.value : '';
+    var modeValue = mode ? mode.value : '125k';
+    var normalizedStart = normalizeFreqInput(startValue);
+    var normalizedStop = normalizeFreqInput(stopValue);
+    var parsedStart = parseFreqValue(startValue);
+    var parsedStop = parseFreqValue(stopValue);
+    var parsedMode = parseModeValue(modeValue);
+
+    if (!normalizedStart || !normalizedStop || !isFinite(parsedStart) || !isFinite(parsedStop)) {
+      alert('请输入合法频点，格式例如 470.5M');
+      return;
+    }
+    if (!parsedMode) {
+      alert('模式取值必须是 62.5k、125k、250k、500k 之一');
+      return;
+    }
+    if (parsedStart > parsedStop) {
+      alert('开始频率不能大于停止频率');
+      return;
+    }
+
+    if (start) start.value = normalizedStart;
+    if (stop) stop.value = normalizedStop;
+    if (mode) mode.value = parsedMode;
+
+    setScanButtonBusy(true);
+    setText('rf-scan-summary', '扫频启动中');
+    showChartPlaceholder('扫频中');
+    startScanAnimation();
+
+    var body = 'freq_start=' + encodeURIComponent(normalizedStart)
+      + '&freq_stop=' + encodeURIComponent(normalizedStop)
+      + '&mode=' + encodeURIComponent(String(parsedMode));
+    fetchJsonWithTimeout('/api/rf_scan/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+      body: body,
+      cache: 'no-store'
+    }, 4000).then(function(res){
+      if (!res) throw new Error('empty response');
+      if (res.status === 'ok' || res.status === 'busy') {
+        setText('rf-scan-summary', res.message || '扫频任务已受理');
+        scheduleScanStatusPoll(800);
+        return;
+      }
+      throw new Error(res.message || 'start failed');
+    }).catch(function(err){
+      finishScanError(err && err.message ? err.message : '扫频启动失败');
+    });
+  }
+
+  var scanButton = document.getElementById('rf-scan-trigger');
+  if (scanButton) {
+    scanButton.addEventListener('click', startRfScan);
+  }
+
+  var acmButton = document.getElementById('rf-acm-trigger');
+  if (acmButton) {
+    acmButton.addEventListener('click', startAcm);
+  }
+
+  var resetButton = document.getElementById('rf-stats-reset');
+  if (resetButton) {
+    resetButton.addEventListener('click', resetStats);
+  }
+
+  window.addEventListener('resize', drawScanChart);
+  window.addEventListener('pagehide', function(){
+    stopped = true;
+    if (statsTimerId) {
+      clearTimeout(statsTimerId);
+      statsTimerId = null;
+    }
+    clearScanStatusTimer();
+    stopScanAnimation();
+    clearAcmStatusTimer();
+    stopAcmAnimation();
+  });
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      if (statsTimerId) {
+        clearTimeout(statsTimerId);
+        statsTimerId = null;
+      }
+      clearScanStatusTimer();
+      clearAcmStatusTimer();
+      return;
+    }
+    if (!stopped && !statsInFlight) scheduleStats(100);
+    if (!stopped && scanBusy) scheduleScanStatusPoll(100);
+    if (!stopped && acmBusy) scheduleAcmStatusPoll(100);
+  });
+
+  showChartPlaceholder('等待开始扫频');
+  renderAcmChannels();
+  loadStats();
+})();
+</script>

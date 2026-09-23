@@ -1,0 +1,9 @@
+{
+  "run_id": "ns-scan-20260910-195946",
+  "mqtt_bridge_sha256": "64d7083dc45d8cbc121b4c657b1938cf8a18d806888852965fecc0a501bab83e",
+  "tk8710_gw_sha256": "3a10bbaa2adf41089debceeaab96194ed2f15500cea24a930b639b2862eb9d56",
+  "gps_policy": 1,
+  "gps_no_module_simulated": false,
+  "passed": true,
+  "config_restored": true
+}

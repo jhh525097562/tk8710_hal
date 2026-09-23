@@ -1,0 +1,56 @@
+###
+ # @Author: 359327604 359327604@qq.com
+ # @Date: 2026-04-09 10:29:56
+ # @LastEditors: 359327604 359327604@qq.com
+ # @LastEditTime: 2026-04-09 11:32:19
+ # @FilePath: \light\S37led_agent
+ # @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+### 
+#!/bin/sh
+#
+# S37led_agent    Start/Stop the LED Agent daemon
+#
+# chkconfig: 2345 37 63
+# description: LED Agent for status arbitration and GPIO control
+
+DAEMON=/usr/bin/led_agent
+NAME=led_agent
+PIDFILE=/var/run/$NAME.pid
+LED_DIR=/run/led
+
+test -x $DAEMON || exit 0
+
+case "$1" in
+  start)
+    printf "Starting LED Agent: "
+    # 确保挂载在内存中的 tmpfs 目录存在
+    mkdir -p $LED_DIR
+    chmod 755 $LED_DIR
+    
+    # 初始化状态文件，防止 agent 刚启动时读不到报错
+    echo "STATUS=INIT" > $LED_DIR/mqtt.state
+    # 使用 awk 生成毫秒级时间戳 (与 led_agent.c 解析逻辑统一)
+    echo "TS_MS=$(awk 'BEGIN{srand();print srand()*1000}')" >> $LED_DIR/mqtt.state
+    echo "STATUS=INIT" > $LED_DIR/net.state
+    echo "TS_MS=$(awk 'BEGIN{srand();print srand()*1000}')" >> $LED_DIR/net.state
+
+    start-stop-daemon -S -q -m -b -p $PIDFILE -x $DAEMON
+    [ $? -eq 0 ] && echo "OK" || echo "FAIL"
+    ;;
+  stop)
+    printf "Stopping LED Agent: "
+    start-stop-daemon -K -q -p $PIDFILE
+    [ $? -eq 0 ] && echo "OK" || echo "FAIL"
+    rm -f $PIDFILE
+    ;;
+  restart|reload)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+esac
+
+exit 0

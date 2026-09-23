@@ -1,0 +1,8 @@
+{
+  "run_id": "ns-scan-20260911-171926",
+  "mqtt_bridge_sha256": "64d7083dc45d8cbc121b4c657b1938cf8a18d806888852965fecc0a501bab83e",
+  "tk8710_gw_sha256": "5528e1bf7607e8e0952261d57c8640b5dc5a4b11995578c02bc1d697d59d9bb6",
+  "passed": false,
+  "error": "Gateway scan socket did not become ready",
+  "config_restored": true
+}

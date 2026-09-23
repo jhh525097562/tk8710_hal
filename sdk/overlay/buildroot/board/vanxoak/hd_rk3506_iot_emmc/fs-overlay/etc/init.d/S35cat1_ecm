@@ -1,0 +1,79 @@
+###
+ # @Author: 359327604 359327604@qq.com
+ # @Date: 2026-04-02 16:29:51
+ # @LastEditors: 359327604 359327604@qq.com
+ # @LastEditTime: 2026-04-03 09:16:44
+ # @FilePath: \tdaemon\S35cat1_ecm
+ # @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+### 
+#!/bin/sh
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+TMP=/tmp/cat1_at_rsp
+
+read_at() {
+    port="$1"
+    cmd="$2"
+    : > "$TMP"
+    cat "$port" > "$TMP" 2>/dev/null &
+    cpid=$!
+    sleep 1
+    echo -ne "$cmd\r" > "$port"
+    sleep 1
+    kill "$cpid" >/dev/null 2>&1
+    wait "$cpid" 2>/dev/null
+    cat "$TMP"
+}
+
+find_at_port() {
+    for p in /dev/ttyUSB2 /dev/ttyUSB1 /dev/ttyUSB0 /dev/ttyUSB3 /dev/ttyUSB4 /dev/ttyUSB5; do
+        [ -e "$p" ] || continue
+        r="$(read_at "$p" "AT")"
+        echo "$r" | grep -q "OK" && { echo "$p"; return 0; }
+    done
+    return 1
+}
+
+ecm_ready() {
+    r="$1"
+    echo "$r" | grep -Eq "\+ECNETDEVCTL:[[:space:]]*[0-9]+,[0-9]+,[0-9]+,1"
+}
+
+wait_tty() {
+    i=0
+    while [ "$i" -lt 30 ]; do
+        ls /dev/ttyUSB* >/dev/null 2>&1 && return 0
+        i=$((i + 1))
+        sleep 1
+    done
+    return 1
+}
+
+power_on_modem() {
+    command -v gpioset >/dev/null 2>&1 || return 1
+    gpioset -m exit /dev/gpiochip0 20=1 >/dev/null 2>&1 || gpioset /dev/gpiochip0 20=1 >/dev/null 2>&1 || return 1
+    sleep 2
+    gpioset -m exit /dev/gpiochip0 19=0 >/dev/null 2>&1 || gpioset /dev/gpiochip0 19=0 >/dev/null 2>&1 || return 1
+    sleep 8
+    return 0
+}
+
+main() {
+    power_on_modem || exit 1
+    wait_tty || exit 1
+    port="$(find_at_port)" || exit 1
+    q="$(read_at "$port" "AT+ECNETDEVCTL?")"
+    if ecm_ready "$q"; then
+        exit 0
+    fi
+
+    read_at "$port" "AT+ECPCFG=\"usbNet\",1" >/dev/null 2>&1
+    sleep 1
+    read_at "$port" "AT+ECNETDEVCTL=3,1,1" >/dev/null 2>&1
+    sleep 1
+    q2="$(read_at "$port" "AT+ECNETDEVCTL?")"
+    ecm_ready "$q2" || exit 1
+
+    exit 0
+}
+
+main "$@"

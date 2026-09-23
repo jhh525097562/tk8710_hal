@@ -1,0 +1,108 @@
+<div class="panel">
+  <div class="panel-header">接口配置 (eth0)</div>
+  <div class="panel-body">
+    <div id="network-save-notice" class="alert alert-success network-save-notice" style="display:%s;">网络已经修改，请在设备重启后使用新的IP访问，设备将在 <span id="network-reboot-countdown">6</span> 秒后自动重启。</div>
+    <form method="post" action="/network">
+      <div class="form-group">
+        <label class="form-label">协议</label>
+        <select class="form-input" id="proto_select" name="proto" onchange="toggleProto(this.value)">
+          <option value="dhcp" %s>DHCP (动态获取)</option>
+          <option value="static" %s>Static (静态地址)</option>
+        </select>
+      </div>
+      <div id="static_fields">
+        <div class="form-group">
+          <label class="form-label">IP 地址</label>
+          <input class="form-input" id="ip" name="ip" value="%s">
+        </div>
+        <div class="form-group">
+          <label class="form-label">子网掩码</label>
+          <input class="form-input" id="mask" name="mask" value="%s">
+        </div>
+        <div class="form-group">
+          <label class="form-label">网关</label>
+          <input class="form-input" id="gateway" name="gateway" value="%s">
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px;">
+        <label class="form-label"></label>
+        <div style="flex:1;max-width:300px;display:flex;align-items:center;justify-content:space-between;">
+          <button type="submit" class="btn">保存应用</button>
+          <button type="button" class="btn" onclick="openWifiDialog()">WiFi配置</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<div id="wifi-dialog" style="display:none;position:fixed;left:0;top:0;width:100%%;height:100%%;background:rgba(0,0,0,0.4);z-index:999;">
+  <div style="width:520px;margin:80px auto;background:#fff;border-radius:4px;overflow:hidden;">
+    <div class="panel-header">WiFi 配置</div>
+    <div class="panel-body">
+      <form method="post" action="/network">
+        <input type="hidden" name="wifi_action" value="save">
+        <div class="form-group">
+          <label class="form-label">WiFi 名称</label>
+          <input class="form-input" name="wifi_ssid" value="%s" oninput="clearWifiMessage()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">WiFi 密码</label>
+          <input class="form-input" name="wifi_psk" type="text" value="%s" oninput="clearWifiMessage()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">连接状态</label>
+          <input class="form-input" value="%s" readonly>
+        </div>
+        <div class="form-group">
+          <label class="form-label"></label>
+          <button type="submit" class="btn" style="height:40px;line-height:38px;border-radius:4px;font-size:14px;font-weight:500;display:inline-flex;align-items:center;justify-content:center;">保存</button>
+          <button type="button" class="btn" style="margin-left:32px;height:40px;line-height:38px;border-radius:4px;font-size:14px;font-weight:500;background:#0099cc;border-color:#008fb3;color:#fff;display:inline-flex;align-items:center;justify-content:center;" onclick="closeWifiDialog()">关闭</button>
+        </div>
+        <div class="form-group" id="wifi-message-group" style="border-bottom:none;display:%s;">
+          <div id="wifi-message" class="alert %s" style="width:100%%;margin:0;">%s</div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+function clearWifiMessage() {
+  var group = document.getElementById('wifi-message-group');
+  var msg = document.getElementById('wifi-message');
+  if (group) {
+    group.style.display = 'none';
+  }
+  if (msg) {
+    msg.className = 'alert';
+    msg.innerText = '';
+  }
+}
+function openWifiDialog(clearMessage) {
+  if (clearMessage !== false) {
+    clearWifiMessage();
+  }
+  document.getElementById('wifi-dialog').style.display = 'block';
+}
+function closeWifiDialog() {
+  document.getElementById('wifi-dialog').style.display = 'none';
+}
+if ('%s' === '1') {
+  openWifiDialog(false);
+}
+if ('%s' === 'block') {
+  (function(){
+    var countdownEl = document.getElementById('network-reboot-countdown');
+    var remain = 6;
+    if (!countdownEl) return;
+    countdownEl.innerText = String(remain);
+    var timer = setInterval(function(){
+      remain--;
+      if (remain <= 0) {
+        countdownEl.innerText = '0';
+        clearInterval(timer);
+        return;
+      }
+      countdownEl.innerText = String(remain);
+    }, 1000);
+  })();
+}
+</script>

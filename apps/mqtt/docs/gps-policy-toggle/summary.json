@@ -1,0 +1,8 @@
+{
+  "run_id": "ns-scan-20260910-200245",
+  "mqtt_bridge_sha256": "64d7083dc45d8cbc121b4c657b1938cf8a18d806888852965fecc0a501bab83e",
+  "tk8710_gw_sha256": "b3f6b934f4f490425fdf5bcac1094f0b9308dedb886bf18f255701e73ec15530",
+  "passed": false,
+  "error": "",
+  "config_restored": true
+}

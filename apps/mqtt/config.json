@@ -1,0 +1,19 @@
+{
+    "mqtt_host": "192.168.1.100",
+    "mqtt_port": 1883,
+    "username": "user",
+    "password": "DEPLOYMENT_REQUIRED",
+    "gateway_id": "123456",
+    "pub_topic": "tkq123456/msg/up",
+    "sub_topic": "tkq123456/msg/downlink",
+    "heartbeat_interval": 60,
+    "qos": 0,
+    "net_interface": "NET",
+    "hostname": "TurMassLink",
+    "model": "RK3506B",
+    "arch": "ARMv7",
+    "platform": "imx/cortexa7",
+    "kernel_version": "6.1",
+    "firmware_version": "v1.0_202603",
+    "app_version": "V1.0.2"
+}

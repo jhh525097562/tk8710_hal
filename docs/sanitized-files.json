@@ -1,0 +1,21 @@
+[
+  "apps/auto_deployment/deploy_three_apps.py",
+  "apps/frp/frpc.toml",
+  "apps/mqtt/config.json",
+  "apps/mqtt/tests/board_scan_e2e.py",
+  "apps/pps_counter/verify_board.py",
+  "apps/tdaemon/hostapd.conf",
+  "apps/tdaemon/wpa_supplicant.conf",
+  "apps/watchdog/verify_protection_board.py",
+  "apps/webserver/config.json",
+  "apps/webserver/tools/test_board_status.py",
+  "apps/webserver/tools/verify_keepalive.py",
+  "apps/wlan0/hostapd.conf",
+  "apps/wlan0/wpa_supplicant.conf",
+  "sdk/overlay/buildroot/board/vanxoak/hd_rk3506_iot_emmc/fs-overlay/etc/config.json",
+  "sdk/overlay/buildroot/board/vanxoak/hd_rk3506_iot_emmc/fs-overlay/etc/hostapd.conf",
+  "sdk/overlay/buildroot/board/vanxoak/hd_rk3506_iot_emmc/fs-overlay/etc/wpa_supplicant.conf",
+  "sdk/overlay/device/rockchip/.chips/rk3506/rk3506_oem/config.json",
+  "sdk/overlay/device/rockchip/.chips/rk3506/rk3506_oem/hostapd.conf",
+  "sdk/overlay/device/rockchip/.chips/rk3506/rk3506_oem/wpa_supplicant.conf"
+]

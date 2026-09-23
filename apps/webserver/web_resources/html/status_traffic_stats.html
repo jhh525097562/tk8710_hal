@@ -1,0 +1,148 @@
+<div class="status-card status-card--traffic-stats">
+  <div class="status-card-header">流量统计</div>
+  <div class="status-card-body traffic-stats-body">
+    <div class="traffic-stat-item">
+      <div class="traffic-stat-main">
+        <div class="traffic-stat-name">网口流量</div>
+        <div class="traffic-stat-value" id="traffic-stat-eth0">--</div>
+        <div class="traffic-stat-detail" id="traffic-stat-eth0-detail"></div>
+      </div>
+      <button type="button" class="btn traffic-stat-reset" onclick="resetTrafficStat('eth0', '网口(eth0)')">清零</button>
+    </div>
+    <div class="traffic-stat-item">
+      <div class="traffic-stat-main">
+        <div class="traffic-stat-name">4G流量</div>
+        <div class="traffic-stat-value" id="traffic-stat-usb0">--</div>
+        <div class="traffic-stat-detail" id="traffic-stat-usb0-detail"></div>
+      </div>
+      <button type="button" class="btn traffic-stat-reset" onclick="resetTrafficStat('usb0', '4G')">清零</button>
+    </div>
+    <div class="traffic-stat-item">
+      <div class="traffic-stat-main">
+        <div class="traffic-stat-name">WiFi流量</div>
+        <div class="traffic-stat-value" id="traffic-stat-wlan0">--</div>
+        <div class="traffic-stat-detail" id="traffic-stat-wlan0-detail"></div>
+      </div>
+      <button type="button" class="btn traffic-stat-reset" onclick="resetTrafficStat('wlan0', 'WiFi')">清零</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var lastTrafficStats = null;
+  var trafficStatsInFlight = false;
+  var timerId = null;
+  var stopped = false;
+
+  function fetchJsonWithTimeout(url, options, timeoutMs) {
+    if (typeof AbortController === 'undefined') {
+      return fetch(url, options || {}).then(function(r){ return r.json(); });
+    }
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function(){ controller.abort(); }, timeoutMs);
+    var opts = options || {};
+    opts.signal = controller.signal;
+    return fetch(url, opts).then(function(r){ return r.json(); }).finally(function(){
+      clearTimeout(timeoutId);
+    });
+  }
+
+  function formatTrafficBytes(bytes) {
+    bytes = Number(bytes) || 0;
+    if (bytes < 1024) return bytes + ' B';
+    var units = ['KB', 'MB', 'GB', 'TB'];
+    var value = bytes / 1024;
+    var idx = 0;
+    while (value >= 1024 && idx < units.length - 1) {
+      value = value / 1024;
+      idx++;
+    }
+    return value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2) + ' ' + units[idx];
+  }
+
+  function setTrafficStatText(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.innerText = text;
+  }
+
+  function renderTrafficStats(payload) {
+    var data = payload && payload.data ? payload.data : payload;
+    var interfaces = data && data.interfaces ? data.interfaces : {};
+    function render(iface, item) {
+      if (!item || item.present === false) {
+        setTrafficStatText('traffic-stat-' + iface, '未检测到');
+        setTrafficStatText('traffic-stat-' + iface + '-detail', '');
+        return;
+      }
+      setTrafficStatText('traffic-stat-' + iface, '总计 ' + formatTrafficBytes(item.total_bytes));
+      setTrafficStatText('traffic-stat-' + iface + '-detail',
+        '接收 ' + formatTrafficBytes(item.rx_bytes) + ' / 发送 ' + formatTrafficBytes(item.tx_bytes));
+    }
+    render('eth0', interfaces.eth0);
+    render('usb0', interfaces.usb0);
+    render('wlan0', interfaces.wlan0);
+  }
+
+  function loadTrafficStats() {
+    if (stopped || document.hidden) return;
+    if (trafficStatsInFlight) {
+      scheduleNext(500);
+      return;
+    }
+    trafficStatsInFlight = true;
+    function finishCycle() {
+      trafficStatsInFlight = false;
+      if (stopped || document.hidden) return;
+      scheduleNext(35000);
+    }
+    fetchJsonWithTimeout('/api/traffic_stats', { cache: 'no-store' }, 4000).then(function(res){
+      if (res && res.ok !== false) {
+        lastTrafficStats = res;
+        renderTrafficStats(res);
+      } else if (lastTrafficStats) {
+        renderTrafficStats(lastTrafficStats);
+      }
+      finishCycle();
+    }).catch(function(){
+      if (lastTrafficStats) renderTrafficStats(lastTrafficStats);
+      finishCycle();
+    });
+  }
+
+  function scheduleNext(delayMs) {
+    if (timerId) clearTimeout(timerId);
+    timerId = setTimeout(loadTrafficStats, delayMs);
+  }
+
+  window.resetTrafficStat = function(iface, label) {
+    if (!confirm('确认清零' + label + '的流量统计吗？')) return;
+    fetchJsonWithTimeout('/api/traffic_stats/reset?iface=' + encodeURIComponent(iface), { method: 'POST', cache: 'no-store' }, 4000).then(function(res){
+      if (!res || res.status !== 'ok') throw new Error('reset failed');
+      loadTrafficStats();
+    }).catch(function(){
+      alert('清零失败，请检查文件权限或后台服务状态');
+    });
+  };
+
+  window.addEventListener('pagehide', function(){
+    stopped = true;
+    if (timerId) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+  });
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      return;
+    }
+    if (!stopped && !trafficStatsInFlight) scheduleNext(100);
+  });
+
+  loadTrafficStats();
+})();
+</script>

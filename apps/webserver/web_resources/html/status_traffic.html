@@ -1,0 +1,309 @@
+<div class="status-card status-card--traffic">
+  <div class="status-card-header">网络状态</div>
+  <div class="status-card-body" style="padding: 16px 24px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box;">
+    
+    <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+      <div>
+        <div style="font-size: 13px; color: var(--tm-text-title); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+          <span style="display:inline-block;width:10px;height:10px;background:#f39c12;border-radius:2px;"></span> 上行 (Upload)
+        </div>
+        <div style="color: #f39c12; font-weight: bold; font-size: 18px; margin-top: 4px;" id="rate-tx">0 B/s</div>
+      </div>
+      <div style="text-align: right;">
+        <div style="font-size: 13px; color: var(--tm-text-title); font-weight: 600; display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
+          <span style="display:inline-block;width:10px;height:10px;background:#7f8c8d;border-radius:2px;"></span> 下行 (Download)
+        </div>
+        <div style="color: #7f8c8d; font-weight: bold; font-size: 18px; margin-top: 4px;" id="rate-rx">0 B/s</div>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+      <div>
+        <div style="font-size: 13px; color: var(--tm-text-title); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+          <span style="display:inline-block;width:10px;height:10px;background:#3498db;border-radius:2px;"></span> 平均延迟
+        </div>
+        <div style="color: #3498db; font-weight: bold; font-size: 18px; margin-top: 4px;" id="latency-avg">-- ms</div>
+      </div>
+      <div style="text-align: right;">
+        <div style="font-size: 13px; color: var(--tm-text-title); font-weight: 600; display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
+          <span style="display:inline-block;width:10px;height:10px;background:#9b59b6;border-radius:2px;"></span> 抖动
+        </div>
+        <div style="color: #9b59b6; font-weight: bold; font-size: 18px; margin-top: 4px;" id="latency-jitter">-- ms</div>
+      </div>
+    </div>
+    
+    <div style="flex: 1; min-height: 220px; position: relative;" id="chart-container">
+      <canvas id="traffic-chart" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%;"></canvas>
+    </div>
+    
+  </div>
+</div>
+<script>
+(function(){
+  var lastTx = -1, lastRx = -1, lastTime = 0;
+  var maxPoints = 10;
+  var historyTx = Array(maxPoints).fill(0);
+  var historyRx = Array(maxPoints).fill(0);
+  var inFlight = false;
+  var qualityInFlight = false;
+  var reqSeq = 0;
+  var appliedSeq = 0;
+  var samplesCount = 0;
+  var trafficTimerId = null;
+  var qualityTimerId = null;
+  var stopped = false;
+
+  function fetchJsonWithTimeout(url, timeoutMs) {
+    if (typeof AbortController === 'undefined') {
+      return fetch(url).then(function(r) { return r.json(); });
+    }
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function(){ controller.abort(); }, timeoutMs);
+    return fetch(url, { signal: controller.signal }).then(function(r) { return r.json(); }).finally(function(){
+      clearTimeout(timeoutId);
+    });
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    var k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  function drawChart() {
+    var container = document.getElementById('chart-container');
+    var canvas = document.getElementById('traffic-chart');
+    if(!canvas || !container) return;
+    
+    var rect = container.getBoundingClientRect();
+    // 兼容高分辨率屏幕，防止画布模糊
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(rect.width * dpr));
+    canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    if (ctx.setTransform) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    ctx.scale(dpr, dpr);
+    
+    var w = rect.width;
+    var h = rect.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // 确定 Y 轴最大值（抗离群值）
+    var maxVal = 100; // 最小比例尺，避免数值太小导致 UI 难看
+    var allVals = historyTx.concat(historyRx).filter(function(v) { return v > 0; });
+    allVals.sort(function(a, b) { return b - a; }); // desc
+    if (allVals.length > 1) {
+      // 若最大值比次大值大 5 倍以上，认为是离群峰值，使用次大值
+      if (allVals[0] > allVals[1] * 5) {
+        maxVal = allVals[1];
+      } else {
+        maxVal = allVals[0];
+      }
+    } else if (allVals.length === 1) {
+      maxVal = allVals[0];
+    }
+    maxVal = maxVal * 1.2; // 顶部预留 20% 的留白
+
+    var paddingLeft = 55, paddingBottom = 24, paddingTop = 10, paddingRight = 10;
+    var chartW = w - paddingLeft - paddingRight;
+    var chartH = h - paddingTop - paddingBottom;
+
+    // 绘制网格线和 Y 轴标签 (4等分)
+    ctx.fillStyle = '#4f6783';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    
+    for(var j=0; j<=4; j++) {
+        var yVal = maxVal * (j/4);
+        var yPos = h - paddingBottom - (chartH * (j/4));
+        
+        ctx.fillText(formatBytes(yVal) + '/s', paddingLeft - 8, yPos);
+        
+        ctx.beginPath();
+        // 底部基准线用实线，网格线用浅色细线
+        ctx.strokeStyle = j === 0 ? '#d9e5f3' : '#f0f4f8';
+        ctx.lineWidth = j === 0 ? 2 : 1;
+        ctx.moveTo(paddingLeft, yPos);
+        ctx.lineTo(w - paddingRight, yPos);
+        ctx.stroke();
+    }
+
+    // 绘制 X 轴标签和双柱状图
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    var barTotalWidth = chartW / maxPoints;
+    var barWidth = barTotalWidth * 0.35;
+    var gap = barTotalWidth * 0.1;
+
+    for(var i=0; i<maxPoints; i++) {
+        var xCenter = paddingLeft + i * barTotalWidth + barTotalWidth/2;
+        
+        // 绘制 X 轴时间标签（如 -27s, -24s ... 0s）
+        var timeLabel = '-' + ((maxPoints - 1 - i) * 3) + 's';
+        if (i === maxPoints - 1) timeLabel = '0s';
+        ctx.fillText(timeLabel, xCenter, h - paddingBottom + 8);
+
+        // 绘制下行数据柱 (灰色)
+        var rxH = (historyRx[i] / maxVal) * chartH;
+        if (historyRx[i] > 0 && rxH < 3) rxH = 3;
+        ctx.fillStyle = '#7f8c8d';
+        ctx.fillRect(xCenter - barWidth - gap/2, h - paddingBottom - rxH, barWidth, rxH);
+
+        // 绘制上行数据柱 (黄色)
+        var txH = (historyTx[i] / maxVal) * chartH;
+        if (historyTx[i] > 0 && txH < 3) txH = 3;
+        ctx.fillStyle = '#f39c12';
+        ctx.fillRect(xCenter + gap/2, h - paddingBottom - txH, barWidth, txH);
+    }
+
+  }
+
+  function updateTraffic() {
+    if (stopped || document.hidden) return;
+    if (inFlight) {
+      scheduleTrafficNext(500);
+      return;
+    }
+    inFlight = true;
+    var seq = ++reqSeq;
+    fetchJsonWithTimeout('/api/traffic', 2500).then(function(data) {
+      // 丢弃过期响应，避免乱序返回导致“文字和图表不一致”
+      if (seq < appliedSeq) {
+        inFlight = false;
+        scheduleTrafficNext(3000);
+        return;
+      }
+      appliedSeq = seq;
+      var now = Date.now();
+      if (lastTime > 0) {
+        var dt = (now - lastTime) / 1000;
+        if (dt <= 0) {
+          inFlight = false;
+          scheduleTrafficNext(3000);
+          return;
+        }
+        // 过滤异常短周期请求，避免比例尺瞬间拉爆；阈值贴近3秒轮询的一半
+        if (dt < 1.0) {
+          lastTx = data.tx_bytes;
+          lastRx = data.rx_bytes;
+          lastTime = now;
+          inFlight = false;
+          scheduleTrafficNext(3000);
+          return;
+        }
+        var rateTx = (data.tx_bytes - lastTx) / dt;
+        var rateRx = (data.rx_bytes - lastRx) / dt;
+        rateTx = Math.max(0, rateTx);
+        rateRx = Math.max(0, rateRx);
+
+        document.getElementById('rate-tx').innerText = formatBytes(rateTx) + '/s';
+        document.getElementById('rate-rx').innerText = formatBytes(rateRx) + '/s';
+
+        samplesCount++;
+        historyTx.shift(); historyTx.push(rateTx);
+        historyRx.shift(); historyRx.push(rateRx);
+
+
+        drawChart();
+      } else {
+        // 首次仅记录累计字节，等待正常 3 秒周期再计算速率
+        setTimeout(drawChart, 100);
+      }
+      lastTx = data.tx_bytes;
+      lastRx = data.rx_bytes;
+      lastTime = now;
+      inFlight = false;
+      if (stopped || document.hidden) return;
+      scheduleTrafficNext(3000);
+    }).catch(function(){
+      inFlight = false;
+      if (stopped || document.hidden) return;
+      scheduleTrafficNext(3000);
+    });
+  }
+
+  function updateNetworkQuality() {
+    if (stopped || document.hidden) return;
+    if (qualityInFlight) {
+      scheduleQualityNext(500);
+      return;
+    }
+    qualityInFlight = true;
+    fetchJsonWithTimeout('/api/network_quality', 3500).then(function(data) {
+      var avg = document.getElementById('latency-avg');
+      var jitter = document.getElementById('latency-jitter');
+      if (data.ok) {
+        if (avg) avg.innerText = Number(data.avg_latency_ms).toFixed(1) + ' ms';
+        if (jitter) jitter.innerText = Number(data.jitter_ms).toFixed(1) + ' ms';
+      } else {
+        if (avg) avg.innerText = '-- ms';
+        if (jitter) jitter.innerText = '-- ms';
+      }
+      qualityInFlight = false;
+      if (stopped || document.hidden) return;
+      scheduleQualityNext(8000);
+    }).catch(function(){
+      var avg = document.getElementById('latency-avg');
+      var jitter = document.getElementById('latency-jitter');
+      if (avg) avg.innerText = '-- ms';
+      if (jitter) jitter.innerText = '-- ms';
+      qualityInFlight = false;
+      if (stopped || document.hidden) return;
+      scheduleQualityNext(8000);
+    });
+  }
+
+  function scheduleTrafficNext(delayMs) {
+    if (trafficTimerId) clearTimeout(trafficTimerId);
+    trafficTimerId = setTimeout(updateTraffic, delayMs);
+  }
+
+  function scheduleQualityNext(delayMs) {
+    if (qualityTimerId) clearTimeout(qualityTimerId);
+    qualityTimerId = setTimeout(updateNetworkQuality, delayMs);
+  }
+
+  function onResize() {
+    drawChart();
+  }
+
+  function cleanupStatusTraffic() {
+    stopped = true;
+    if (trafficTimerId) {
+      clearTimeout(trafficTimerId);
+      trafficTimerId = null;
+    }
+    if (qualityTimerId) {
+      clearTimeout(qualityTimerId);
+      qualityTimerId = null;
+    }
+    window.removeEventListener('resize', onResize);
+  }
+
+  updateTraffic();
+  updateNetworkQuality();
+  window.addEventListener('resize', onResize); // 窗口大小改变时重绘
+  window.addEventListener('pagehide', cleanupStatusTraffic);
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      if (trafficTimerId) {
+        clearTimeout(trafficTimerId);
+        trafficTimerId = null;
+      }
+      if (qualityTimerId) {
+        clearTimeout(qualityTimerId);
+        qualityTimerId = null;
+      }
+      return;
+    }
+    if (!stopped && !inFlight) scheduleTrafficNext(100);
+    if (!stopped && !qualityInFlight) scheduleQualityNext(100);
+  });
+})();
+</script>

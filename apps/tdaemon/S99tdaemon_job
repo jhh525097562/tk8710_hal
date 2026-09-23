@@ -1,0 +1,196 @@
+#!/bin/sh
+###
+ # @Author: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
+ # @Date: 2026-03-12 09:51:22
+ # @LastEditors: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
+ # @LastEditTime: 2026-03-17 15:10:34
+ # @FilePath: \tdaemon\S99tdaemon_job
+ # @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+### 
+#
+# tdaemon_job    Start/Stop the network failover daemon
+#这个脚本要想永久的拉起需要在inittab中添加::respawn:/usr/bin/tdaemon.sh，处于永远杀不死的状态
+
+DAEMON="/usr/bin/tdaemon.sh"
+NAME="tdaemon_job"
+PIDFILE="/var/run/tdaemon_job.pid"
+CONF_FILE="/etc/tdaemon.conf"
+TK8710_RESET_TOOL="/usr/bin/tk8710_reset"
+
+reset_stopped_tk8710() {
+    # A completed kill command alone does not prove the process released its GPIO.
+    count=0
+    while pidof tk8710_gw >/dev/null 2>&1; do
+        if [ "$count" -ge 5 ]; then
+            echo "FAIL: tk8710_gw is still running; refusing hardware reset" >&2
+            return 1
+        fi
+        sleep 1
+        count=$((count + 1))
+    done
+    if [ ! -x "$TK8710_RESET_TOOL" ]; then
+        echo "FAIL: missing reset tool $TK8710_RESET_TOOL" >&2
+        return 1
+    fi
+    "$TK8710_RESET_TOOL"
+}
+
+find_running_pid() {
+    ps | grep "$DAEMON" | grep -v grep | awk 'NR==1{print $1}'
+}
+
+is_watchdog_pid() {
+    wd_exe=$(readlink "/proc/$1/exe" 2>/dev/null)
+    wd_comm=$(cat "/proc/$1/comm" 2>/dev/null)
+    case "$wd_exe:$wd_comm" in
+        */rk_wdt:*|*/rk_wdt\ \(deleted\):*|*:rk_wdt) return 0 ;;
+    esac
+    return 1
+}
+
+is_daemon_pid() {
+    case "$1" in ''|*[!0-9]*|0|1) return 1 ;; esac
+    is_watchdog_pid "$1" && return 1
+    # Match an entire argv entry, never an arbitrary command-line substring.
+    tr '\0' '\n' < "/proc/$1/cmdline" 2>/dev/null | grep -Fxq "$DAEMON"
+}
+
+kill_proc_entry_force() {
+    proc_entry="$1"
+    proc_exec="${proc_entry%% *}"
+    [ -n "$proc_exec" ] || return 0
+    case "${proc_exec##*/}" in
+        rk_wdt|S15rk-watchdog)
+            echo "Skipping independent watchdog service: $proc_exec" >&2
+            return 0 ;;
+    esac
+
+    for p in /proc/[0-9]*; do
+        [ -r "$p/cmdline" ] || continue
+        cmdline=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)
+        echo "$cmdline" | grep -Fq "$proc_exec" || continue
+        pid=${p##*/}
+        # Do not kill this stop script or its invoking shell by substring matching.
+        [ "$pid" != "$$" ] && [ "$pid" != "$PPID" ] || continue
+        is_watchdog_pid "$pid" && continue
+        kill -KILL "$pid" 2>/dev/null || true
+    done
+
+    proc_name="${proc_exec##*/}"
+    [ -n "$proc_name" ] && killall -q -9 "$proc_name" 2>/dev/null || true
+}
+
+kill_configured_processes_force() {
+    [ -f "$CONF_FILE" ] || return 0
+    awk '
+    {
+        line=$0
+        sub(/[[:space:]]*[#;].*$/, "", line)
+        if (line ~ /^[[:space:]]*proc[[:space:]]*=/) {
+            sub(/^[[:space:]]*proc[[:space:]]*=[[:space:]]*/, "", line)
+            if (line != "") print line
+        }
+    }' "$CONF_FILE" | while IFS= read -r proc_entry; do
+        kill_proc_entry_force "$proc_entry"
+    done
+}
+
+case "$1" in
+  start)
+    echo -n "Starting $NAME: "
+    running_pid=$(find_running_pid)
+    if [ -n "$running_pid" ] && [ -d "/proc/$running_pid" ]; then
+        echo "$running_pid" > "$PIDFILE" 2>/dev/null || true
+        echo "Already running (PID: $running_pid)"
+        exit 0
+    fi
+    # Check if running
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE")
+        if [ -d "/proc/$pid" ]; then
+            echo "Already running (PID: $pid)"
+            exit 0
+        fi
+    fi
+    
+    # Start daemon in background
+    # We rely on the daemon script to write the PID file
+    start-stop-daemon -S -b -q -x "$DAEMON"
+    if [ $? -eq 0 ]; then
+        echo "OK"
+    else
+        echo "FAIL"
+    fi
+    ;;
+  stop)
+    echo -n "Stopping $NAME: "
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE")
+        if is_daemon_pid "$pid"; then
+            kill -TERM "$pid" 2>/dev/null
+            
+            # Wait up to 5 seconds for graceful exit
+            count=0
+            while [ $count -lt 5 ]; do
+                if [ ! -d "/proc/$pid" ]; then
+                    break
+                fi
+                sleep 1
+                count=$((count + 1))
+            done
+            
+            if is_daemon_pid "$pid"; then
+                echo "Timeout, forcing kill..."
+                kill -KILL "$pid" 2>/dev/null
+            fi
+        fi
+    fi
+
+    # 兜底清理：杀掉所有可能残留的 tdaemon.sh 进程（针对多实例问题）
+    killall -q -9 tdaemon.sh 2>/dev/null
+    # 按配置强制清理被守护进程（确保 restart 时不残留）
+    kill_configured_processes_force
+
+    # This is a gateway service stop, including a manually launched TK8710 process.
+    killall -q -9 tk8710_gw 2>/dev/null || true
+    reset_status=0
+    reset_stopped_tk8710 || reset_status=$?
+    
+    # 强制清理 PID 文件和锁目录，确保下次能干净启动
+    rm -f "$PIDFILE"
+    rm -rf "/var/run/tdaemon_job.lock"
+    
+    if [ "$reset_status" -ne 0 ]; then
+        echo "FAIL: processes stopped but TK8710 hardware reset failed" >&2
+        exit "$reset_status"
+    fi
+    echo "OK (TK8710 hardware reset completed)"
+    ;;
+  restart)
+    "$0" stop || exit $?
+    sleep 1
+    "$0" start
+    ;;
+  status)
+    running_pid=$(find_running_pid)
+    if [ -n "$running_pid" ] && [ -d "/proc/$running_pid" ]; then
+        echo "$running_pid" > "$PIDFILE" 2>/dev/null || true
+        echo "$NAME is running"
+        exit 0
+    fi
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE")
+        if [ -d "/proc/$pid" ]; then
+            echo "$NAME is running"
+            exit 0
+        fi
+    fi
+    echo "$NAME is stopped"
+    exit 1
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}"
+    exit 1
+esac
+
+exit 0

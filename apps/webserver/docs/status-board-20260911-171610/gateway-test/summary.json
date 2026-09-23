@@ -1,0 +1,6 @@
+{
+  "run_id": "ns-scan-20260911-171616",
+  "passed": false,
+  "error": "readlink /proc/1756/exe: exit 1:  ",
+  "config_restored": true
+}

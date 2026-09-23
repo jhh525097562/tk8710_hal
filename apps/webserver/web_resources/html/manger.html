@@ -1,0 +1,38 @@
+<div id="manger-dialog" style="position:fixed;left:0;top:0;width:100%%;height:100%%;background:rgba(0,0,0,0.4);z-index:999;">
+  <div style="width:960px;max-width:96%%;margin:30px auto;background:#fff;border-radius:4px;overflow:hidden;">
+    <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <div>Manger</div>
+      <a href="/logout" class="btn" style="padding:4px 10px;font-size:12px;">退出</a>
+    </div>
+    <div class="panel-body">
+      <div class="panel" style="margin:16px;">
+        <div class="panel-header">密码修改</div>
+        <div class="panel-body">
+          <form method="post" action="/manger">
+            <input type="hidden" name="manger_action" value="password">
+            <div class="form-group">
+              <label class="form-label">当前密码</label>
+              <input class="form-input" name="current_password" type="password">
+            </div>
+            <div class="form-group">
+              <label class="form-label">新密码</label>
+              <input class="form-input" name="new_password" type="password">
+            </div>
+            <div class="form-group">
+              <label class="form-label">确认新密码</label>
+              <input class="form-input" name="confirm_password" type="password">
+            </div>
+            <div class="form-group" id="manger-password-msg" style="border-bottom:none;display:%s;">
+              <div class="alert %s" id="manger-password-msg-text" style="width:100%%;margin:0;">%s</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label"></label>
+              <button type="submit" class="btn">保存</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      
+    </div>
+  </div>
+</div>

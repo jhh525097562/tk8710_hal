@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+# Start/stop the LAN discovery daemon
+#
+
+DAEMON=/usr/bin/lan_discoveryd
+PIDFILE=/var/run/lan_discoveryd.pid
+DESC="LAN Discovery Daemon"
+
+case "$1" in
+  start)
+        printf "Starting %s: " "$DESC"
+        # 检查是否已经运行
+        if [ -f $PIDFILE ] && kill -0 $(cat $PIDFILE) 2>/dev/null; then
+            echo "already running."
+            exit 1
+        fi
+        
+        # 后台运行，丢弃输出，并记录 PID
+        start-stop-daemon -S -b -m -p $PIDFILE -x $DAEMON
+        echo "OK"
+        ;;
+  stop)
+        printf "Stopping %s: " "$DESC"
+        start-stop-daemon -K -q -p $PIDFILE
+        [ -f $PIDFILE ] && rm -f $PIDFILE
+        echo "OK"
+        ;;
+  restart|reload)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+  *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit 0

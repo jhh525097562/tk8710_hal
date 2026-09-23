@@ -1,0 +1,137 @@
+<div class="status-card status-card--kpi"><div class="status-card-header">硬盘使用率</div><div class="status-card-body status-kpi-body"><div class="status-ring"><svg class="status-ring-svg" viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-bg" cx="50" cy="50" r="42" pathLength="100"></circle><circle class="ring-fg" id="disk-ring" cx="50" cy="50" r="42" pathLength="100" style="stroke-dasharray:%d 100;"></circle></svg><span id="disk-percent">%d%%</span></div><div class="status-kpi-meta" id="disk-meta">已用: %llu MB / 总共: %llu MB</div></div></div><div class="status-card status-card--kpi"><div class="status-card-header">内存RAM占用率</div><div class="status-card-body status-kpi-body"><div class="status-ring"><svg class="status-ring-svg" viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-bg" cx="50" cy="50" r="42" pathLength="100"></circle><circle class="ring-fg" id="mem-ring" cx="50" cy="50" r="42" pathLength="100" style="stroke-dasharray:%d 100;"></circle></svg><span id="mem-percent">%d%%</span></div><div class="status-kpi-meta" id="mem-meta">已用: %llu MB / 总共: %llu MB</div></div></div>
+<script>
+(function() {
+  var timerId = null;
+  var inFlight = false;
+  var stopped = false;
+  var host = document.querySelector('.status-card--system .status-card-body');
+  if (host) {
+    [['gw-running','网关程序状态'],['gw-version','网关程序版本'],['gw-uptime','网关程序运行时长'],
+     ['gw-rf','射频状态（天线0～7）'],['gw-gps','GPS启用状态'],['sys-watchdog','片内看门狗']].forEach(function(item) {
+      var row=document.createElement('div'); row.className='status-kv-row';
+      var label=document.createElement('div'); label.className='status-kv-label'; label.textContent=item[1];
+      var value=document.createElement('div'); value.className='status-kv-value'; value.id=item[0]; value.textContent='读取中…';
+      row.appendChild(label); row.appendChild(value); host.appendChild(row);
+    });
+  }
+  function updateGateway(res) {
+    var gw=res.tk8710_gw || {}, e;
+    if(e=document.getElementById('sys-watchdog')) {
+      var w=res.watchdog||{}, reasons={device_missing:'设备未就绪',device_busy:'设备被占用',
+        device_open_failed:'设备打开失败',device_access_failed:'设备访问失败',
+        wrong_device_or_sysfs_missing:'驱动信息不匹配',nowayout_required:'内核保护策略未配置',
+        not_character_device:'设备节点无效',executable_missing:'服务程序缺失',launch_failed:'服务未能启动'};
+      var labels={waiting:'等待设备就绪',feeding:'喂狗正常',
+        degraded:'已喂狗，超时设置降级（'+w.actual_timeout_s+' 秒）',
+        failed:'启动失败：'+(reasons[w.reason]||'请查看日志'),stale:'喂狗状态异常',
+        stopped:w.armed?'喂狗已停止，硬件可能即将复位':'未启动',
+        fault:'喂狗故障，正在请求系统复位',unavailable:'未启动或未部署'};
+      e.textContent=labels[w.state]||'状态未知';
+      e.style.color=w.state==='feeding'?'#17633b':w.state==='waiting'?'':'#b42318';
+      if(w.state==='feeding' && typeof w.feed_interval_s==='number' && w.feed_interval_s>0 &&
+         typeof w.actual_timeout_s==='number' && w.actual_timeout_s>0) {
+        var detail=document.createElement('div'); detail.id='sys-watchdog-detail';
+        detail.style.cssText='margin-top:4px;font-size:12px;line-height:1.5;color:#667085;white-space:normal;';
+        detail.textContent='每'+w.feed_interval_s+'秒喂狗；连续约'+w.actual_timeout_s+'秒未喂狗时自动复位。';
+        e.appendChild(detail);
+      }
+    }
+    if(e=document.getElementById('gw-version')) e.textContent=typeof gw.version==='string' && gw.version ? gw.version : '未知';
+    if(e=document.getElementById('gw-running')) e.textContent=gw.running===true?'运行中':gw.running===false?'未运行':'未知';
+    if(e=document.getElementById('gw-uptime')) {
+      var n=gw.uptime_s;
+      e.textContent=typeof n==='number' && n>=0 ? Math.floor(n/3600)+'小时 '+Math.floor(n/60-Math.floor(n/3600)*60)+'分 '+Math.floor(n-Math.floor(n/60)*60)+'秒' : '--';
+    }
+    if(e=document.getElementById('gw-gps')) e.textContent=res.gps_enabled===true?'已开启':res.gps_enabled===false?'已关闭':'未知';
+    if(e=document.getElementById('gw-rf')) {
+      e.textContent='';
+      if(typeof res.rfstatus!=='string' || !/^[01]{8}$/.test(res.rfstatus)) {e.textContent='未知';return;}
+      for(var i=0;i<8;i++) {
+        var good=res.rfstatus.charAt(7-i)==='1', badge=document.createElement('span');
+        badge.textContent='天线'+i+' '+(good?'正常':'异常');
+        badge.style.cssText='display:inline-block;padding:3px 7px;margin:2px;border-radius:5px;font-size:12px;background:'+(good?'#e8f5ee':'#fff0ed')+';color:'+(good?'#17633b':'#b42318');
+        e.appendChild(badge);
+      }
+      if(gw.running!==true) e.appendChild(document.createTextNode('（最后记录）'));
+    }
+  }
+
+  function fetchJsonWithTimeout(url, timeoutMs) {
+    if (typeof AbortController === 'undefined') {
+      return fetch(url).then(function(r){ return r.json(); });
+    }
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function() { controller.abort(); }, timeoutMs);
+    return fetch(url, { signal: controller.signal }).then(function(r){ return r.json(); }).finally(function(){
+      clearTimeout(timeoutId);
+    });
+  }
+
+  function scheduleNext(delayMs) {
+    if (timerId) clearTimeout(timerId);
+    timerId = setTimeout(updateSystemInfo, delayMs);
+  }
+
+  function finishCycle() {
+    inFlight = false;
+    if (stopped || document.hidden) return;
+    scheduleNext(3000);
+  }
+
+  function updateSystemInfo() {
+    if (stopped || document.hidden) return;
+    if (inFlight) {
+      scheduleNext(500);
+      return;
+    }
+    inFlight = true;
+    fetchJsonWithTimeout('/api/system_info', 2500).then(function(res){
+      var e;
+      updateGateway(res);
+      if(e=document.getElementById('sys-hostname')) e.innerText=res.hostname;
+      if(e=document.getElementById('sys-model')) e.innerText=res.model;
+      if(e=document.getElementById('sys-arch')) e.innerText=res.arch;
+      if(e=document.getElementById('sys-coords')) e.innerText=(res.device_coords && res.device_coords.trim()) ? res.device_coords : '--';
+      if(e=document.getElementById('sys-firmware')) e.innerText=res.firmware_version;
+      if(e=document.getElementById('sys-kernel')) e.innerText=res.kernel_version;
+      if(e=document.getElementById('sys-time')) e.innerText=res.local_time;
+      if(e=document.getElementById('sys-uptime')) e.innerText=res.uptime;
+      if(e=document.getElementById('sys-load')) e.innerText=res.load_avg[0].toFixed(2)+', '+res.load_avg[1].toFixed(2)+', '+res.load_avg[2].toFixed(2);
+      if(e=document.getElementById('sys-app')) e.innerText=res.app_version;
+
+      if(e=document.getElementById('disk-ring')) e.style.strokeDasharray=res.disk_percent+' 100';
+      if(e=document.getElementById('disk-percent')) e.innerText=res.disk_percent+'%';
+      if(e=document.getElementById('disk-meta')) e.innerText='已用: '+res.disk_used+' MB / 总共: '+res.disk_total+' MB';
+
+      if(e=document.getElementById('mem-ring')) e.style.strokeDasharray=res.mem_percent+' 100';
+      if(e=document.getElementById('mem-percent')) e.innerText=res.mem_percent+'%';
+      if(e=document.getElementById('mem-meta')) e.innerText='已用: '+res.mem_used+' MB / 总共: '+res.mem_total+' MB';
+      finishCycle();
+    }).catch(function(){
+      updateGateway({});
+      finishCycle();
+    });
+  }
+
+  window.addEventListener('pagehide', function() {
+    stopped = true;
+    if (timerId) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+  });
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      return;
+    }
+    if (!stopped && !inFlight) scheduleNext(100);
+  });
+
+  updateSystemInfo();
+})();
+</script>

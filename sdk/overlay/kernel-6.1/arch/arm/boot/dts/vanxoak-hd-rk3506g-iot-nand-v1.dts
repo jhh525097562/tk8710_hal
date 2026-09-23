@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2024 Rockchip Electronics Co., Ltd.
+ */
+
+/dts-v1/;
+
+#include "rk3506.dtsi"
+//#include "rk3502.dtsi"
+#include "vanxoak-hd-rk3506-iot-v1.dtsi"
+#include "vanxoak-hd-rk3506-iot-rgb-800x480.dtsi"
+//#include "vanxoak-hd-rk3506-iot-rgb-1024x600.dtsi"
+
+/ {
+	model = "Vanxoak RK3506G IOT V1 Board";
+	compatible = "rockchip,rk3506g-iot-v1", "rockchip,rk3506";
+	
+	// LED
+	leds {
+		compatible = "gpio-leds";
+		status = "okay";
+		heart_led {
+			label = "run";
+			gpios = <&gpio1 RK_PB3 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "heartbeat";
+			default-state = "off";
+		};
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+
+		drm_logo: drm-logo@0 {
+			compatible = "rockchip,drm-logo";
+			reg = <0x0 0x0>;
+		};
+	};
+};
+
+&mmc {
+    max-frequency = <150000000>;
+	supports-sd;
+	bus-width = <4>;
+	cd-gpios = <&gpio0 RK_PB0 GPIO_ACTIVE_LOW>;
+	//cap-mmc-highspeed;
+	cap-sd-highspeed;
+	disable-wp;
+	//sd-uhs-sdr104;
+	vmmc-supply = <&vcc3v3_stb>;
+	vqmmc-supply = <&vcc3v3_stb>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdmmc_clk_pins &sdmmc_cmd_pins &sdmmc_bus4_pins &sdmmc_det_pins>;
+	status = "okay";
+};
+
+&tsadc {
+	status = "okay";
+};
+
+&saradc {
+	vref-supply = <&vcc_1v8>;
+	status = "okay";
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&rm_io16_uart1_rx &rm_io17_uart1_tx>;
+	status = "okay";
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&rm_io0_uart2_rx &rm_io2_uart2_tx>;
+	status = "okay";
+};
+
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&rm_io15_uart3_rx &rm_io14_uart3_tx>;
+	status = "okay";
+};
+
+&uart4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&rm_io30_uart4_rx &rm_io31_uart4_tx>;
+	status = "okay";
+};
+
+&pinctrl {
+    spi-slave-gpio {
+        spi_irq_pin: spi-irq-pin {
+            // RK_PC2 对应 GPIO0_C2
+            rockchip,pins = <0 RK_PC2 RK_FUNC_GPIO &pcfg_pull_down>;
+        };
+    };
+};
+
+&spi0 {
+       pinctrl-names = "default";
+       //pinctrl-0 = <&rm_io7_spi0_csn0 &rm_io3_spi0_mosi &rm_io6_spi0_miso &rm_io1_spi0_clk &spi_irq_pin>;
+       pinctrl-0 = <&rm_io7_spi0_csn0 &rm_io3_spi0_mosi &rm_io6_spi0_miso &rm_io1_spi0_clk >;
+       status = "okay";
+
+    spidev@0 {
+        compatible = "rockchip,spidev";
+        reg = <0>;
+        spi-max-frequency = <50000000>;
+        status = "okay";
+    };
+};
+
+
+
