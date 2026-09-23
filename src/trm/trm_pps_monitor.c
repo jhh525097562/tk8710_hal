@@ -7,13 +7,13 @@
 #endif
 #define _POSIX_C_SOURCE 200809L
 #include "trm/trm_pps_monitor.h"
+#include "trm/trm_log.h"
 #include "trm_pps_model.h"
 #ifdef PLATFORM_RK3506
 #include <gpiod.h>
 #include <pthread.h>
 #include <poll.h>
 #include <errno.h>
-#include <stdio.h>
 #include <time.h>
 
 #define PPS_QUEUE 256u
@@ -56,7 +56,7 @@ static void* monitor_main(void* unused)
         if (rc < 0 && errno == EINTR) continue;
         pthread_mutex_lock(&lock);
         if (rc < 0 || (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) {
-            fprintf(stderr, "PPS GPIO event read failed; requesting shutdown\n");
+            TRM_LOG_ERROR("PPS GPIO event read failed; requesting shutdown");
             model.fatal = 1;
             pthread_mutex_unlock(&lock);
             break;
@@ -65,14 +65,14 @@ static void* monitor_main(void* unused)
         unsigned int drained = 0;
         while (rc > 0 && (pfd.revents & POLLIN)) {
             if (++drained > PPS_QUEUE) {
-                fprintf(stderr, "PPS GPIO event flood; requesting shutdown\n");
+                TRM_LOG_ERROR("PPS GPIO event flood; requesting shutdown");
                 model.fatal = 1;
                 break;
             }
             struct gpiod_line_event event;
             if (gpiod_line_event_read(line, &event)) {
                 if (errno == EINTR) continue;
-                fprintf(stderr, "PPS GPIO event decode failed: %s\n", strerror(errno));
+                TRM_LOG_ERROR("PPS GPIO event decode failed: %s", strerror(errno));
                 model.fatal = 1;
                 break;
             }
@@ -83,10 +83,10 @@ static void* monitor_main(void* unused)
                 int accepted = TrmPpsModelEdge(&model, stamp);
                 if (accepted == 1) edges[edge_index++ % PPS_EDGES] = stamp;
                 if (accepted == 1 && was_missing) {
-                    fprintf(stderr, "PPS GPIO recovered after %u missed cycles; waiting for frame validation\n",
+                    TRM_LOG_INFO("PPS GPIO recovered after %u missed cycles; waiting for frame validation",
                             was_missing);
                 }
-                fprintf(stderr, "PPS GPIO: monotonic_us=%llu interval_us=%llu accepted=%d\n",
+                TRM_LOG_INFO("PPS GPIO: monotonic_us=%llu interval_us=%llu accepted=%d",
                     (unsigned long long)stamp,
                     (unsigned long long)(previous && stamp >= previous ? stamp - previous : 0), accepted);
             }
@@ -97,8 +97,11 @@ static void* monitor_main(void* unused)
         uint32_t old_missing = model.missing;
         TrmPpsModelTick(&model, now);
         if (model.missing != old_missing) {
-            fprintf(stderr, "PPS GPIO missing=%u/5; ACM deferred%s\n", model.missing,
-                    model.fatal ? "; requesting shutdown" : "");
+            if (model.fatal) {
+                TRM_LOG_ERROR("PPS GPIO missing=%u/5; ACM deferred; requesting shutdown", model.missing);
+            } else {
+                TRM_LOG_WARN("PPS GPIO missing=%u/5; ACM deferred", model.missing);
+            }
         }
         while (tail != head && now >= frames[tail % PPS_QUEUE].stamp + PPS_DELIVERY_GRACE_US) {
             FrameObservation f = frames[tail++ % PPS_QUEUE];
@@ -111,9 +114,19 @@ static void* monitor_main(void* unused)
             int result = TrmPpsModelFrame(&model, f.stamp, chosen, f.cycle, f.rate, f.super_position);
             if (result < 0) model.fatal = 1;
             if (result || (f.cycle == 0 && f.rate == 0)) {
-                fprintf(stderr, "PPS frame check: cycle=%u/%u rate=%u/%u super=%u result=%d%s\n",
+                if (result < 0) {
+                    TRM_LOG_ERROR("PPS frame check: cycle=%u/%u rate=%u/%u super=%u result=%d; requesting shutdown",
+                        f.cycle + 1, model.config.cycles, f.rate + 1, model.config.rates,
+                        f.super_position, result);
+                } else if (result > 0) {
+                    TRM_LOG_WARN("PPS frame check: cycle=%u/%u rate=%u/%u super=%u result=%d",
+                        f.cycle + 1, model.config.cycles, f.rate + 1, model.config.rates,
+                        f.super_position, result);
+                } else {
+                    TRM_LOG_INFO("PPS frame check: cycle=%u/%u rate=%u/%u super=%u result=%d",
                     f.cycle + 1, model.config.cycles, f.rate + 1, model.config.rates,
-                    f.super_position, result, result < 0 ? "; requesting shutdown" : "");
+                    f.super_position, result);
+                }
             }
         }
         pthread_mutex_unlock(&lock);
@@ -140,7 +153,7 @@ int TrmPpsMonitorStart(const TrmPpsConfig* config)
         gpiod_line_release(line); gpiod_chip_close(chip); line = NULL; chip = NULL;
         return -1;
     }
-    fprintf(stderr, "PPS GPIO started: gpiochip1/18 rising period_us=%llu cycles=%u rates=%u\n",
+    TRM_LOG_INFO("PPS GPIO started: gpiochip1/18 rising period_us=%llu cycles=%u rates=%u",
         (unsigned long long)model.period, config->cycles, config->rates);
     return 0;
 }
@@ -180,7 +193,7 @@ void TrmPpsMonitorS0(uint32_t cycle, uint8_t rate, uint32_t super_position)
     pthread_mutex_lock(&lock);
     if (active) {
         if (head - tail >= PPS_QUEUE || rate >= model.config.rates) {
-            fprintf(stderr, "PPS frame observation overflow/invalid rate; requesting shutdown\n");
+            TRM_LOG_ERROR("PPS frame observation overflow/invalid rate; requesting shutdown");
             model.fatal = 1;
         } else {
             frames[head++ % PPS_QUEUE] = (FrameObservation){stamp, cycle, super_position, rate};
