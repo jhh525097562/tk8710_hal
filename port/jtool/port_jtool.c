@@ -7,6 +7,11 @@
 #include "../tk8710_hal.h"
 #include <stdio.h>
 
+#include "../tk8710_time_utils.h"
+#ifndef _WIN32
+#include <time.h>
+#include <sys/time.h>
+#endif
 uint64_t TK8710GetTimeUs(void);
 
 #ifdef _WIN32
@@ -1130,13 +1135,26 @@ uint64_t TK8710GetTimeUs(void)
 {
 #ifdef _WIN32
     LARGE_INTEGER frequency, counter;
-    QueryPerformanceFrequency(&frequency);
-    QueryPerformanceCounter(&counter);
-    return (uint64_t)(counter.QuadPart * 1000000 / frequency.QuadPart);
+    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0 ||
+        !QueryPerformanceCounter(&counter) || counter.QuadPart < 0) return 0;
+    return TK8710SecondsToUs((uint64_t)(counter.QuadPart / frequency.QuadPart),
+        (uint32_t)((counter.QuadPart % frequency.QuadPart) * 1000000ULL /
+                   frequency.QuadPart));
 #else
     struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint64_t)(tv.tv_sec * 1000000 + tv.tv_usec);
+    if (gettimeofday(&tv, NULL) != 0) return 0;
+    return TK8710SecondsToUs((uint64_t)tv.tv_sec, (uint32_t)tv.tv_usec);
+#endif
+}
+
+uint64_t TK8710GetMonotonicTimeUs(void)
+{
+#ifdef _WIN32
+    return TK8710GetTimeUs(); /* QueryPerformanceCounter is monotonic. */
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return TK8710SecondsToUs((uint64_t)ts.tv_sec, (uint32_t)(ts.tv_nsec / 1000));
 #endif
 }
 

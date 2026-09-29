@@ -1,0 +1,118 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>同频同步组网频差测试分析</title>
+<style>body{font:16px sans-serif;max-width:1100px;margin:30px auto;padding:0 20px}pre{white-space:pre-wrap;background:#f3f5f7;padding:20px}</style>
+<h1>同频同步组网频差测试分析</h1><p>有效窗口接收 178 条；bcnbits 集合外错误 0 条；
+CFO 变化 83 次；bcnbits 变化 79 次。</p>
+<p>缺失为日志记录缺失估计，不能直接归因于射频丢包。边界保护区及未完成频点不进入有效窗口统计。
+CFO 分组及频差残差为描述统计，没有独立参考时不判定逐帧来源正确性；重叠分组视为无法区分。
+未观测到错误不代表全部广播均正确解析。</p><img src="cfo_bcnbits.png" style="max-width:100%" alt="CFO and bcnbits"><h2>统计明细</h2>
+<pre>{
+  &quot;samples&quot;: 178,
+  &quot;bcnbits_errors&quot;: 0,
+  &quot;bcnbits_error_ratio&quot;: 0.0,
+  &quot;cfo_changes&quot;: 83,
+  &quot;bcnbits_changes&quot;: 79,
+  &quot;cfo_change_same_bits&quot;: 4,
+  &quot;missing_records_estimate&quot;: 25,
+  &quot;missing_count_scope&quot;: &quot;lower_bound_between_observed_records_only&quot;,
+  &quot;uncertain_intervals&quot;: 0,
+  &quot;joint_distribution&quot;: [
+    {
+      &quot;bcnbits&quot;: 0,
+      &quot;cfo_hz&quot;: 1465,
+      &quot;count&quot;: 62
+    },
+    {
+      &quot;bcnbits&quot;: 1,
+      &quot;cfo_hz&quot;: -1954,
+      &quot;count&quot;: 37
+    },
+    {
+      &quot;bcnbits&quot;: 1,
+      &quot;cfo_hz&quot;: -1832,
+      &quot;count&quot;: 79
+    }
+  ],
+  &quot;cfo_groups&quot;: {
+    &quot;0&quot;: {
+      &quot;count&quot;: 62,
+      &quot;cfo_median&quot;: 1465.0,
+      &quot;cfo_min&quot;: 1465,
+      &quot;cfo_max&quot;: 1465
+    },
+    &quot;1&quot;: {
+      &quot;count&quot;: 116,
+      &quot;cfo_median&quot;: -1832.0,
+      &quot;cfo_min&quot;: -1954,
+      &quot;cfo_max&quot;: -1832
+    }
+  },
+  &quot;association&quot;: &quot;separated_observed_groups&quot;,
+  &quot;raw_samples&quot;: 178,
+  &quot;malformed_count&quot;: 0,
+  &quot;frame_period_ms&quot;: 350,
+  &quot;period_source&quot;: &quot;inferred&quot;,
+  &quot;tdd_count&quot;: 10,
+  &quot;bits_a&quot;: 0,
+  &quot;bits_b&quot;: 1,
+  &quot;joins&quot;: 1,
+  &quot;rejoined&quot;: 0,
+  &quot;disconnect_events&quot;: 0,
+  &quot;windows&quot;: [],
+  &quot;points&quot;: [],
+  &quot;baseline_a&quot;: {
+    &quot;samples&quot;: 0,
+    &quot;a_samples&quot;: 0,
+    &quot;unexpected_bcnbits&quot;: 0,
+    &quot;cfo_median&quot;: null,
+    &quot;cfo_min&quot;: null,
+    &quot;cfo_max&quot;: null,
+    &quot;rssi_median&quot;: null,
+    &quot;snr_median&quot;: null
+  },
+  &quot;joined_window_including_same_receive_block&quot;: {
+    &quot;samples&quot;: 176,
+    &quot;bcnbits_errors&quot;: 0,
+    &quot;bcnbits_error_ratio&quot;: 0.0,
+    &quot;cfo_changes&quot;: 82,
+    &quot;bcnbits_changes&quot;: 78,
+    &quot;cfo_change_same_bits&quot;: 4,
+    &quot;missing_records_estimate&quot;: 22,
+    &quot;missing_count_scope&quot;: &quot;lower_bound_between_observed_records_only&quot;,
+    &quot;uncertain_intervals&quot;: 0,
+    &quot;joint_distribution&quot;: [
+      {
+        &quot;bcnbits&quot;: 0,
+        &quot;cfo_hz&quot;: 1465,
+        &quot;count&quot;: 60
+      },
+      {
+        &quot;bcnbits&quot;: 1,
+        &quot;cfo_hz&quot;: -1954,
+        &quot;count&quot;: 37
+      },
+      {
+        &quot;bcnbits&quot;: 1,
+        &quot;cfo_hz&quot;: -1832,
+        &quot;count&quot;: 79
+      }
+    ],
+    &quot;cfo_groups&quot;: {
+      &quot;0&quot;: {
+        &quot;count&quot;: 60,
+        &quot;cfo_median&quot;: 1465.0,
+        &quot;cfo_min&quot;: 1465,
+        &quot;cfo_max&quot;: 1465
+      },
+      &quot;1&quot;: {
+        &quot;count&quot;: 116,
+        &quot;cfo_median&quot;: -1832.0,
+        &quot;cfo_min&quot;: -1954,
+        &quot;cfo_max&quot;: -1832
+      }
+    },
+    &quot;association&quot;: &quot;separated_observed_groups&quot;
+  },
+  &quot;cfo_bcnbits_relation_counts&quot;: {
+    &quot;consistent_with_observed_groups&quot;: 178
+  }
+}</pre></html>

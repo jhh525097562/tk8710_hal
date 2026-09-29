@@ -1,0 +1,4 @@
+# SSH / serial dependencies already used by tools/multi_gateway_sync_test.
+paramiko>=3.0,<5
+pyserial>=3.5,<4
+matplotlib>=3.5

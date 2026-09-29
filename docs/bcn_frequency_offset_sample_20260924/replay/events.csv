@@ -1,0 +1,5 @@
+﻿time_ms,kind,text,state,index,offset_hz
+35738487,terminal_boot,[09:55:38.487]收←◆MAC AT CMD!,,,
+35745759,network_state,[09:55:45.759]收←◆+NWKINFO:2,2,,
+35745920,network_state,+NWKINFO:3,3,,
+35747670,joined,+NWKINFO:4,4,,

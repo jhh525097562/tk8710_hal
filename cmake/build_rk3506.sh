@@ -12,7 +12,7 @@ list_targets() {
     {
         find test/DriverTest -maxdepth 1 -name "*.c" ! -name "TestJtool*.c" \
             -type f -exec basename {} .c \;
-        for target in test8710main_3506 test_tk8710_pps_api test_tk8710_gw_gps test_tk8710_gw_gps_protocol test_tk8710_gw_gps_faults tk8710_gw_gps_device_test tk8710_pps_test TestTRMmain tk8710_gw tk8710_gw_gps_ns_test tk8710_gw_slave tk8710_gw_sat tk8710_gw_ground; do
+        for target in test8710main_3506 test_tk8710_pps_api test_tk8710_gw_gps test_tk8710_gw_gps_protocol test_tk8710_gw_gps_faults tk8710_gw_gps_device_test tk8710_pps_test TestTRMmain tk8710_gw tk8710_gw_freq_test tk8710_gw_gps_ns_test tk8710_gw_slave tk8710_gw_sat tk8710_gw_ground; do
             if [ "$target" = "tk8710_gw_gps_ns_test" ] && [ -f "test/example/tk8710_gw.c" ]; then
                 echo "${target}"
             elif [ -f "test/example/${target}.c" ]; then
@@ -37,7 +37,7 @@ is_known_target() {
     fi
 
     case "$1" in
-        test8710main_3506|test_tk8710_pps_api|test_tk8710_gw_gps|test_tk8710_gw_gps_protocol|test_tk8710_gw_gps_faults|tk8710_gw_gps_device_test|tk8710_pps_test|TestTRMmain|tk8710_gw|tk8710_gw_gps_ns_test|tk8710_gw_slave|tk8710_gw_sat|tk8710_gw_ground)
+        test8710main_3506|test_tk8710_pps_api|test_tk8710_gw_gps|test_tk8710_gw_gps_protocol|test_tk8710_gw_gps_faults|tk8710_gw_gps_device_test|tk8710_pps_test|TestTRMmain|tk8710_gw|tk8710_gw_freq_test|tk8710_gw_gps_ns_test|tk8710_gw_slave|tk8710_gw_sat|tk8710_gw_ground)
             [ -f "test/example/$1.c" ]
             return $?
             ;;
@@ -103,9 +103,9 @@ fi
 echo "交叉编译器: $(arm-buildroot-linux-gnueabihf-gcc --version | head -n1)"
 
 # 创建构建目录
-BUILD_DIR="build_rk3506"
-rm -rf ${BUILD_DIR}
-mkdir -p ${BUILD_DIR}
+BUILD_DIR="${TK8710_BUILD_DIR:-build_rk3506}"
+# Keep existing artifacts; isolated builds must not delete other targets.
+mkdir -p "${BUILD_DIR}"
 
 # 编译选项
 CFLAGS="-Wall -Wextra -Wno-unused-parameter -O2 -DPLATFORM_RK3506"
@@ -636,6 +636,22 @@ if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw"; then
     fi
 elif should_build "tk8710_gw"; then
     echo "⚠️  tk8710_gw 源文件不存在"
+fi
+
+if should_build "tk8710_gw_freq_test"; then
+    # SDK/board libgpiod uses time64 for both event_wait and event_read.
+    # Scope this ABI correction to the independent frequency-test executable.
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} \
+        -D_FILE_OFFSET_BITS=64 -D_TIME_BITS=64 -c port/tk8710_rk3506.c \
+        -o ${BUILD_DIR}/tk8710_freq_port_time64.o || exit 1
+    arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} \
+        -ffunction-sections -fdata-sections -Wl,--gc-sections \
+        test/example/tk8710_gw_freq_test.c test/example/tk8710_gw_freq_runtime.c \
+        test/example/tk8710_gw_gps.c ${BUILD_DIR}/tk8710_freq_port_time64.o \
+        ${BUILD_DIR}/tk8710_ipc_comm.o \
+        -L${BUILD_DIR} -ltk8710_hal_complete -L./lib -lipc_smp \
+        -Wl,-rpath,/userdata/lib -lpthread -lgpiod -lm \
+        -o ${BUILD_DIR}/tk8710_gw_freq_test || exit 1
 fi
 
 if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw_gps_ns_test"; then

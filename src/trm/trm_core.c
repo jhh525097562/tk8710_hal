@@ -15,6 +15,7 @@
 #include "../inc/driver/tk8710_rf_regs.h"
 #include "../inc/tk8710_noise_api.h"
 #include "../port/tk8710_hal.h"
+#include "../port/tk8710_time_utils.h"
 #include "driver/tk8710_log.h"
 #include <stddef.h>
 #include <string.h>
@@ -244,7 +245,7 @@ int TRM_Init(const TRM_InitConfig* config)
     g_acmShutdownRequested = 0;
 
 #if TRM_ACM_PERIODIC_INTERVAL_MINUTES > 0
-    g_acmPeriodicLastRequestUs = TK8710GetTimeUs();
+    g_acmPeriodicLastRequestUs = TK8710GetMonotonicTimeUs();
     TRM_LOG_INFO("TRM: Periodic ACM calibration enabled, interval=%u minutes",
                  TRM_ACM_PERIODIC_INTERVAL_MINUTES);
 #else
@@ -787,7 +788,7 @@ static void TRM_TryRequestPeriodicAcmCalibration(void)
 #if TRM_ACM_PERIODIC_INTERVAL_MINUTES > 0
     const uint64_t intervalUs =
         (uint64_t)TRM_ACM_PERIODIC_INTERVAL_MINUTES * 60ULL * 1000000ULL;
-    uint64_t nowUs = TK8710GetTimeUs();
+    uint64_t nowUs = TK8710GetMonotonicTimeUs();
 
     if (g_acmShutdownRequested) {
         return;
@@ -798,7 +799,7 @@ static void TRM_TryRequestPeriodicAcmCalibration(void)
         return;
     }
 
-    if (nowUs - g_acmPeriodicLastRequestUs < intervalUs ||
+    if (!TK8710TimeIntervalElapsed(nowUs, g_acmPeriodicLastRequestUs, intervalUs) ||
         g_acmCalibState.pending || g_acmCalibState.running) {
         return;
     }
@@ -812,9 +813,12 @@ static void TRM_TryRequestPeriodicAcmCalibration(void)
     int ret = TRM_RequestAcmCalibration(&acmRequest);
 
     if (ret == TRM_OK) {
+        uint64_t elapsedUs = nowUs - g_acmPeriodicLastRequestUs;
         g_acmPeriodicLastRequestUs = nowUs;
-        TRM_LOG_INFO("TRM: Periodic ACM calibration requested, interval=%u minutes",
-                     TRM_ACM_PERIODIC_INTERVAL_MINUTES);
+        TRM_LOG_INFO("TRM: Periodic ACM calibration requested, interval=%u minutes, "
+                     "monotonic_us=%llu elapsed_us=%llu",
+                     TRM_ACM_PERIODIC_INTERVAL_MINUTES,
+                     (unsigned long long)nowUs, (unsigned long long)elapsedUs);
     } else {
         TRM_LOG_WARN("TRM: Periodic ACM calibration request failed: ret=%d", ret);
     }

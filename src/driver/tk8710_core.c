@@ -533,8 +533,8 @@ int TK8710Init(const ChipConfig* initConfig)
     if (ret != TK8710_OK) return ret;
 
     /* 初始化默认日志系统（如果尚未初始化） */
-    defaultLogConfig.level = TK8710_LOG_INFO;
-    TK8710LogInit(&defaultLogConfig);
+    // defaultLogConfig.level = TK8710_LOG_INFO;
+    // TK8710LogInit(&defaultLogConfig);
     AcmCalibParams calibParams;
     calibParams.calibCount = 20;
     calibParams.snrThreshold = 24;

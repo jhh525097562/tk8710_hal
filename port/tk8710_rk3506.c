@@ -5,6 +5,7 @@
  */
 
 #include "tk8710_hal.h"
+#include "tk8710_time_utils.h"
 #include "../inc/driver/tk8710_regs.h"
 #include "../inc/driver/tk8710_internal.h"
 
@@ -517,8 +518,15 @@ uint32_t TK8710GetTickMs(void)
 uint64_t TK8710GetTimeUs(void)
 {
     struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint64_t)(tv.tv_sec * 1000000 + tv.tv_usec);
+    if (gettimeofday(&tv, NULL) != 0) return 0;
+    return TK8710SecondsToUs((uint64_t)tv.tv_sec, (uint32_t)tv.tv_usec);
+}
+
+uint64_t TK8710GetMonotonicTimeUs(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return TK8710SecondsToUs((uint64_t)ts.tv_sec, (uint32_t)(ts.tv_nsec / 1000));
 }
 
 int TK8710GetRandomBytes(uint8_t* data, size_t len)

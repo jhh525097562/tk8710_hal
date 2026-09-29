@@ -81,6 +81,7 @@ target_include_directories(tk8710_hal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../inc)
 if(BUILD_EXAMPLES)
     add_executable(test_trm_pps_monitor ../test/example/test_trm_pps_monitor.c)
     add_executable(test_trm_acm_pps ../test/example/test_trm_acm_pps.c)
+    add_executable(test_tk8710_time ../test/example/test_tk8710_time.c)
     add_executable(test_hal_phy_api ../test/example/test_hal_phy_api.c)
     target_link_libraries(test_hal_phy_api tk8710_hal)
 

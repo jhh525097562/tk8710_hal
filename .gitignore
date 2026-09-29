@@ -29,6 +29,7 @@ Thumbs.db
 build/
 dist/
 build_rk3506/
+build_freq_test/
 build_jtool/
 build_pyinstaller/
 

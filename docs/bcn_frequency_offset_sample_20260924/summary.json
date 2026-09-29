@@ -1,0 +1,59 @@
+{
+  "source_sha256": "ce67d09451548e0d1e5447b1ea886e90cd3ecf814850ed11aea9fbc64fd91d6f",
+  "assumptions": {
+    "tdd_count": 10,
+    "allowed_bcnbits": [
+      0,
+      1
+    ],
+    "period_ms_inferred": 350,
+    "configured_gateway_offset_hz": null
+  },
+  "total_samples": 178,
+  "first_time": "09:55:45.920",
+  "last_time": "09:56:56.620",
+  "sample_span_s": 70.7,
+  "bcnbits_error_count": 0,
+  "joint_distribution": [
+    {
+      "bcnbits": 0,
+      "cfo_hz": 1465,
+      "count": 62
+    },
+    {
+      "bcnbits": 1,
+      "cfo_hz": -1954,
+      "count": 37
+    },
+    {
+      "bcnbits": 1,
+      "cfo_hz": -1832,
+      "count": 79
+    }
+  ],
+  "cfo_change_count": 83,
+  "bcnbits_change_count": 79,
+  "cfo_change_without_bits_change_count": 4,
+  "bits_change_without_cfo_change_count": 0,
+  "adjacent_same_tdd_count": 0,
+  "all_window_missing_records_estimate": 25,
+  "joined_window": {
+    "boundary": "Includes RX_TDD in the same receive block as first NWKINFO:4",
+    "first_time": "09:55:47.670",
+    "last_time": "09:56:56.620",
+    "samples": 176,
+    "span_s": 68.95,
+    "gap_intervals": 14,
+    "missing_records_estimate": 22,
+    "max_gap_ms": 1400
+  },
+  "max_abs_period_residual_ms": 5,
+  "join_commands": 1,
+  "nwkinfo_states": [
+    2,
+    3,
+    4
+  ],
+  "send_commands": 10,
+  "verification": "PASS: complete RX_TDD coverage; valid TDD range; cyclic sequence and timestamp estimates agree for all 177 transitions; joined-window expected record count is 198."
+}

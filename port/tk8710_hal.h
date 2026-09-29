@@ -198,6 +198,10 @@ void TK8710Rk3506Cleanup(void);
  */
 uint64_t TK8710GetTimeUs(void);
 
+/** Monotonic microseconds for intervals; unaffected by wall-clock adjustments.
+ * Returns zero if the platform clock read fails. Not a calendar timestamp. */
+uint64_t TK8710GetMonotonicTimeUs(void);
+
 /**
  * @brief 获取平台系统随机字节
  * @param data 输出缓冲区
