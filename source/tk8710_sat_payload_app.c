@@ -72,6 +72,13 @@ typedef struct {
 
 static SatPayloadContext g_satPayload;
 
+/* Driver-only test: each MD_DATA IRQ is one receive window, not one user. */
+static uint8_t g_sensitivityActive;
+static uint32_t g_sensitivityWindows;
+static uint32_t g_sensitivityLost;
+static uint32_t g_sensitivityValidUsers;
+static uint32_t g_sensitivityWindowLost;
+
 static SpiConfig g_satSpiConfig = {
     .speed = TK8710_TMS570_SPI_SPEED_HZ,
     .mode = TK8710_TMS570_SPI_MODE,
@@ -624,6 +631,129 @@ static int SatPayloadStoreSweepRound(const TRM_SweepResultInfo* info)
     return 0;
 }
 
+static void SatPayloadSensitivityRx(TK8710IrqResult* result)
+{
+    uint32_t user;
+    uint32_t valid = 0U;
+    if ((result == NULL) || (result->irq_type != TK8710_IRQ_MD_DATA)) {
+        return;
+    }
+    g_sensitivityWindows++;
+    for (user = 0U; user < 128U; user++) {
+        if ((result->crcValidCount > 0) && result->crcResults[user].crcValid) {
+            uint32_t rssi;
+            uint32_t frequency;
+            uint8_t snr;
+            if (TK8710GetRxUserSignalQuality((uint8_t)user, &rssi, &snr,
+                                            &frequency) == TK8710_OK) {
+                int32_t offset = (int32_t)(frequency & 0x03FFFFFFU);
+                if ((offset & 0x02000000L) != 0) {
+                    offset -= 0x04000000L;
+                }
+                valid++;
+                TRM_LOG_INFO("RX SENS user=%lu rssi=%ld snr=%u freq=%ldHz",
+                             (unsigned long)user,
+                             (long)(((int32_t)rssi - 2048) / 4),
+                             (unsigned int)(snr / 4U), (long)(offset / 128));
+            }
+        }
+    }
+    g_sensitivityValidUsers += valid;
+    if (valid == 0U) {
+        g_sensitivityLost++;
+        g_sensitivityWindowLost++;
+    }
+    if ((g_sensitivityWindows % 100U) == 0U) {
+        TRM_LOG_INFO("RX SENS windows=%lu lost=%lu last100Lost=%lu validUsers=%lu",
+                     (unsigned long)g_sensitivityWindows,
+                     (unsigned long)g_sensitivityLost,
+                     (unsigned long)g_sensitivityWindowLost,
+                     (unsigned long)g_sensitivityValidUsers);
+        g_sensitivityWindowLost = 0U;
+    }
+}
+
+static SatPayloadResult SatPayloadStartSensitivity(const SatPayloadWorkParams* params)
+{
+    static const uint32_t s0[] = {10240U, 11776U, 28928U, 37376U,
+                                  16384U, 4864U, 256U};
+    static const uint32_t s3[] = {135072U, 69536U, 36768U, 20384U,
+                                  12192U, 8096U, 6048U};
+    /* Mode changes are serialized by the main loop. Keep these off the 4 KiB
+     * task stack: Driver init also nests ACM calibration and formatted logs. */
+    static slotCfg_t cfg;
+    static ChipConfig chip;
+    static TK8710DriverCallbacks callbacks;
+    uint8_t rate = params->rates[0].rateMode;
+    uint32_t index = (rate == 18U) ? 6U : (uint32_t)(rate - 5U);
+    uint32_t antenna;
+
+    if ((params->rateCount != 1U) || !SatPayloadRateModeValid(rate)) {
+        return SAT_PAYLOAD_ERR_PARAM;
+    }
+    chip = g_satChipConfig;
+    (void)memset(&cfg, 0, sizeof(cfg));
+    (void)memset(&callbacks, 0, sizeof(callbacks));
+    callbacks.onRxData = SatPayloadSensitivityRx;
+    g_sensitivityWindows = 0U;
+    g_sensitivityLost = 0U;
+    g_sensitivityWindowLost = 0U;
+    g_sensitivityValidUsers = 0U;
+    (void)memset(&g_satPayload.lastRx, 0, sizeof(g_satPayload.lastRx));
+    /* Mark ownership before init so partial failures also take Driver cleanup. */
+    g_sensitivityActive = 1U;
+    g_satPayload.halActive = 1U;
+    g_satRfConfig.Freq = params->centerFreqHz;
+    g_satRfConfig.rxgain = 0x7EU;
+    g_satRfConfig.txgain = 0x2AU;
+    chip.ant_en = 0xFFU;
+    chip.rf_sel = 0xFFU;
+    chip.tx_bcn_en = 1U;
+    chip.bcnbits = 0U;
+    TK8710RegisterCallbacks(&callbacks);
+    if (TK8710Init(&chip) != TK8710_OK) {
+        return SAT_PAYLOAD_ERR_DRIVER;
+    }
+    cfg.msMode = TK8710_MODE_SLAVE;
+    cfg.plCrcEn = 1U;
+    cfg.antEn = 0xFFU;
+    cfg.rfSel = 0xFFU;
+    cfg.txBcnAntEn = 0xFFU;
+    cfg.md_agc = 1024U;
+    cfg.brdFreq[0] = 20000.0F;
+    cfg.rateCount = 1U;
+    cfg.rateModes[0] = (rateMode_e)rate;
+    cfg.s0Cfg[0].da_m = s0[index];
+    cfg.s3Cfg[0].da_m = s3[index];
+    cfg.s3Cfg[0].byteLen = (rate == 18U) ? 36U : 22U;
+    cfg.s0Cfg[0].centerFreq = params->centerFreqHz;
+    cfg.s1Cfg[0].centerFreq = params->centerFreqHz;
+    cfg.s2Cfg[0].centerFreq = params->centerFreqHz;
+    cfg.s3Cfg[0].centerFreq = params->centerFreqHz;
+    for (antenna = 0U; antenna < 8U; antenna++) {
+        cfg.bcnRotation[antenna] = (uint8_t)antenna;
+    }
+    if (TK8710SetConfig(TK8710_CFG_TYPE_SLOT_CFG, &cfg) != TK8710_OK) {
+        return SAT_PAYLOAD_ERR_DRIVER;
+    }
+    for (antenna = 0U; antenna < 8U; antenna++) {
+        if (TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
+                          RX_FE_BASE + offsetof(struct rx_top, ddc) +
+                          antenna * 0x1000U, 0x01B33333U) != TK8710_OK) {
+            return SAT_PAYLOAD_ERR_DRIVER;
+        }
+    }
+    if (TK8710Start(TK8710_MODE_SLAVE, TK8710_WORK_MODE_CONTINUOUS) != TK8710_OK) {
+        return SAT_PAYLOAD_ERR_DRIVER;
+    }
+    g_satPayload.state = SAT_PAYLOAD_STATE_RUNNING;
+    TRM_LOG_INFO("RX SENS started: freq=%lu rate=%u externalSync=1 S3=%lu bytes=%u",
+                 (unsigned long)params->centerFreqHz, (unsigned int)rate,
+                 (unsigned long)cfg.s3Cfg[0].da_m,
+                 (unsigned int)cfg.s3Cfg[0].byteLen);
+    return SAT_PAYLOAD_OK;
+}
+
 static SatPayloadResult SatPayloadStopHal(void)
 {
     (void)TK8710CaptureCancel();
@@ -632,6 +762,16 @@ static SatPayloadResult SatPayloadStopHal(void)
         return SAT_PAYLOAD_OK;
     }
 
+    if (g_sensitivityActive != 0U) {
+        if (TK8710Reset(TK8710_RST_STATE_MACHINE) != TK8710_OK) {
+            return SAT_PAYLOAD_ERR_DRIVER;
+        }
+        (void)TK8710GpioIrqEnable(0, 0);
+        TK8710RegisterCallbacks(NULL);
+        g_sensitivityActive = 0U;
+        g_satPayload.halActive = 0U;
+        return SAT_PAYLOAD_OK;
+    }
     (void)TRM_StopFrequencySweep();
     if (TK8710HalReset() != TK8710_HAL_OK) {
         return SAT_PAYLOAD_ERR_DRIVER;
@@ -648,6 +788,10 @@ static SatPayloadResult SatPayloadStartMode(SatPayloadWorkParams* params,
     TRM_AcmCalibRequest acmRequest;
     TxToneConfig tone;
     int trmRet;
+
+    if (mode == SAT_PAYLOAD_MODE_RX_SENSITIVITY) {
+        return SatPayloadStartSensitivity(params);
+    }
 
     if (mode == SAT_PAYLOAD_MODE_SWEEP) {
         if ((params->rates[0].rateMode < 5U) ||
@@ -777,7 +921,7 @@ static SatPayloadResult SatPayloadStartModeWithRollback(uint8_t mode)
     uint8_t oldValid = g_satPayload.activeValid;
     SatPayloadResult result;
 
-    if ((mode > SAT_PAYLOAD_MODE_CAPTURE) || (g_satPayload.pendingValid == 0U)) {
+    if ((mode > SAT_PAYLOAD_MODE_RX_SENSITIVITY) || (g_satPayload.pendingValid == 0U)) {
         return SAT_PAYLOAD_ERR_STATE;
     }
 
@@ -894,7 +1038,7 @@ static void SatPayloadUpdateTelemetry(void)
         AppFaults_Set(APP_FAULT_ADC4);
     }
 
-    if ((g_satPayload.halActive != 0U) &&
+    if ((g_sensitivityActive == 0U) && (g_satPayload.halActive != 0U) &&
         (TK8710HalGetStatus(&trmStats) == TK8710_HAL_OK)) {
         next.txCount = trmStats.txCount;
         next.txSuccessCount = trmStats.txSuccessCount;
@@ -917,6 +1061,9 @@ static void SatPayloadUpdateTelemetry(void)
         }
     }
 
+    if (g_sensitivityActive != 0U) {
+        next.rxCount = g_sensitivityValidUsers;
+    }
     TK8710EnterCritical();
     next.lastRx = g_satPayload.lastRx;
     g_satPayload.telemetry = next;
@@ -941,7 +1088,9 @@ void SatPayloadApp_Process(void)
     TK8710CaptureInfo captureInfo;
     TRM_SweepResultInfo sweepInfo;
 
-    TRM_ProcessBackground();
+    if (g_sensitivityActive == 0U) {
+        TRM_ProcessBackground();
+    }
 
     if (g_satPayload.state == SAT_PAYLOAD_STATE_CALIBRATING) {
         TRM_AcmCalibStatus status;
@@ -1198,7 +1347,8 @@ SatPayloadResult SatPayloadApp_HandleTelecommand(
             }
             break;
         case SAT_PAYLOAD_TC_REQUEST_ACM:
-            result = (g_satPayload.halActive != 0U) &&
+            result = (g_sensitivityActive == 0U) &&
+                     (g_satPayload.halActive != 0U) &&
                      (TRM_RequestAcmCalibration(NULL) == TRM_OK) ?
                      SAT_PAYLOAD_ACCEPTED : SAT_PAYLOAD_ERR_STATE;
             break;

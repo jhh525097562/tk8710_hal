@@ -493,7 +493,7 @@ static void SatMainPrintHelp(void)
     SatMainLog("  AT+SETPARAM=<rate>,<s0len>,<s0gap>,<s1len>,<s1gap>,<s2len>,<s2gap>,<s3len>,<s3gap>,<freq>,<rxgain>,<txgain>,<antmask>,<rfmask>\r\n");
     SatMainLog("  AT+SETSWEEP=<startHz>,<endHz>,<sweepMode>\r\n");
     SatMainLog("  AT+SWEEPRESULT=<startIndex>,<count>\r\n");
-    SatMainLog("  AT+SETMODE=<0..6>\r\n");
+    SatMainLog("  AT+SETMODE=<0..7> (7=RX sensitivity)\r\n");
     SatMainLog("  AT+STOP\r\n");
     SatMainLog("  AT+RST\r\n");
     SatMainLog("  AT+STATE\r\n");
@@ -1818,7 +1818,8 @@ static int SatMainHandleCommand(char *line)
     }
     if (strncmp(line, "AT+SETMODE=", 11) == 0)
     {
-        if (SatMainParseU32(line + 11, &value) != 0)
+        if ((SatMainParseU32(line + 11, &value) != 0) ||
+            (value > SAT_PAYLOAD_MODE_RX_SENSITIVITY))
         {
             SatMainLog("ERROR bad mode\r\n");
             return -1;

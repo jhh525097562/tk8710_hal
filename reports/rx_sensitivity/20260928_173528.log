@@ -1,0 +1,35 @@
+
+[HOST 2026-09-28T17:35:28.272404] AT+VER
+
+VER=1.0.1
+OK
+SAT> 
+[HOST 2026-09-28T17:35:31.355006] AT+STOP
+
+[51367] [INFO] [TRM] [trm_core.c:1390:TRM_StopFrequencySweep] TRM: Frequency sweep stopped
+[51368] [INFO] [TRM] [trm_core.c:243:TRM_Deinit] Start TRM system cleanup
+[51369] [INFO] [TRM] [trm_core.c:256:TRM_Deinit] Beam management cleaned
+[51370] [INFO] [TRM] [trm_core.c:260:TRM_Deinit] TX queue cleaned
+[51371] [INFO] [TRM] [trm_core.c:265:TRM_Deinit] TRM system cleaned, state: UNINIT
+[51392] [INFO] [TRM] [tk8710_sat_payload_app.c:1242:SatPayloadApp_Stop] SAT APP stopped and returned to control-ready
+OK result=0
+SAT> 
+[HOST 2026-09-28T17:35:34.372989] AT+SETPARAM=6,0,11776,0,0,0,0,22,69536,509100000,126,42,255,255
+
+[54385] [INFO] [TRM] [tk8710_sat_payload_app.c:1205:SatPayloadApp_SetWorkParams] SAT APP work params accepted: freq=509100000 rate=6 rfMask=0xFF
+OK result=0
+SAT> 
+[HOST 2026-09-28T17:35:37.463055] AT+SETMODE=7
+
+57637 [INFO] [CONFIG] Run ACM auto-gain...
+
+
+[HOST 2026-09-28T17:35:47.486309] AT+STATE
+
+[HOST 2026-09-28T17:35:50.565986] AT+TM
+
+[HOST 2026-09-28T17:36:53.656300] AT+STATE
+
+[HOST 2026-09-28T17:36:56.703541] AT+TM
+
+[HOST 2026-09-28T17:36:59.750960] AT+FPGATM

@@ -37,7 +37,8 @@ typedef enum {
     SAT_PAYLOAD_MODE_C = 3,
     SAT_PAYLOAD_MODE_TONE = 4,
     SAT_PAYLOAD_MODE_ANT_CAL = 5,
-    SAT_PAYLOAD_MODE_CAPTURE = 6
+    SAT_PAYLOAD_MODE_CAPTURE = 6,
+    SAT_PAYLOAD_MODE_RX_SENSITIVITY = 7
 } SatPayloadWorkMode;
 
 typedef enum {

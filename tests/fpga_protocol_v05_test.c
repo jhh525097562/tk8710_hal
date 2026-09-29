@@ -74,6 +74,15 @@ static void test_reserved_write_register_is_rejected(void)
 
 int main(void)
 {
+    uint8_t modeFrame[FPGA_PROTOCOL_RC_FRAME_LEN] =
+        {0x76U, 0x25U, 1U, 7U, 0U, 0U, 0U, 0U, 0U, 8U};
+    uint32_t modeErrors = 0U;
+    FpgaProtocol_TestReset();
+    assert(FpgaProtocol_TestHandleRxFrame(modeFrame, &modeErrors) == 0);
+    assert(modeErrors == 0U);
+    modeFrame[3] = 8U;
+    modeFrame[9] = 9U;
+    assert(FpgaProtocol_TestHandleRxFrame(modeFrame, &modeErrors) < 0);
     test_v05_telemetry_fields();
     test_dc_antenna_is_one_based();
     test_reserved_write_register_is_rejected();
