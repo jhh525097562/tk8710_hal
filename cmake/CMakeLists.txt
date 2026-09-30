@@ -13,6 +13,7 @@ option(PLATFORM_RK3506 "Build for RK3506 platform (Linux ARM)" OFF)
 option(BUILD_EXAMPLES "Build example programs" ON)
 
 include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/gateway
     ${CMAKE_CURRENT_SOURCE_DIR}/../inc
     ${CMAKE_CURRENT_SOURCE_DIR}/../inc/driver
     ${CMAKE_CURRENT_SOURCE_DIR}/../inc/trm
@@ -90,20 +91,20 @@ if(BUILD_EXAMPLES)
 
     add_executable(test_tk8710_gw_gps
         ../test/example/test_tk8710_gw_gps.c
-        ../test/example/tk8710_gw_gps.c)
+        ../src/gateway/tk8710_gw_gps.c)
     target_include_directories(test_tk8710_gw_gps PRIVATE ../test/example)
     target_link_libraries(test_tk8710_gw_gps tk8710_hal)
 
     if(PLATFORM_RK3506)
         add_executable(test_tk8710_gw_gps_protocol
             ../test/example/test_tk8710_gw_gps_protocol.c
-            ../test/example/tk8710_gw_gps.c)
+            ../src/gateway/tk8710_gw_gps.c)
         target_include_directories(test_tk8710_gw_gps_protocol PRIVATE ../test/example)
         target_link_libraries(test_tk8710_gw_gps_protocol tk8710_hal pthread gpiod)
 
         add_executable(test_tk8710_gw_gps_faults
             ../test/example/test_tk8710_gw_gps_faults.c
-            ../test/example/tk8710_gw_gps.c)
+            ../src/gateway/tk8710_gw_gps.c)
         target_compile_definitions(test_tk8710_gw_gps_faults
             PRIVATE TK8710_GPS_TEST_HOOKS)
         target_include_directories(test_tk8710_gw_gps_faults PRIVATE ../test/example)
@@ -111,7 +112,7 @@ if(BUILD_EXAMPLES)
 
         add_executable(tk8710_gw_gps_device_test
             ../test/example/tk8710_gw_gps_device_test.c
-            ../test/example/tk8710_gw_gps.c)
+            ../src/gateway/tk8710_gw_gps.c)
         target_include_directories(tk8710_gw_gps_device_test PRIVATE ../test/example)
         target_link_libraries(tk8710_gw_gps_device_test tk8710_hal pthread gpiod)
 

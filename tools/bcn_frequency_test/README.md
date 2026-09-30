@@ -2,7 +2,7 @@
 
 本工具让网关 A 固定运行，网关 B 按指定中心频差逐点运行，并连续采集终端串口，生成分点日志及汇总报告。
 
-生产程序 `test/example/tk8710_gw.c` 保持不变。新增的 `tk8710_gw_freq_test.c` 是测试主程序，`tk8710_gw_freq_runtime.c` 参考生产网关实现 RF、TX DC、GPS/PPS、TRM 和 NS/IPC 初始化。新目标不编译或包含生产网关主程序。
+生产程序 `src/gateway/tk8710_gw.c` 保持不变。新增的 `tk8710_gw_freq_test.c` 是测试主程序，`tk8710_gw_freq_runtime.c` 参考生产网关实现 RF、TX DC、GPS/PPS、TRM 和 NS/IPC 初始化。新目标不编译或包含生产网关主程序。
 
 ## 1. 测试前准备
 

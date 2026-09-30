@@ -18,8 +18,8 @@
 
 | 项目 | 内容 |
 | ---- | ---- |
-| 卫星载荷程序 | `test/example/tk8710_gw_sat.c`，TRM 角色为 `TRM_NODE_ROLE_SAT_PAYLOAD` |
-| 地面站程序 | `test/example/tk8710_gw_ground.c`，TRM 角色为 `TRM_NODE_ROLE_GROUND_STATION` |
+| 卫星载荷程序 | `src/gateway/tk8710_gw_sat.c`，TRM 角色为 `TRM_NODE_ROLE_SAT_PAYLOAD` |
+| 地面站程序 | `src/gateway/tk8710_gw_ground.c`，TRM 角色为 `TRM_NODE_ROLE_GROUND_STATION` |
 | 默认地面网关程序 | 现有 `tk8710_gw` 或未配置卫星角色的 TRM/HAL 初始化路径 |
 | 编译验证 | JTOOL：`mingw32-make -f cmake/Makefile.jtool lib`；RK3506：`./cmake/build_rk3506.sh` |
 | RK3506 注意事项 | 若仍出现 `cannot find -lipc_smp`，先补齐 `libipc_smp.so` 或修正链接路径，再判断 TRM 功能编译结果 |

@@ -3,7 +3,7 @@
 ## 枚举范围与口径
 
 - 源码：`src/trm/trm_slot.c` 的多速率计算逻辑（单速率、`rateCount=1` 时结果相同）。
-- 场景：当前 `test/example/tk8710_gw.c` 主网关路径，`calcType=GROUND_WAN`、广播包块固定为 2。
+- 场景：当前 `src/gateway/tk8710_gw.c` 主网关路径，`calcType=GROUND_WAN`、广播包块固定为 2。
 - 速率模式：5、6、7、8、9、10、11、18。
 - `superFrameNum`：1～100。
 - 上行、下行包块：分别独立枚举 1～16，共 204,800 组。

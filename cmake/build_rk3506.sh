@@ -13,9 +13,9 @@ list_targets() {
         find test/DriverTest -maxdepth 1 -name "*.c" ! -name "TestJtool*.c" \
             -type f -exec basename {} .c \;
         for target in test8710main_3506 test_tk8710_pps_api test_tk8710_gw_gps test_tk8710_gw_gps_protocol test_tk8710_gw_gps_faults tk8710_gw_gps_device_test tk8710_pps_test TestTRMmain tk8710_gw tk8710_gw_freq_test tk8710_gw_gps_ns_test tk8710_gw_slave tk8710_gw_sat tk8710_gw_ground; do
-            if [ "$target" = "tk8710_gw_gps_ns_test" ] && [ -f "test/example/tk8710_gw.c" ]; then
+            if [ "$target" = "tk8710_gw_gps_ns_test" ] && [ -f "src/gateway/tk8710_gw.c" ]; then
                 echo "${target}"
-            elif [ -f "test/example/${target}.c" ]; then
+            elif [ -f "src/gateway/${target}.c" ] || [ -f "test/example/${target}.c" ]; then
                 echo "${target}"
             fi
         done
@@ -27,12 +27,19 @@ is_known_target() {
         TestJtool*) return 1 ;;
     esac
 
+    case "$1" in
+        tk8710_gw|tk8710_gw_slave|tk8710_gw_sat|tk8710_gw_ground)
+            [ -f "src/gateway/$1.c" ]
+            return $?
+            ;;
+    esac
+
     if [ -f "test/DriverTest/$1.c" ]; then
         return 0
     fi
 
     if [ "$1" = "tk8710_gw_gps_ns_test" ]; then
-        [ -f "test/example/tk8710_gw.c" ]
+        [ -f "src/gateway/tk8710_gw.c" ]
         return $?
     fi
 
@@ -109,7 +116,7 @@ mkdir -p "${BUILD_DIR}"
 
 # 编译选项
 CFLAGS="-Wall -Wextra -Wno-unused-parameter -O2 -DPLATFORM_RK3506"
-INCLUDES="-I./inc -I./inc/driver -I./inc/trm -I./inc/phy -I./port -I./port/rk3506 -I../../../核间通信/0323/0323/spi/inc -I../../../核间通信/0323/0323"
+INCLUDES="-I./src/gateway -I./test/example -I./inc -I./inc/driver -I./inc/trm -I./inc/phy -I./port -I./port/rk3506 -I../../../核间通信/0323/0323/spi/inc -I../../../核间通信/0323/0323"
 
 echo ""
 echo "编译所有模块..."
@@ -483,7 +490,7 @@ fi
 
 if [ -f "test/example/test_tk8710_gw_gps.c" ] && should_build "test_tk8710_gw_gps"; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./test/example \
-        test/example/test_tk8710_gw_gps.c test/example/tk8710_gw_gps.c \
+        test/example/test_tk8710_gw_gps.c src/gateway/tk8710_gw_gps.c \
         -L${BUILD_DIR} -ltk8710_hal_complete -lpthread -lgpiod \
         -o ${BUILD_DIR}/test_tk8710_gw_gps
     if [ $? -eq 0 ]; then
@@ -496,7 +503,7 @@ fi
 
 if [ -f "test/example/test_tk8710_gw_gps_protocol.c" ] && should_build "test_tk8710_gw_gps_protocol"; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./test/example \
-        test/example/test_tk8710_gw_gps_protocol.c test/example/tk8710_gw_gps.c \
+        test/example/test_tk8710_gw_gps_protocol.c src/gateway/tk8710_gw_gps.c \
         -L${BUILD_DIR} -ltk8710_hal_complete -lpthread -lgpiod \
         -o ${BUILD_DIR}/test_tk8710_gw_gps_protocol
     if [ $? -eq 0 ]; then
@@ -510,7 +517,7 @@ fi
 if [ -f "test/example/test_tk8710_gw_gps_faults.c" ] && should_build "test_tk8710_gw_gps_faults"; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./test/example \
         -DTK8710_GPS_TEST_HOOKS \
-        test/example/test_tk8710_gw_gps_faults.c test/example/tk8710_gw_gps.c \
+        test/example/test_tk8710_gw_gps_faults.c src/gateway/tk8710_gw_gps.c \
         -L${BUILD_DIR} -ltk8710_hal_complete -lpthread -lgpiod \
         -o ${BUILD_DIR}/test_tk8710_gw_gps_faults
     if [ $? -eq 0 ]; then
@@ -523,7 +530,7 @@ fi
 
 if [ -f "test/example/tk8710_gw_gps_device_test.c" ] && should_build "tk8710_gw_gps_device_test"; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./test/example \
-        test/example/tk8710_gw_gps_device_test.c test/example/tk8710_gw_gps.c \
+        test/example/tk8710_gw_gps_device_test.c src/gateway/tk8710_gw_gps.c \
         -L${BUILD_DIR} -ltk8710_hal_complete -lpthread -lgpiod \
         -o ${BUILD_DIR}/tk8710_gw_gps_device_test
     if [ $? -eq 0 ]; then
@@ -603,7 +610,7 @@ elif should_build "TestTRMmain"; then
 fi
 
 # 创建 tk8710_gw
-if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw"; then
+if [ -f "src/gateway/tk8710_gw.c" ] && should_build "tk8710_gw"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -619,8 +626,8 @@ if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw"; then
     
     # 编译测试程序并链接验证器（单独包含IPC对象文件）
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
-        test/example/tk8710_gw.c \
-        test/example/tk8710_gw_gps.c \
+        src/gateway/tk8710_gw.c \
+        src/gateway/tk8710_gw_gps.c \
         ${BUILD_DIR}/trm_tx_validator.o \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
@@ -647,17 +654,17 @@ if should_build "tk8710_gw_freq_test"; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} \
         -ffunction-sections -fdata-sections -Wl,--gc-sections \
         test/example/tk8710_gw_freq_test.c test/example/tk8710_gw_freq_runtime.c \
-        test/example/tk8710_gw_gps.c ${BUILD_DIR}/tk8710_freq_port_time64.o \
+        src/gateway/tk8710_gw_gps.c ${BUILD_DIR}/tk8710_freq_port_time64.o \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete -L./lib -lipc_smp \
         -Wl,-rpath,/userdata/lib -lpthread -lgpiod -lm \
         -o ${BUILD_DIR}/tk8710_gw_freq_test || exit 1
 fi
 
-if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw_gps_ns_test"; then
+if [ -f "src/gateway/tk8710_gw.c" ] && should_build "tk8710_gw_gps_ns_test"; then
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
         -DTK8710_GPS_TEST_HOOKS \
-        test/example/tk8710_gw.c test/example/tk8710_gw_gps.c \
+        src/gateway/tk8710_gw.c src/gateway/tk8710_gw_gps.c \
         test/example/trm_tx_validator.c ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete -L./lib -lipc_smp \
         -Wl,-rpath,./lib -lpthread -lgpiod -lm \
@@ -671,7 +678,7 @@ if [ -f "test/example/tk8710_gw.c" ] && should_build "tk8710_gw_gps_ns_test"; th
 fi
 
 # 创建 tk8710_gw_slave
-if [ -f "test/example/tk8710_gw_slave.c" ] && should_build "tk8710_gw_slave"; then
+if [ -f "src/gateway/tk8710_gw_slave.c" ] && should_build "tk8710_gw_slave"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -687,7 +694,7 @@ if [ -f "test/example/tk8710_gw_slave.c" ] && should_build "tk8710_gw_slave"; th
     
     # 编译测试程序并链接验证器（单独包含IPC对象文件）
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
-        test/example/tk8710_gw_slave.c \
+        src/gateway/tk8710_gw_slave.c \
         ${BUILD_DIR}/trm_tx_validator.o \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
@@ -706,7 +713,7 @@ elif should_build "tk8710_gw_slave"; then
 fi
 
 # 创建 tk8710_gw_sat
-if [ -f "test/example/tk8710_gw_sat.c" ] && should_build "tk8710_gw_sat"; then
+if [ -f "src/gateway/tk8710_gw_sat.c" ] && should_build "tk8710_gw_sat"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -722,7 +729,7 @@ if [ -f "test/example/tk8710_gw_sat.c" ] && should_build "tk8710_gw_sat"; then
     
     # 编译测试程序并链接验证器（单独包含IPC对象文件）
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
-        test/example/tk8710_gw_sat.c \
+        src/gateway/tk8710_gw_sat.c \
         ${BUILD_DIR}/trm_tx_validator.o \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \
@@ -742,7 +749,7 @@ fi
 
 
 # 创建 tk8710_gw_ground
-if [ -f "test/example/tk8710_gw_ground.c" ] && should_build "tk8710_gw_ground"; then
+if [ -f "src/gateway/tk8710_gw_ground.c" ] && should_build "tk8710_gw_ground"; then
     # 先编译验证器模块
     echo "编译验证器模块..."
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
@@ -758,7 +765,7 @@ if [ -f "test/example/tk8710_gw_ground.c" ] && should_build "tk8710_gw_ground"; 
     
     # 编译测试程序并链接验证器（单独包含IPC对象文件）
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
-        test/example/tk8710_gw_ground.c \
+        src/gateway/tk8710_gw_ground.c \
         ${BUILD_DIR}/trm_tx_validator.o \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete \

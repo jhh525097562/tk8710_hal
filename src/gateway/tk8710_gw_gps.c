@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "tk8710_gw_gps.h"
+#include "trm/trm_log.h"
 #include "trm/trm_pps_monitor.h"
 
 #include <stdio.h>
@@ -106,13 +107,13 @@ int GwGpsTestSetScenario(GwGpsTestScenario scenario, const char* run_id)
         }
         if (lstat(g_test_marker_path, &marker_stat) == 0) {
             if (!S_ISREG(marker_stat.st_mode) || marker_stat.st_uid != geteuid()) {
-                fprintf(stderr, "GPS TEST HOOK: unsafe marker rejected: %s\n",
+                TRM_LOG_ERROR("GPS TEST HOOK: unsafe marker rejected: %s",
                     g_test_marker_path);
                 GwGpsTestReset();
                 return -1;
             }
             g_test_released = 1;
-            printf("GPS TEST HOOK: run-id=%s already consumed; scenario=passthrough\n",
+            TRM_LOG_INFO("GPS TEST HOOK: run-id=%s already consumed; scenario=passthrough",
                 run_id);
             return 0;
         } else if (errno != ENOENT) {
@@ -121,7 +122,7 @@ int GwGpsTestSetScenario(GwGpsTestScenario scenario, const char* run_id)
         }
     }
     g_test_scenario = scenario;
-    printf("GPS TEST HOOK: scenario=%s%s%s\n", GwGpsTestScenarioName(scenario),
+    TRM_LOG_INFO("GPS TEST HOOK: scenario=%s%s%s", GwGpsTestScenarioName(scenario),
         run_id != NULL ? " run-id=" : "", run_id != NULL ? run_id : "");
     return 0;
 }
@@ -157,7 +158,7 @@ static void release_recovery_scenario(void)
         return;
     }
     g_test_released = 1;
-    printf("GPS TEST HOOK: PPS injection released after local degradation\n");
+    TRM_LOG_INFO("GPS TEST HOOK: PPS injection released after local degradation");
 }
 
 static int persist_recovery_marker(void)
@@ -179,19 +180,19 @@ static int persist_recovery_marker(void)
         if (errno == EEXIST) {
             return 0;
         }
-        fprintf(stderr, "GPS TEST HOOK: cannot create marker %s: %s\n",
+        TRM_LOG_ERROR("GPS TEST HOOK: cannot create marker %s: %s",
             g_test_marker_path, strerror(errno));
         return -1;
     }
     write_count = write(fd, marker_text, sizeof(marker_text) - 1);
     close_result = close(fd);
     if (write_count != (ssize_t)(sizeof(marker_text) - 1) || close_result != 0) {
-        fprintf(stderr, "GPS TEST HOOK: cannot persist marker %s\n",
+        TRM_LOG_ERROR("GPS TEST HOOK: cannot persist marker %s",
             g_test_marker_path);
         (void)unlink(g_test_marker_path);
         return -1;
     }
-    printf("GPS TEST HOOK: recovery confirmed; restart marker=%s\n",
+    TRM_LOG_INFO("GPS TEST HOOK: recovery confirmed; restart marker=%s",
         g_test_marker_path);
     return 0;
 }
@@ -206,8 +207,8 @@ static TK8710PpsError get_version_for_gateway(TK8710PpsContext* context,
     raw_error = TK8710PpsGetVersion(context, raw_version, sizeof(raw_version));
     if (g_test_scenario == GW_GPS_TEST_NO_MODULE) {
         version[0] = '\0';
-        printf("GPS TEST HOOK: VERSION raw_error=%d raw=\"%s\" "
-               "effective_error=%d effective=NO_MODULE\n",
+        TRM_LOG_INFO("GPS TEST HOOK: VERSION raw_error=%d raw=\"%s\" "
+               "effective_error=%d effective=NO_MODULE",
                raw_error, raw_version, TK8710_PPS_ERROR_TIMEOUT);
         return TK8710_PPS_ERROR_TIMEOUT;
     }
@@ -231,7 +232,7 @@ static TK8710PpsError get_effective_status(TK8710PpsContext* context,
         (g_test_scenario == GW_GPS_TEST_NO_PPS_THEN_RECOVER && !g_test_released);
 
     if (raw_error != TK8710_PPS_OK) {
-        printf("GPS TEST HOOK: STATUS raw_error=%d effective_error=%d\n",
+        TRM_LOG_INFO("GPS TEST HOOK: STATUS raw_error=%d effective_error=%d",
             raw_error, raw_error);
         return raw_error;
     }
@@ -240,8 +241,8 @@ static TK8710PpsError get_effective_status(TK8710PpsContext* context,
         status->pps_seen = 0;
     }
     if (g_test_scenario != GW_GPS_TEST_PASSTHROUGH) {
-        printf("GPS TEST HOOK: STATUS raw GPS=%u PPS=%u FIX=%u RMC=%c; "
-               "effective GPS=%u PPS=%u FIX=%u RMC=%c\n",
+        TRM_LOG_INFO("GPS TEST HOOK: STATUS raw GPS=%u PPS=%u FIX=%u RMC=%c; "
+               "effective GPS=%u PPS=%u FIX=%u RMC=%c",
                raw_status.gps_online, raw_status.pps_seen, raw_status.fix_valid,
                raw_status.rmc_status != '\0' ? raw_status.rmc_status : '?',
                status->gps_online, status->pps_seen, status->fix_valid,
@@ -334,7 +335,7 @@ static void record_gps_unavailable(GwGpsManager* manager)
     }
     manager->consecutive_healthy_status = 0;
     if (write_gps_info(NULL, 0) != 0) {
-        fprintf(stderr, "GPS info file update failed: %s\n", GW_GPS_INFO_FILE);
+        TRM_LOG_ERROR("GPS info file update failed: %s", GW_GPS_INFO_FILE);
     }
 }
 
@@ -365,10 +366,10 @@ static TK8710PpsError get_status_for_gateway(GwGpsManager* manager,
     }
     if (write_gps_info(position_error == TK8710_PPS_OK ? &position : NULL,
             manager->consecutive_healthy_status) != 0) {
-        fprintf(stderr, "GPS info file update failed: %s\n", GW_GPS_INFO_FILE);
+        TRM_LOG_ERROR("GPS info file update failed: %s", GW_GPS_INFO_FILE);
     }
     if (status_error == TK8710_PPS_OK && position_error != TK8710_PPS_OK) {
-        fprintf(stderr, "GPS position query failed: %d\n", position_error);
+        TRM_LOG_WARN("GPS position query failed: %d", position_error);
     }
     return status_error;
 }
@@ -502,20 +503,20 @@ void GwGpsPrintDiagnostics(GwGpsManager* manager, const char* reason)
     TK8710PpsDiagnostics diagnostics;
     TK8710PpsError error;
 
-    fprintf(stderr, "GPS/PPS diagnostics: %s\n", reason != NULL ? reason : "unknown");
+    TRM_LOG_WARN("GPS/PPS diagnostics: %s", reason != NULL ? reason : "unknown");
     if (manager == NULL || !manager->uart_initialized) {
-        fprintf(stderr, "GPS/PPS diagnostics unavailable: UART is closed\n");
+        TRM_LOG_WARN("GPS/PPS diagnostics unavailable: UART is closed");
         return;
     }
     memset(&diagnostics, 0, sizeof(diagnostics));
     error = TK8710PpsGetDiagnostics(&manager->pps, &diagnostics);
-    fprintf(stderr, "  GET PPS: %s\n", diagnostics.pps);
-    fprintf(stderr, "  GET OUT: %s\n", diagnostics.output);
-    fprintf(stderr, "  GET SYNC: %s\n", diagnostics.sync);
-    fprintf(stderr, "  GET GPS: %s\n", diagnostics.gps);
-    fprintf(stderr, "  GET RMC DIAG: %s\n", diagnostics.rmc);
+    TRM_LOG_WARN("  GET PPS: %s", diagnostics.pps);
+    TRM_LOG_WARN("  GET OUT: %s", diagnostics.output);
+    TRM_LOG_WARN("  GET SYNC: %s", diagnostics.sync);
+    TRM_LOG_WARN("  GET GPS: %s", diagnostics.gps);
+    TRM_LOG_WARN("  GET RMC DIAG: %s", diagnostics.rmc);
     if (error != TK8710_PPS_OK) {
-        fprintf(stderr, "  diagnostics error=%d success_mask=0x%02X\n",
+        TRM_LOG_WARN("  diagnostics error=%d success_mask=0x%02X",
             error, diagnostics.success_mask);
     }
 }
@@ -580,7 +581,7 @@ int GwGpsStartup(GwGpsManager* manager, const TK8710PpsConfig* pps_config,
         }
 
         if (status_error == TK8710_PPS_OK) {
-            printf("GPS search: GPS=%u PPS=%u FIX=%u RMC=%c SATS=%u SNR=%u\n",
+            TRM_LOG_INFO("GPS search: GPS=%u PPS=%u FIX=%u RMC=%c SATS=%u SNR=%u",
                 status.gps_online, status.pps_seen, status.fix_valid,
                 status.rmc_status != '\0' ? status.rmc_status : '?',
                 status.satellites, status.snr);
@@ -589,7 +590,7 @@ int GwGpsStartup(GwGpsManager* manager, const TK8710PpsConfig* pps_config,
                 return 0;
             }
         } else {
-            fprintf(stderr, "GPS search status query failed: %d\n", status_error);
+            TRM_LOG_WARN("GPS search status query failed: %d", status_error);
         }
         if (get_monotonic_ms() - start_ms >= manager->policy.search_timeout_ms) {
             GwGpsPrintDiagnostics(manager, "GPS cold-start timeout");
@@ -631,13 +632,13 @@ int GwGpsConfigurePeriod(GwGpsManager* manager, uint32_t period_s)
         return -1;
     }
     manager->expected_period_s = period_s;
-    printf("GPS/PPS command: OUT ON\n");
+    TRM_LOG_INFO("GPS/PPS command: OUT ON");
     if (TK8710PpsSetOutput(&manager->pps, 1) != TK8710_PPS_OK) {
         GwGpsPrintDiagnostics(manager, "OUT ON failed");
         manager->mode = GW_GPS_MODE_LOCAL_DEGRADED;
         return -1;
     }
-    printf("GPS/PPS command: SET PERIOD %u\n", period_s);
+    TRM_LOG_INFO("GPS/PPS command: SET PERIOD %u", period_s);
     if (TK8710PpsSetPeriod(&manager->pps, period_s) != TK8710_PPS_OK) {
         GwGpsPrintDiagnostics(manager, "SET PERIOD failed");
         manager->mode = GW_GPS_MODE_LOCAL_DEGRADED;
@@ -653,8 +654,8 @@ int GwGpsConfigurePeriod(GwGpsManager* manager, uint32_t period_s)
         }
 
         if (status_error == TK8710_PPS_OK) {
-            printf("PPS alignment: STATE=%s PERIOD=%u OUT=%u PENDING=%u "
-                   "ALIGN=%u HOLD=%u BAD=%u RESYNC=%u\n",
+            TRM_LOG_INFO("PPS alignment: STATE=%s PERIOD=%u OUT=%u PENDING=%u "
+                   "ALIGN=%u HOLD=%u BAD=%u RESYNC=%u",
                    status.state, status.period, status.output_enabled, status.pending,
                    status.aligned, status.holdover, status.bad_period,
                    status.resync_pending);
@@ -664,7 +665,7 @@ int GwGpsConfigurePeriod(GwGpsManager* manager, uint32_t period_s)
                 return 0;
             }
         } else {
-            fprintf(stderr, "PPS alignment status query failed: %d\n", status_error);
+            TRM_LOG_WARN("PPS alignment status query failed: %d", status_error);
             reopen_uart(manager);
         }
         if (get_monotonic_ms() - start_ms >= manager->policy.align_timeout_ms) {
@@ -700,21 +701,21 @@ GwGpsAction GwGpsPoll(GwGpsManager* manager)
     }
 #endif
     if (error == TK8710_PPS_OK && manager->mode == GW_GPS_MODE_EXTERNAL_ACTIVE) {
-        printf("GPS/PPS monitor: STATE=%s PERIOD=%u GPS=%u PPS=%u FIX=%u "
-               "RMC=%c ALIGN=%u HOLD=%u BAD=%u RESYNC=%u failures=%u\n",
+        TRM_LOG_INFO("GPS/PPS monitor: STATE=%s PERIOD=%u GPS=%u PPS=%u FIX=%u "
+               "RMC=%c ALIGN=%u HOLD=%u BAD=%u RESYNC=%u failures=%u",
                status.state, status.period, status.gps_online, status.pps_seen,
                status.fix_valid, status.rmc_status != '\0' ? status.rmc_status : '?',
                status.aligned, status.holdover, status.bad_period,
                status.resync_pending, manager->consecutive_abnormal);
     } else if (error == TK8710_PPS_OK &&
                manager->mode == GW_GPS_MODE_LOCAL_DEGRADED) {
-        printf("GPS recovery monitor: GPS=%u PPS=%u FIX=%u RMC=%c recovered=%u/%u\n",
+        TRM_LOG_INFO("GPS recovery monitor: GPS=%u PPS=%u FIX=%u RMC=%c recovered=%u/%u",
                status.gps_online, status.pps_seen, status.fix_valid,
                status.rmc_status != '\0' ? status.rmc_status : '?',
                manager->consecutive_recovered, manager->policy.consecutive_limit);
     }
     if (error != TK8710_PPS_OK) {
-        fprintf(stderr, "GPS/PPS status query failed: %d\n", error);
+        TRM_LOG_WARN("GPS/PPS status query failed: %d", error);
         TK8710PpsClose(&manager->pps);
         manager->uart_initialized = 0;
     }
