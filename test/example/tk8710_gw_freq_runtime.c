@@ -40,10 +40,19 @@ static int g_hal_initialized;
 static pthread_mutex_t g_freq_ipc_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_freq_ipc_started;
 static int g_freq_ns_mismatch;
+static int g_freq_ns_verified;
 static NsConfigDown_t g_freq_config;
 static uint32_t g_freq_first_s3, g_freq_last_s3;
 static uint64_t g_freq_last_slot_ms;
 static int g_freq_hw_touched;
+static uint64_t g_freq_last_status_ms;
+
+/* Machine-readable diagnostics are independent of TRM log level/destination. */
+static void FreqPhase(const char* phase)
+{
+    printf("\nFREQ_STATUS {\"phase\":\"%s\"}\n", phase);
+    fflush(stdout);
+}
 static void OnTrmRxData(const TRM_RxDataList* data)
 {
     pthread_mutex_lock(&g_freq_ipc_lock);
@@ -70,6 +79,9 @@ static int FreqCheckNsConfig(const NsConfigDown_t* config)
         pthread_mutex_unlock(&g_freq_ipc_lock);
         return -1;
     }
+    pthread_mutex_lock(&g_freq_ipc_lock);
+    g_freq_ns_verified = 1;
+    pthread_mutex_unlock(&g_freq_ipc_lock);
     return 0;
 }
 
@@ -112,6 +124,7 @@ int GwFreqOpen(const char* work_dir, uint8_t tx_gain)
 
 int GwFreqConfigure(const NsConfigDown_t* config)
 {
+    FreqPhase("reconfigure");
     FreqStopIpc();
     if (g_hal_initialized) {
         /* RK3506 disable joins the IRQ thread, draining callbacks before TRM teardown. */
@@ -126,12 +139,15 @@ int GwFreqConfigure(const NsConfigDown_t* config)
     }
     g_freq_config = *config;
     g_freq_ns_mismatch = 0;
+    g_freq_ns_verified = 0;
+    g_freq_last_status_ms = 0;
     if (!g_running || ApplyNsConfig(config) != 0) return -1;
     g_freq_first_s3 = GetDriverWatchdogIrqCount(TK8710_IRQ_S3);
     g_freq_last_s3 = g_freq_first_s3;
     g_freq_last_slot_ms = TK8710GetTimeUs() / 1000;
     IpcCommClearConfigReceived();
     IpcCommSetConfigHandler(FreqCheckNsConfig);
+    FreqPhase("ipc_start");
     if (IpcCommInit(&g_ipc_ctx) != 0) {
         IpcCommCleanup(&g_ipc_ctx);
         return -1;
@@ -153,6 +169,7 @@ int GwFreqPoll(uint8_t check_gps)
     uint64_t now_ms = TK8710GetTimeUs() / 1000;
     pthread_mutex_lock(&g_freq_ipc_lock);
     int mismatch = g_freq_ns_mismatch;
+    int ns_verified = g_freq_ns_verified;
     pthread_mutex_unlock(&g_freq_ipc_lock);
     if (!g_running || mismatch) return -1;
     if (TrmPpsMonitorFailed()) return -2;
@@ -168,8 +185,24 @@ int GwFreqPoll(uint8_t check_gps)
         g_freq_last_s3 = slots;
         g_freq_last_slot_ms = now_ms;
     } else if (now_ms-g_freq_last_slot_ms > 60000) return -1;
-    if (TRM_GetBroadcastStatus(NULL, &valid) != TRM_OK) return -1;
-    return valid && IpcCommIsConfigReceived() && slots-g_freq_first_s3 >= 2;
+    int broadcast_status = TRM_GetBroadcastStatus(NULL, &valid);
+    int ns_received = IpcCommIsConfigReceived();
+    /* All business prerequisites must be ready before effective timing. */
+    int ready = g_gps_manager.mode == GW_GPS_MODE_EXTERNAL_ACTIVE &&
+                g_gps_manager.consecutive_abnormal == 0 && ns_received && ns_verified &&
+                broadcast_status == TRM_OK && valid && slots-g_freq_first_s3 >= 2;
+    if (!g_freq_last_status_ms || now_ms-g_freq_last_status_ms >= 10000) {
+        g_freq_last_status_ms = now_ms;
+        printf("\nFREQ_STATUS {\"phase\":\"readiness\",\"gps_mode\":\"%s\","
+            "\"gps_abnormal\":%u,\"ns_received\":%d,\"ns_verified\":%d,"
+            "\"broadcast_valid\":%d,\"s3_count\":%u,\"s3_idle_ms\":%llu,\"ready\":%d}\n",
+            GwGpsModeName(g_gps_manager.mode), g_gps_manager.consecutive_abnormal,
+            ns_received, ns_verified, broadcast_status == TRM_OK ? valid : -1,
+            slots-g_freq_first_s3,
+            (unsigned long long)(now_ms-g_freq_last_slot_ms), ready);
+        fflush(stdout);
+    }
+    return broadcast_status == TRM_OK ? ready : -1;
 }
 
 void GwFreqCancel(void) { g_running = 0; }
@@ -499,6 +532,7 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     GwGpsClose(&g_gps_manager);
     GwGpsUseLocalWithoutRecovery(&g_gps_manager);
     if (config->gps_enable) {
+        FreqPhase("gps_acquire");
         GwGpsPolicy policy;
         TK8710PpsConfig pps;
         char version[TK8710_PPS_DIAG_TEXT_MAX];
@@ -578,6 +612,7 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     };
     /* 5. 调用 TK8710HalInit 完成芯片、RF、日志、TRM初始化 */
     printf("Initializing HAL (chip + RF + log + TRM)...\n");
+    FreqPhase("hal_init");
     g_freq_hw_touched = 1;
     TK8710HalError halRet = TK8710HalInit(&halConfig);
     ApplyRuntimeLogLevels();
@@ -683,6 +718,7 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     printf("GPS/PPS mode before NS synchronization setup: %s\n",
            GwGpsModeName(g_gps_manager.mode));
     if (config->gps_enable && slot_calc_ok && GwGpsCanConfigurePeriod(&g_gps_manager)) {
+        FreqPhase("pps_align");
         printf("Configuring GPS/PPS period from slot calculator: %u s\n", pps_period_s);
         if (GwGpsConfigurePeriod(&g_gps_manager, pps_period_s) == 0) {
             use_external_sync = 1;
@@ -719,6 +755,7 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
     }
 
     // 调用 TK8710HalCfg 配置时隙
+    FreqPhase("slot_config");
     TK8710HalError halRet_config = TK8710HalCfg(&slotCfg);
     if (halRet_config != TK8710_HAL_OK) {
         printf("HAL config (slot) failed: %d\n", halRet_config);
@@ -761,6 +798,7 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
         TrmPpsMonitorStop();
     }
     /* 12. 调用 TK8710HalStart 启动工作 */
+    FreqPhase("hal_start");
     TK8710HalError halRet_start = TK8710HalStart();
     if (halRet_start != TK8710_HAL_OK) {
         printf("HAL start failed: %d\n", halRet_start);

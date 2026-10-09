@@ -17,6 +17,7 @@ from pathlib import Path
 from analyze import analyze_records, load_records, write_report
 from protocol import Config, parse_rx
 from serial_device import Journal, Terminal, discover
+from progress import GatewayProgress
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -77,7 +78,18 @@ def download_tree(sftp, remote, local):
         if stat.S_ISDIR(entry.st_mode):
             download_tree(sftp, child, destination)
         elif stat.S_ISREG(entry.st_mode):
-            sftp.get(child, str(destination))
+            if entry.filename == "mqtt_bridge_startup.log":
+                # The bridge stays alive: capture the listed prefix, not a moving EOF.
+                with sftp.open(child, "rb") as source, destination.open("wb") as target:
+                    remaining = entry.st_size
+                    while remaining:
+                        data = source.read(min(65536, remaining))
+                        if not data:
+                            raise RuntimeError(f"启动日志在下载期间被截断: {child}")
+                        target.write(data)
+                        remaining -= len(data)
+            else:
+                sftp.get(child, str(destination))
             if destination.stat().st_size != entry.st_size:
                 raise RuntimeError(f"下载长度不一致: {child}")
 
@@ -87,6 +99,49 @@ def preflight(client):
     remote_exec(client, "for name in tk8710_gw tk8710_gw_freq_test TestTRMmain tk8710_gw_slave; do "
                 "if pidof \"$name\" >/dev/null 2>&1; then "
                 "echo \"Hardware in use: $name. Stop its supervisor before testing.\" >&2; exit 1; fi; done")
+
+
+def mqtt_bridge_pids(client):
+    output = remote_exec(client, "pidof mqtt_bridge || true").strip()
+    if not output:
+        return []
+    if not all(part.isdigit() and int(part) > 1 for part in output.split()):
+        raise RuntimeError(f"mqtt_bridge 进程检查返回异常: {output!r}")
+    return sorted({int(part) for part in output.split()})
+
+
+def ensure_mqtt_bridge(client, directory, journal):
+    """Keep an existing bridge; start the board's own executable if absent."""
+    pids = mqtt_bridge_pids(client)
+    if pids:
+        result = dict(action="already_running", pids=pids)
+        journal.emit("mqtt_bridge", **result)
+        print(f"mqtt_bridge 已运行，PID={','.join(map(str, pids))}")
+        return result
+
+    log_path = directory+"/mqtt_bridge_startup.log"
+    print("mqtt_bridge 未运行，正在从 /userdata 启动...")
+    # Recheck in the launch shell in case the board supervisor just started it.
+    # Redirect all inherited SSH streams so remote_exec does not wait for this daemon.
+    command = ("cd /userdata || exit 1\n"
+               "if pidof mqtt_bridge >/dev/null 2>&1; then exit 0; fi\n"
+               "if [ ! -x /userdata/mqtt_bridge ]; then "
+               "echo '/userdata/mqtt_bridge missing or not executable' >&2; exit 1; fi\n"
+               "nohup /userdata/mqtt_bridge >> "+shlex.quote(log_path)+" 2>&1 < /dev/null &\n")
+    journal.emit("mqtt_bridge", action="start_requested", log_path=log_path)
+    remote_exec(client, command)
+    previous = set()
+    for _ in range(5):
+        time.sleep(1)
+        pids = mqtt_bridge_pids(client)
+        if previous.intersection(pids):
+            result = dict(action="running_after_start_request", pids=pids, log_path=log_path)
+            journal.emit("mqtt_bridge", **result)
+            print(f"mqtt_bridge 已启动并确认存活，PID={','.join(map(str, pids))}")
+            return result
+        previous = set(pids)
+    journal.emit("mqtt_bridge", action="startup_failed", log_path=log_path)
+    raise RuntimeError("mqtt_bridge 启动后未持续运行，停止测试；请检查 "+log_path)
 
 
 def upload(client, config, directory):
@@ -114,11 +169,13 @@ def monitor(channel, terminal, journal, gateway_log, config):
     done = False
     completed = []
     active_index = None
+    progress = GatewayProgress()
     started = time.monotonic()
     deadline = started+len(config.offsets())*(config.ready_timeout+config.hold_seconds+30)+30
     try:
         while True:
             terminal.check()
+            progress.tick()
             if time.monotonic() > deadline:
                 raise TimeoutError("网关测试超出总时间上限")
             if channel.recv_ready():
@@ -129,9 +186,14 @@ def monitor(channel, terminal, journal, gateway_log, config):
                 pending += decoded
                 while "\n" in pending:
                     line, pending = pending.split("\n", 1)
-                    if line.startswith("FREQ_EVENT "):
+                    if line.startswith("FREQ_STATUS "):
+                        snapshot = json.loads(line[len("FREQ_STATUS "):])
+                        journal.emit("gateway_status", **snapshot)
+                        progress.status(snapshot)
+                    elif line.startswith("FREQ_EVENT "):
                         event = json.loads(line[len("FREQ_EVENT "):])
                         journal.emit("gateway_event", **event)
+                        progress.event(event)
                         if event["event"] in ("POINT_START", "POINT_END"):
                             index = event["index"]
                             offsets = config.offsets()
@@ -139,14 +201,14 @@ def monitor(channel, terminal, journal, gateway_log, config):
                                 event["offset_hz"] != offsets[index] or event["status"] != 0):
                                 raise RuntimeError(f"网关频点事件与计划不符: {event}")
                         if event["event"] == "POINT_CONFIG":
-                            print(f"频差 {event['offset_hz']:+d} Hz：正在配置并等待 GPS/广播就绪")
+                            print(f"频差 {event['offset_hz']:+d} Hz：正在配置并等待 GPS/PPS、NS 配置和广播载荷就绪")
                         elif event["event"] == "POINT_RETRY":
                             print(f"频差 {event['offset_hz']:+d} Hz：首帧 PPS 校验未通过，启动重试 {event['status']}")
                         elif event["event"] == "POINT_START":
                             if active_index is not None or event["index"] != len(completed):
                                 raise RuntimeError("网关频点开始事件顺序错误")
                             active_index = event["index"]
-                            print(f"频差 {event['offset_hz']:+d} Hz：GPS/广播就绪，开始计时")
+                            print(f"频差 {event['offset_hz']:+d} Hz：GPS/PPS、NS 配置和广播载荷就绪，开始计时")
                         elif event["event"] == "POINT_END":
                             if active_index != event["index"]:
                                 raise RuntimeError("网关频点结束事件没有对应开始事件")
@@ -156,9 +218,11 @@ def monitor(channel, terminal, journal, gateway_log, config):
                             active_index = None
                             print(f"频差 {event['offset_hz']:+d} Hz：完成 {event['elapsed_ms']/1000:.3f} 秒")
                         elif event["event"] in ("POINT_FAILED", "SWEEP_FAILED"):
-                            raise RuntimeError(f"网关测试失败: {event}")
+                            raise RuntimeError(f"网关测试失败: {event}；最近阶段：{progress.stage}")
                         elif event["event"] == "SWEEP_DONE":
                             done = event.get("status") == 0
+                    else:
+                        progress.diagnostic_line(line)
                 if len(pending) > 1048576:
                     raise RuntimeError("网关输出连续 1 MiB 无换行")
             elif channel.exit_status_ready():
@@ -218,6 +282,7 @@ def run(config, output, password=None):
         preflight(client)
         status["binary_sha256"] = upload(client, config, remote_dir)
         remote_created = True
+        status["mqtt_bridge_checks"] = [ensure_mqtt_bridge(client, remote_dir, journal)]
         port = discover(config.baudrate) if config.serial_port == "auto" else config.serial_port
         journal.emit("terminal_selected", port=port, baudrate=config.baudrate)
         print(f"终端串口：{port}，开始配置并入网")
@@ -237,6 +302,7 @@ def run(config, output, password=None):
             raise RuntimeError("网关 A 单独运行基线未收到广播或 bcnbits 不符；检查 A 配置与终端接收")
         # Recheck because a service supervisor may have restarted the ordinary gateway.
         preflight(client)
+        status["mqtt_bridge_checks"].append(ensure_mqtt_bridge(client, remote_dir, journal))
         arguments = [remote_dir+"/tk8710_gw_freq_test", *config.gateway_args(),
                      "--work-dir", remote_dir, "--require-controller"]
         command = ("cd "+shlex.quote(remote_dir)+" && export LD_LIBRARY_PATH="+

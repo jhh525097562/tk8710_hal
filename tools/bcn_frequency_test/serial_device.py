@@ -137,6 +137,7 @@ class Terminal:
 
     def configure_and_join(self, config):
         for command in ("AT+DEVEUI=0000000000000003", "AT+DEVMODE=2", "AT+PRINTMODE=MAC,1",
+                        "AT+PRINTMODE=TRX,1",
                         f"AT+FREQCFG={config.primary_channel},{config.secondary_channel}",
                         f"AT+RATE={config.rate}"):
             self.command(command)

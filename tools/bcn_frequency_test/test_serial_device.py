@@ -68,6 +68,17 @@ class SerialTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.terminal.command("AT+FAIL")
 
+    def test_fragmented_trx_frames_are_retained(self):
+        from trx import parse_trx
+        for chunk in (b"+bc", b"n :52 - 0 | s,snr:14,cfo:-2198,rssi:-36,data:01\r",
+                      b"\n+data:52 - 1 | f,pkt:2,crc:03\r\nDONE\r\n"):
+            self.terminal.device.input.put(chunk)
+        received = self.terminal.wait(0, lambda text: text == "DONE", 1)
+        trx = [parse_trx(text) for text in received if text.startswith(("+bcn", "+data"))]
+        self.assertEqual(len(trx), 2)
+        self.assertEqual(trx[0]["bcnbits"], 1)
+        self.assertFalse(trx[1]["success"])
+
     def test_reader_failure_is_reported_on_close(self):
         self.terminal.device.input.put(OSError("serial unplugged"))
         self.terminal.thread.join(timeout=1)

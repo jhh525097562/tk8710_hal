@@ -627,6 +627,7 @@ if [ -f "src/gateway/tk8710_gw.c" ] && should_build "tk8710_gw"; then
     # 编译测试程序并链接验证器（单独包含IPC对象文件）
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
         src/gateway/tk8710_gw.c \
+        src/gateway/tk8710_gw_status.c \
         src/gateway/tk8710_gw_gps.c \
         ${BUILD_DIR}/trm_tx_validator.o \
         ${BUILD_DIR}/tk8710_ipc_comm.o \
@@ -665,6 +666,7 @@ if [ -f "src/gateway/tk8710_gw.c" ] && should_build "tk8710_gw_gps_ns_test"; the
     arm-buildroot-linux-gnueabihf-gcc ${CFLAGS} ${INCLUDES} -I./port \
         -DTK8710_GPS_TEST_HOOKS \
         src/gateway/tk8710_gw.c src/gateway/tk8710_gw_gps.c \
+        src/gateway/tk8710_gw_status.c \
         test/example/trm_tx_validator.c ${BUILD_DIR}/tk8710_ipc_comm.o \
         -L${BUILD_DIR} -ltk8710_hal_complete -L./lib -lipc_smp \
         -Wl,-rpath,./lib -lpthread -lgpiod -lm \

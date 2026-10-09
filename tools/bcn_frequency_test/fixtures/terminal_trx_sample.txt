@@ -1,0 +1,174 @@
++b_i,p!
++bcn :52 -  0 | s,snr:14,cfo:-2198,rssi:-36,data:00
++data:52 -  1 | s,pkt:2,crc:00,snr:16,rssi:-7,data(0,52):580C140A0400003000110000000000000076190C.
+RX_TDD:4,-7,16,-2198,0
++data:52 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :53 -  0 | s,snr:14,cfo:-2198,rssi:-34,data:00
++data:53 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A05000030001100000000000000DE8914.
+RX_TDD:5,-5,16,-2198,0
++data:58 -  1 | s,pkt:2,crc:00,snr:16,rssi:-7,data(0,52):580C140A0A0000300011000000000000005BBEC7.
+RX_TDD:10,-7,16,-2198,0
++data:58 -  3 | f,pkt:2,crc:03,snr:-3,rssi:-102,data(1,0):.
+
++b_i,p!
++bcn :59 -  0 | s,snr:14,cfo:-2198,rssi:-38,data:00
++data:59 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A010000300011000000000000008C8E68.
+RX_TDD:1,-5,16,-2198,0
++data:59 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :60 -  0 | s,snr:13,cfo:-2198,rssi:-36,data:00
++data:60 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(0,52):580C140A020000300011000000000000009776D3.
+RX_TDD:2,-5,16,-2198,0
++data:60 -  3 | f,pkt:2,crc:03,snr:-3,rssi:-102,data(1,0):.
+
++b_i,p!
++bcn :61 -  0 | s,snr:14,cfo:-2198,rssi:-32,data:00
++data:61 -  1 | s,pkt:2,crc:00,snr:16,rssi:-7,data(1,52):580C140A030000300011000000000000007DEC0F.
+RX_TDD:3,-7,16,-2198,0
++data:61 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :62 -  0 | s,snr:14,cfo:-2198,rssi:-49,data:00
++data:62 -  1 | s,pkt:2,crc:00,snr:17,rssi:-6,data(0,52):580C140A04000030001100000000000000F699D3.
+RX_TDD:4,-6,17,-2198,0
++data:62 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-102,data(1,0):.
+
++b_i,p!
++bcn :63 -  0 | s,snr:13,cfo:-2198,rssi:-39,data:00
++data:63 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A050000300011000000000000000A2D52.
+RX_TDD:5,-5,16,-2198,0
++data:63 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-102,data(0,0):.
+
++b_i,p!
++bcn :64 -  0 | s,snr:14,cfo:-2198,rssi:-43,data:00
++data:64 -  1 | s,pkt:2,crc:00,snr:17,rssi:-6,data(0,52):580C140A06000030001100000000000000E2AFE1.
+RX_TDD:6,-6,17,-2198,0
++data:64 -  3 | f,pkt:2,crc:03,snr:-1,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :65 -  0 | s,snr:14,cfo:-2198,rssi:-39,data:00
++data:65 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A0700003000110000000000000045F663.
+RX_TDD:7,-5,16,-2198,0
++data:65 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-102,data(0,0):.
+
++b_i,p!
++bcn :66 -  0 | s,snr:13,cfo:-2198,rssi:-36,data:00
++data:66 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(0,52):580C140A08000030001100000000000000646F81.
+RX_TDD:8,-5,16,-2198,0
++data:66 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :67 -  0 | s,snr:14,cfo:-2198,rssi:-38,data:00
++data:67 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A09000030001100000000000000D681F5.
+RX_TDD:9,-5,16,-2198,0
++data:67 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :68 -  0 | s,snr:14,cfo:-2198,rssi:-36,data:00
++data:68 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(0,52):580C140A0A000030001100000000000000F30837.
+RX_TDD:10,-5,16,-2198,0
++data:68 -  3 | f,pkt:2,crc:03,snr:-2,rssi:-102,data(1,0):.
+
++b_i,p!
++bcn :69 -  0 | s,snr:14,cfo:-2198,rssi:-33,data:00
++data:69 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A01000030001100000000000000513540.
+RX_TDD:1,-5,16,-2198,0
++data:69 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :70 -  0 | s,snr:14,cfo:-2198,rssi:-49,data:00
++data:70 -  1 | s,pkt:2,crc:00,snr:17,rssi:-6,data(0,52):580C140A02000030001100000000000000D4D160.
+RX_TDD:2,-6,17,-2198,0
++data:70 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :71 -  0 | s,snr:14,cfo:-2198,rssi:-39,data:00
++data:71 -  1 | s,pkt:2,crc:00,snr:17,rssi:-5,data(1,52):580C140A03000030001100000000000000A094A8.
+RX_TDD:3,-5,17,-2198,0
++data:71 -  3 | f,pkt:2,crc:03,snr:-6,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :72 -  0 | s,snr:13,cfo:-2198,rssi:-45,data:00
++data:72 -  1 | s,pkt:2,crc:00,snr:17,rssi:-6,data(0,52):580C140A04000030001100000000000000F66406.
+RX_TDD:4,-6,17,-2198,0
++data:72 -  3 | f,pkt:2,crc:03,snr:-2,rssi:-102,data(1,0):.
+
++b_i,p!
++bcn :73 -  0 | s,snr:14,cfo:-2198,rssi:-39,data:00
++data:73 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A05000030001100000000000000D5F886.
+RX_TDD:5,-5,16,-2198,0
++data:73 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :74 -  0 | s,snr:14,cfo:-2198,rssi:-36,data:00
++data:74 -  1 | s,pkt:2,crc:00,snr:16,rssi:-6,data(0,52):580C140A0600003000110000000000000017EEC8.
+RX_TDD:6,-6,16,-2198,0
++data:74 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-102,data(1,0):.
+
++b_i,p!
++bcn :75 -  0 | s,snr:13,cfo:-2198,rssi:-39,data:00
++data:75 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A07000030001100000000000000EDECF1.
+RX_TDD:7,-5,16,-2198,0
++data:75 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :76 -  0 | s,snr:14,cfo:-2198,rssi:-36,data:00
++data:76 -  1 | s,pkt:2,crc:00,snr:16,rssi:-8,data(0,52):580C140A08000030001100000000000000A8ACF2.
+RX_TDD:8,-8,16,-2198,0
++data:76 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :77 -  0 | s,snr:14,cfo:-2198,rssi:-32,data:00
++data:77 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A090000300011000000000000005028A7.
+RX_TDD:9,-5,16,-2198,0
++data:77 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :78 -  0 | s,snr:13,cfo:-2198,rssi:-49,data:00
++data:78 -  1 | s,pkt:2,crc:00,snr:16,rssi:-6,data(0,52):580C140A0A000030001100000000000000A18F8D.
+RX_TDD:10,-6,16,-2198,0
++data:78 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :79 -  0 | s,snr:13,cfo:-2198,rssi:-39,data:00
++data:79 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A0100003000110000000000000080003A.
+RX_TDD:1,-5,16,-2198,0
++data:79 -  3 | f,pkt:2,crc:03,snr:-2,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :80 -  0 | s,snr:14,cfo:-2198,rssi:-45,data:00
++data:80 -  1 | s,pkt:2,crc:00,snr:16,rssi:-6,data(0,52):580C140A02000030001100000000000000EC1A55.
+RX_TDD:2,-6,16,-2198,0
++data:80 -  3 | f,pkt:2,crc:03,snr:-2,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :81 -  0 | s,snr:13,cfo:-2198,rssi:-39,data:00
++data:81 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A0300003000110000000000000036334B.
+RX_TDD:3,-5,16,-2198,0
++data:81 -  3 | f,pkt:2,crc:03,snr:-1,rssi:-101,data(0,0):.
+
++b_i,p!
++bcn :82 -  0 | s,snr:14,cfo:-2198,rssi:-36,data:00
++data:82 -  1 | s,pkt:2,crc:00,snr:16,rssi:-8,data(0,52):580C140A04000030001100000000000000111913.
+RX_TDD:4,-8,16,-2198,0
++data:82 -  3 | f,pkt:2,crc:03,snr: 0,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :83 -  0 | s,snr:14,cfo:-2198,rssi:-37,data:00
++data:83 -  1 | s,pkt:2,crc:00,snr:16,rssi:-5,data(1,52):580C140A050000300011000000000000004FD437.
+RX_TDD:5,-5,16,-2198,0
++data:83 -  3 | f,pkt:2,crc:03,snr: 1,rssi:-102,data(0,0):.
+
++b_i,p!
++bcn :84 -  0 | s,snr:13,cfo:-2198,rssi:-36,data:00
++data:84 -  1 | s,pkt:2,crc:00,snr:16,rssi:-6,data(0,52):580C140A06000030001100000000000000778E14.
+RX_TDD:6,-6,16,-2198,0
++data:84 -  3 | f,pkt:2,crc:03,snr:-1,rssi:-101,data(1,0):.
+
++b_i,p!
++bcn :85 -  0 | s,snr:14,cfo:-2198,rssi:-33,data:00
++data:85 -  1 | s,pkt:2,crc:00,snr:16,rssi:-7,data(1,52):580C140A07000030001100000000000000FA5D4E.
+RX_TDD:7,-7,16,-2198,0

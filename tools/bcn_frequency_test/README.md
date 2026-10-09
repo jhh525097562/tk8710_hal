@@ -7,7 +7,7 @@
 ## 1. 测试前准备
 
 1. 由操作者配置并启动网关 A：固定中心频率、bcnbits、GPS 同步、单速率及 TDD 参数，保持整个测试期间运行。
-2. 网关 B 保留现有 NS/MQTT/IPC 通信服务，NS 上的 `gps_enable=1`、TDD 数量、速率、上下行包块数须与本次输入一致；NS 广播数据仍由现有流程提供。两台的时隙布局、TDD 周期必须一致。
+2. 网关 B 保留现有 NS/MQTT/IPC 通信服务，NS 上的 `gps_enable=1`、TDD 数量、速率、上下行包块数须与本次输入一致；NS 广播数据仍由现有流程提供。两台的时隙布局、TDD 周期必须一致。脚本在终端配置前及启动网关测试程序前检查 `mqtt_bridge`：已有进程就保留，未运行则切到 `/userdata`，用 `nohup /userdata/mqtt_bridge` 后台启动，并连续两次确认同一PID存活。文件不存在、无执行权限或启动后退出会终止测试。
 3. 停止 B 上普通 `tk8710_gw` 及它的自动拉起任务，确保没有其他程序占用 TK8710/GPS 资源。工具会检查常见冲突程序并拒绝并行占用，不会任意杀死服务。测试后由操作者恢复原网关服务。测试程序、频差及 bcnbits 不写回 NS 配置。
 4. 连接一个终端串口，关闭 SSCOM 等占用串口的软件。工具默认用只读 `AT+DEVEUI?` 探测；恰好一个匹配才自动选择，不发送 `AT+RST`。零个或多个匹配时使用 `--serial-port COM14` 指定。
 5. 首次使用 SSH 时，在本机终端执行 `ssh root@网关B_IP` 核对并保存主机指纹。本工具使用已有 known_hosts；可在 JSON 中指定 `known_hosts` 文件，拒绝未信任的主机密钥。密码通过交互输入，不保存到配置或日志。
@@ -55,12 +55,15 @@ python tools/bcn_frequency_test/run.py --config tools/bcn_frequency_test/config.
 
 `--password` 不带密码值；不指定时使用 SSH agent/密钥。相对 `binary` 路径相对于仓库根目录。默认本地输出为 `remote_logs/bcn_frequency/时间戳/`，可用 `--output` 指定一个尚不存在的目录。
 
+自动启动 `mqtt_bridge` 的输出保存到本次远端目录 `mqtt_bridge_startup.log`，结束时按下载开始时的文件长度截取到本地 `remote/`（进程仍运行，后续追加内容保留在远端）。检查结果记录在 `journal.jsonl` 和 `run_status.json`。测试结束不会停止已运行或本次启动的 `mqtt_bridge`。进程存活不等于已连接NS，仍按原规则等待NS配置和广播载荷就绪后开始有效计时。
+
 终端配置顺序：
 
 ```text
 AT+DEVEUI=0000000000000003
 AT+DEVMODE=2
 AT+PRINTMODE=MAC,1
+AT+PRINTMODE=TRX,1
 AT+FREQCFG=<主信道号>,<次信道号>
 AT+RATE=<测试速率>
 AT+JOIN=0
@@ -70,7 +73,7 @@ AT+JOIN=0
 
 ## 4. 网关 B 的执行与退出
 
-每点执行：停止 IPC 处理 → 停用并等待 IRQ 线程退出 → 停止旧状态机并完整释放 HAL/GPIO/SPI 资源 → GPS/PPS 就绪检查 → RF/芯片校准和时隙重配 → 启动外部同步 → 恢复 IPC 并校验 NS 参数 → 收到广播数据且 S3 推进 → 稳定等待 → POINT_START → 有效运行 → POINT_END。
+每点执行：停止 IPC 处理 → 停用并等待 IRQ 线程退出 → 停止旧状态机并完整释放 HAL/GPIO/SPI 资源 → GPS/PPS 就绪检查 → RF/芯片校准和时隙重配 → 启动外部同步 → 恢复 IPC → NS配置收到并校验通过、广播载荷有效且S3至少推进2次 → 稳定等待 → POINT_START → 有效运行 → POINT_END。GPS/PPS、NS配置、广播载荷和时隙推进条件必须同时满足才开始计时。
 
 - 用户输入速率为 5～11 或 18；程序转换为 NS 的 0～7 索引，避免不同编号体系混用。
 - 频率为 `A中心频率 + 本点频差`，同时配置 RF 与各时隙中心频率；B 的 bcnbits 固定为输入值。
@@ -81,6 +84,8 @@ AT+JOIN=0
 - 最多等待 `ready_timeout` 秒就绪。底层 GPS/校准调用有自身的等待过程，本程序的超时检查在这些调用返回后进行；电脑端另设总时限。IRQ 无推进也会使测试失败。
 - 日志中的 `rf_register` / `nominal_rf_hz` 来自 SX1255 频率步进 30.517578125 Hz 的寄存器量化计算，不是射频仪表实测值。小于量化步进的配置可能落到相同寄存器值。
 - 全部点完成才输出 SWEEP_DONE 并退出。故障、中断或电脑停止会输出失败事件并清理；Ctrl+C 会请求本次进程停止并向精确匹配本次上传路径的进程发送 SIGTERM，不使用 killall/SIGKILL。
+- 等待界面使用测试程序专用的 `FREQ_STATUS` 状态，独立于 GPS/TRM 的 INFO 日志及日志级别。显示 GPS定位、RF初始化/校准、PPS对齐、时隙配置、NS/IPC 等阶段；进入就绪检查后列出 `gps_mode`、`ns_received`、`ns_verified`、`broadcast_valid`、`s3_count`、`s3_idle_ms`，约每10秒更新。状态只用于诊断，只有 `POINT_START` 才开始有效计时。长耗时初始化期间每10秒显示最后已知阶段和累计等待时间，不将未知状态猜为成功。
+- 若 GPS 已为 EXTERNAL_ACTIVE 而 `broadcast_valid=0`，或日志反复出现 `dataLen=0`，程序会继续等待有效广播载荷，不开始有效计时；NS配置消息未收到或尚未校验通过也会继续等待。可根据状态提示检查 `mqtt_bridge`、NS配置与广播下发。GPS/PPS失步、明确NS参数冲突、运行中IRQ持续停滞等故障仍会中止测试。缺少GPS控制台文本不会阻塞计时；不通过日志关键字替代真实就绪检查。
 - 远端文件保存在唯一的 `/userdata/bcn_freq_test/运行ID/`，下载后保留，不自动删除。原 NS 配置和生产二进制不被覆盖；退出时 B 停止发射，不自动恢复普通服务。
 
 必要时可直接在 B 上运行（需要现有 NS 服务提供匹配配置及广播）：
@@ -107,12 +112,39 @@ TX DC 先从当前板 RF RAM 读取。读取失败或无已存值时沿用原网
     report.html              汇总报告与 CFO/bcnbits 共用时间轴图
     summary.json / points.csv
     samples.csv / transitions.csv / events.csv
+    trx_records.csv / trx_malformed.csv
+    bcn_records.csv / bcn_failures.csv / bcn_bcnbits_errors.csv
+    broadcast_records.csv / broadcast_failures.csv
+    bcn_cfo_bcnbits.png
     cfo_bcnbits_matching.csv / bcnbits_errors.csv / gaps.csv
     terminal_raw.log / transition_terminal.log
     point_0000_-1000Hz/terminal.log
 ```
 
 `RX_TDD:TDD序号,广播RSSI,广播SNR,CFO_Hz,bcnbits` 按五字段解析。解析失败和集合外 bcnbits 分别记录。bcnbits 错误占比只以收到且可解析的记录为分母。
+
+### TRX 的 BCN 和广播接收统计
+
+MAC 打印开启后紧接着执行 `AT+PRINTMODE=TRX,1`，检查返回 AT_OK，然后继续信道、速率配置及首次 JOIN。原始字节和完整文本行均保存，RX_TDD 不再是判断接收结果的唯一来源。
+
+| 日志示例 | 统计含义 |
+|---|---|
+| `+bcn :52 - 0 \| s,snr:14,cfo:-2198,rssi:-36,data:00` | BCN 时隙0接收成功，CFO=-2198 Hz，bcnbits=0 |
+| `+bcn :53 - 0 \| s,...,data:01` | BCN 接收成功，bcnbits=1 |
+| `+bcn :54 - 0 \| f,...` | BCN 接收失败，不把后面的 data 当成有效 bcnbits |
+| `+data:52 - 1 \| s,pkt:2,crc:00,...` | 广播时隙1接收成功 |
+| `+data:53 - 1 \| f,pkt:2,crc:03,...` | 广播时隙1接收失败，允许没有 RX_TDD |
+| `+data:52 - 3 \| f,...` | 其他数据时隙失败，不计入广播失败 |
+
+`52` 等 TRX 帧编号原样保存，不当成 RX_TDD 的 1～N 循环序号；`data(0,52)`、`data(1,52)` 也不是 bcnbits。BCN 的 `data:xx` 按十六进制解析（如 1f=31）。
+
+每个频差及整场有效窗口分别统计 BCN/广播的明确成功数、失败数、成功率和失败率。分母为对应类型实际打印的 `s+f` 条数。缺少某条日志不补造失败，BCN失败后若没有广播行，也不凭空增加广播失败次数。无 TRX 记录的旧日志显示“无记录”、比例为 null。
+
+BCN 的 bcnbits 错误只以接收成功且能解析 data 的记录为分母；成功但 data 缺失/格式异常单列，失败记录中的 data 不进入错误率。BCN CFO/bcnbits 图和分布包含“BCN成功、广播失败”的记录，与 RX_TDD 图分开。两种日志的同一次接收不相加重复计数。
+
+HTML 报告增加全局及逐频差接收表；`points.csv` 增加 `bcn_*`、`broadcast_*` 计数/比例列。BCN 和广播明细及失败记录独立导出 CSV；每个频点也有 `trx_records.csv`，保留帧号、时隙、结果、原文、CFO/RSSI/SNR、bcnbits 和来源行号。明细保留过渡段及无效窗口行（index 为空），汇总仅统计有效窗口。
+
+纯文本无时间戳附件也可离线分析，保留原始顺序；时间为 null，BCN 图横轴使用样本序号，不推算实际周期/时间丢失或频差归属。当前附件含 BCN 29 条成功、广播30条成功、其他时隙28条失败，不能据此虚构缺失的 BCN 为失败。
 
 频点边界使用电脑接收 POINT_START/END 的时间，默认两端各排除 500 ms；过渡日志完整保留。此保护区只降低 SSH/串口延迟污染，不是硬件级时钟对齐保证。未结束、失败频点不进入有效窗口统计。
 
@@ -151,7 +183,7 @@ yes
 
 exit
 
-
+ python tools/bcn_frequency_test/run.py --config tools/bcn_frequency_test/config.example.json --serial-port COM6 --password
 
 
 cd /userdata

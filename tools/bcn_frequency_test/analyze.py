@@ -12,6 +12,7 @@ import statistics
 from pathlib import Path
 
 from protocol import NWK, RF_STEP, infer_gap, parse_rx
+from trx import MARKER, parse_trx, summarize_trx, flat_trx, reception_html
 
 
 def load_records(path):
@@ -38,7 +39,7 @@ def load_records(path):
             current_ms = raw_ms+days*86400000
             previous_ms = raw_ms
             block = number
-        if current_ms is not None and line.strip():
+        if line.strip():
             yield dict(kind="terminal", time_ms=current_ms, text=line,
                        source_line=number, receive_block=block)
 
@@ -66,6 +67,8 @@ def make_windows(records, guard_ms):
 
 
 def assign_window(time_ms, windows):
+    if time_ms is None:
+        return None, None
     for window in windows:
         if (window["valid"] and window["start_ms"] <= time_ms <= window["end_ms"]):
             return window["index"], window["offset_hz"]
@@ -75,7 +78,8 @@ def assign_window(time_ms, windows):
 def period_from_rows(rows, tdd_count):
     # Adjacent sequence increments provide an estimate; at least 3 observations.
     candidates = [b["time_ms"]-a["time_ms"] for a, b in zip(rows, rows[1:])
-                  if a["segment"] == b["segment"] and b["time_ms"] > a["time_ms"] and
+                  if a["segment"] == b["segment"] and a["time_ms"] is not None and
+                  b["time_ms"] is not None and b["time_ms"] > a["time_ms"] and
                   (b["tdd"]-a["tdd"]) % tdd_count == 1 % tdd_count]
     if len(candidates) < 3:
         return 0
@@ -106,7 +110,8 @@ def summarize(rows, transitions, bits_a, bits_b):
                 cfo_changes=sum(t["cfo_delta_hz"] != 0 for t in transitions),
                 bcnbits_changes=sum(t["bcnbits_changed"] for t in transitions),
                 cfo_change_same_bits=sum(t["cfo_delta_hz"] != 0 and not t["bcnbits_changed"] for t in transitions),
-                missing_records_estimate=sum(t["missing"] or 0 for t in transitions) if len(rows) >= 2 else None,
+                missing_records_estimate=(sum(t["missing"] or 0 for t in transitions)
+                    if any(t["missing"] is not None for t in transitions) else None),
                 missing_count_scope="lower_bound_between_observed_records_only",
                 uncertain_intervals=sum(t["missing"] is None for t in transitions),
                 joint_distribution=[dict(bcnbits=k[0], cfo_hz=k[1], count=v) for k, v in sorted(joint.items())],
@@ -118,10 +123,13 @@ def analyze_records(records, tdd_count=10, bits_a=0, bits_b=1, guard_ms=500, per
         raise ValueError("TDD 数量或 bcnbits 参数无效")
     if guard_ms < 0 or not math.isfinite(period_ms) or period_ms < 0:
         raise ValueError("边界保护区及广播周期必须为非负有限数")
-    records = sorted(records, key=lambda r: r["time_ms"])
+    # Untimestamped pasted logs retain file order; do not invent receive times.
+    if all(r["time_ms"] is not None for r in records):
+        records = sorted(records, key=lambda r: r["time_ms"])
     windows = make_windows(records, guard_ms)
     has_campaign = any(r["kind"] == "gateway_event" for r in records)
     rows, events, malformed, terminal_records = [], [], [], []
+    trx_rows, trx_malformed = [], []
     network_epoch = 0
     was_joined = False
     disconnected_at = None
@@ -134,6 +142,18 @@ def analyze_records(records, tdd_count=10, bits_a=0, bits_b=1, guard_ms=500, per
         record_index, record_offset = assign_window(timestamp, windows)
         terminal_records.append(dict(time_ms=timestamp, text=text, index=record_index,
                                      offset_hz=record_offset))
+        trx = parse_trx(text)
+        if trx:
+            trx.update(time_ms=timestamp, source_line=record.get("source_line"), text=text,
+                       index=record_index, offset_hz=record_offset,
+                       segment=f"{record_index if has_campaign else 'sample'}:{network_epoch}",
+                       bcnbits_error=(int(trx["bcnbits"] not in (bits_a, bits_b))
+                                      if trx["trx_kind"] == "bcn" and trx["slot"] == 0 and
+                                      trx["success"] and trx["bcnbits"] is not None else None))
+            trx_rows.append(trx)
+        elif MARKER.search(text):
+            trx_malformed.append(dict(time_ms=timestamp, text=text, source_line=record.get("source_line"),
+                                      index=record_index, offset_hz=record_offset))
         rx = parse_rx(text)
         if rx:
             index, offset = assign_window(timestamp, windows)
@@ -151,7 +171,7 @@ def analyze_records(records, tdd_count=10, bits_a=0, bits_b=1, guard_ms=500, per
                 if not was_joined:
                     join_count += 1
                     event["kind"] = "joined" if join_count == 1 else "rejoined"
-                    if disconnected_at is not None:
+                    if disconnected_at is not None and timestamp is not None:
                         event["outage_ms"] = timestamp-disconnected_at
                     disconnected_at = None
                     was_joined = True
@@ -175,7 +195,10 @@ def analyze_records(records, tdd_count=10, bits_a=0, bits_b=1, guard_ms=500, per
             continue
         if has_campaign and current["index"] is None:
             continue
-        missing, reason = infer_gap(previous, current, tdd_count, effective_period)
+        if previous["time_ms"] is None or current["time_ms"] is None:
+            missing, reason = None, "missing_timestamp"
+        else:
+            missing, reason = infer_gap(previous, current, tdd_count, effective_period)
         transitions.append(dict(time_ms=current["time_ms"], previous_time_ms=previous["time_ms"],
                                 index=current["index"], offset_hz=current["offset_hz"],
                                 previous_tdd=previous["tdd"], tdd=current["tdd"],
@@ -185,6 +208,10 @@ def analyze_records(records, tdd_count=10, bits_a=0, bits_b=1, guard_ms=500, per
                                 source_line=current["source_line"]))
     active_rows = [r for r in rows if r["index"] is not None] if has_campaign else rows
     summary = summarize(active_rows, transitions, bits_a, bits_b)
+    active_trx = [r for r in trx_rows if r["index"] is not None] if has_campaign else trx_rows
+    summary["trx"] = summarize_trx(active_trx, bits_a, bits_b)
+    summary.update(trx_raw_records=len(trx_rows), trx_malformed_count=len(trx_malformed),
+                   timestamp_missing_records=sum(r["time_ms"] is None for r in terminal_records))
     summary.update(raw_samples=len(rows), malformed_count=len(malformed),
                    startup_retries=sum(r.get("event") == "POINT_RETRY" for r in records if r["kind"] == "gateway_event"),
                    frame_period_ms=effective_period, period_source="configured" if period_ms else "inferred",
@@ -194,7 +221,7 @@ def analyze_records(records, tdd_count=10, bits_a=0, bits_b=1, guard_ms=500, per
                    windows=windows, points=[])
     baseline_start = next((r["time_ms"] for r in records if r["kind"] == "baseline_start"), None)
     baseline_end = next((r["time_ms"] for r in records if r["kind"] == "baseline_end"), None)
-    baseline_rows = ([r for r in rows if baseline_start <= r["time_ms"] <= baseline_end]
+    baseline_rows = ([r for r in rows if r["time_ms"] is not None and baseline_start <= r["time_ms"] <= baseline_end]
                      if baseline_start is not None and baseline_end is not None else [])
     baseline_a = [r for r in baseline_rows if r["bcnbits"] == bits_a]
     baseline_median = statistics.median(r["cfo_hz"] for r in baseline_a) if baseline_a else None
@@ -206,15 +233,17 @@ def analyze_records(records, tdd_count=10, bits_a=0, bits_b=1, guard_ms=500, per
                                  rssi_median=statistics.median(r["rssi"] for r in baseline_a) if baseline_a else None,
                                  snr_median=statistics.median(r["snr"] for r in baseline_a) if baseline_a else None)
     if not has_campaign:
-        joins = [e["time_ms"] for e in events if e["kind"] == "joined"]
+        joins = [e["time_ms"] for e in events if e["kind"] == "joined" and e["time_ms"] is not None]
         if joins:
-            joined_rows = [r for r in rows if r["time_ms"] >= joins[0]]
-            joined_transitions = [t for t in transitions if t["previous_time_ms"] >= joins[0]]
+            joined_rows = [r for r in rows if r["time_ms"] is not None and r["time_ms"] >= joins[0]]
+            joined_transitions = [t for t in transitions if t["previous_time_ms"] is not None and t["previous_time_ms"] >= joins[0]]
             summary["joined_window_including_same_receive_block"] = summarize(joined_rows, joined_transitions, bits_a, bits_b)
     for window in windows:
         selected = [r for r in rows if r["index"] == window["index"]]
         changes = [t for t in transitions if t["index"] == window["index"]]
         result = dict(window, **summarize(selected, changes, bits_a, bits_b))
+        result["trx"] = summarize_trx([r for r in trx_rows if r["index"] == window["index"]], bits_a, bits_b)
+        result.update(flat_trx(result["trx"]))
         result["startup_retries"] = sum(r.get("event") == "POINT_RETRY" and
                                         r.get("index") == window["index"] for r in records
                                         if r["kind"] == "gateway_event")
@@ -256,7 +285,8 @@ def analyze_records(records, tdd_count=10, bits_a=0, bits_b=1, guard_ms=500, per
                     "consistent_with_observed_groups" if nearest == row["bcnbits"] else "suspected_cross_group")
     summary["cfo_bcnbits_relation_counts"] = dict(collections.Counter(r["cfo_bcnbits_relation"] for r in active_rows))
     return dict(summary=summary, samples=rows, transitions=transitions, events=events,
-                malformed=malformed, terminal_records=terminal_records)
+                malformed=malformed, terminal_records=terminal_records,
+                trx_records=trx_rows, trx_malformed=trx_malformed)
 
 
 def write_csv(path, records):
@@ -268,14 +298,24 @@ def write_csv(path, records):
             writer.writerows(records)
 
 
+def format_terminal_line(row):
+    prefix = f"[{row['time_ms']:.3f}] " if row["time_ms"] is not None else ""
+    return prefix+row["text"]
+
+
 def write_report(result, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     summary = result["summary"]
     (output/"summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    for name in ("samples", "transitions", "events", "malformed"):
+    for name in ("samples", "transitions", "events", "malformed", "trx_records", "trx_malformed"):
         write_csv(output/(name+".csv"), result[name])
     write_csv(output/"bcnbits_errors.csv", [r for r in result["samples"] if r["bcnbits_error"]])
+    for name, kind, slot in (("bcn", "bcn", 0), ("broadcast", "data", 1)):
+        selected = [r for r in result["trx_records"] if r["trx_kind"] == kind and r["slot"] == slot]
+        write_csv(output/(name+"_records.csv"), selected)
+        write_csv(output/(name+"_failures.csv"), [r for r in selected if not r["success"]])
+    write_csv(output/"bcn_bcnbits_errors.csv", [r for r in result["trx_records"] if r["bcnbits_error"]])
     write_csv(output/"cfo_bcnbits_matching.csv", result["samples"])
     write_csv(output/"gaps.csv", [r for r in result["transitions"] if r["missing"] != 0])
     flat_points = [{k: v for k, v in point.items() if not isinstance(v, (dict, list))} for point in summary["points"]]
@@ -285,17 +325,20 @@ def write_report(result, output):
         directory.mkdir(exist_ok=True)
         selected = [r for r in result["samples"] if r["index"] == point["index"]]
         write_csv(directory/"terminal.csv", selected)
+        write_csv(directory/"trx_records.csv", [r for r in result["trx_records"] if r["index"] == point["index"]])
         log_rows = [r for r in result["terminal_records"] if r["index"] == point["index"]]
-        (directory/"terminal.log").write_text("\n".join(f"[{r['time_ms']:.3f}] {r['text']}" for r in log_rows), encoding="utf-8")
+        (directory/"terminal.log").write_text("\n".join(format_terminal_line(r) for r in log_rows), encoding="utf-8")
     for filename, log_rows in (("terminal_raw.log", result["terminal_records"]),
                                ("transition_terminal.log", [r for r in result["terminal_records"] if r["index"] is None])):
-        (output/filename).write_text("\n".join(f"[{r['time_ms']:.3f}] {r['text']}" for r in log_rows), encoding="utf-8")
+        (output/filename).write_text("\n".join(format_terminal_line(r) for r in log_rows), encoding="utf-8")
     chart_html = ""
+    if summary["timestamp_missing_records"]:
+        chart_html += "<p>部分或全部日志无时间戳：仅统计明确结果；不补造接收时间、周期或频差归属。</p>"
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        rows = result["samples"]
+        rows = [r for r in result["samples"] if r["time_ms"] is not None]
         if rows:
             start = rows[0]["time_ms"]
             figure, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True, layout="constrained")
@@ -312,13 +355,32 @@ def write_report(result, output):
                         axis.axvline((window["start_ms"]-start)/1000, color="gray", alpha=.3)
             figure.savefig(output/"cfo_bcnbits.png", dpi=140)
             plt.close(figure)
-            chart_html = '<img src="cfo_bcnbits.png" style="max-width:100%" alt="CFO and bcnbits">'
+            chart_html += '<img src="cfo_bcnbits.png" style="max-width:100%" alt="RX_TDD CFO and bcnbits">'
+        bcn_rows = [r for r in result["trx_records"] if r["trx_kind"] == "bcn" and r["slot"] == 0
+                    and r["success"] and r["bcnbits"] is not None and r["cfo_hz"] is not None]
+        if bcn_rows:
+            timestamped = all(r["time_ms"] is not None for r in bcn_rows)
+            origin = bcn_rows[0]["time_ms"] if timestamped else 0
+            xs = [(r["time_ms"]-origin)/1000 for r in bcn_rows] if timestamped else list(range(1, len(bcn_rows)+1))
+            figure, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True, layout="constrained")
+            for bits in sorted({r["bcnbits"] for r in bcn_rows}):
+                positions = [i for i, r in enumerate(bcn_rows) if r["bcnbits"] == bits]
+                axes[0].scatter([xs[i] for i in positions], [bcn_rows[i]["cfo_hz"] for i in positions], s=8, label=f"bcnbits={bits}")
+            axes[0].set_ylabel("BCN CFO (Hz)"); axes[0].legend()
+            axes[1].scatter(xs, [r["bcnbits"] for r in bcn_rows], s=8)
+            axes[1].set_ylabel("BCN bcnbits")
+            axes[1].set_xlabel("PC receive time (seconds)" if timestamped else "Decoded BCN sample index (no timestamps)")
+            for axis in axes:
+                axis.grid(alpha=.2)
+            figure.savefig(output/"bcn_cfo_bcnbits.png", dpi=140)
+            plt.close(figure)
+            chart_html += '<h2>BCN 成功记录的 CFO / bcnbits（含广播失败时的 BCN）</h2><img src="bcn_cfo_bcnbits.png" style="max-width:100%" alt="BCN CFO and bcnbits">'
     except ImportError:
-        chart_html = "<p>未安装 matplotlib，CSV/JSON 分析已完成。</p>"
+        chart_html += "<p>未安装 matplotlib，CSV/JSON 分析已完成。</p>"
     title = "同频同步组网频差测试分析"
     body = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>{title}</title>
 <style>body{{font:16px sans-serif;max-width:1100px;margin:30px auto;padding:0 20px}}pre{{white-space:pre-wrap;background:#f3f5f7;padding:20px}}</style>
-<h1>{title}</h1><p>有效窗口接收 {summary['samples']} 条；bcnbits 集合外错误 {summary['bcnbits_errors']} 条；
+<h1>{title}</h1>{reception_html(summary)}<h2>RX_TDD 成功广播日志统计</h2><p>接收 {summary['samples']} 条；bcnbits 集合外错误 {summary['bcnbits_errors']} 条；
 CFO 变化 {summary['cfo_changes']} 次；bcnbits 变化 {summary['bcnbits_changes']} 次。</p>
 <p>缺失为日志记录缺失估计，不能直接归因于射频丢包。边界保护区及未完成频点不进入有效窗口统计。
 CFO 分组及频差残差为描述统计，没有独立参考时不判定逐帧来源正确性；重叠分组视为无法区分。
