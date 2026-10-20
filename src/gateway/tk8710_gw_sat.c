@@ -788,7 +788,7 @@ static int HandleNsConfig(const NsConfigDown_t* config) {
     slotCfg.md_agc = 1024;
     slotCfg.brdFreq[0] = 20000.0;
     slotCfg.frameTimeLen = 0;
-    
+    slotCfg.local_sync = TK8710_SYNC_MODE_LOCAL;
     // 配置BCN轮流发送
     for (int i = 0; i < TK8710_MAX_ANTENNAS; i++) {
         slotCfg.bcnRotation[i] = i;

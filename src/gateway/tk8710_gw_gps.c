@@ -702,16 +702,18 @@ GwGpsAction GwGpsPoll(GwGpsManager* manager)
 #endif
     if (error == TK8710_PPS_OK && manager->mode == GW_GPS_MODE_EXTERNAL_ACTIVE) {
         TRM_LOG_INFO("GPS/PPS monitor: STATE=%s PERIOD=%u GPS=%u PPS=%u FIX=%u "
-               "RMC=%c ALIGN=%u HOLD=%u BAD=%u RESYNC=%u failures=%u",
+               "RMC=%c ALIGN=%u HOLD=%u BAD=%u RESYNC=%u SATS=%u SNR=%u failures=%u",
                status.state, status.period, status.gps_online, status.pps_seen,
                status.fix_valid, status.rmc_status != '\0' ? status.rmc_status : '?',
                status.aligned, status.holdover, status.bad_period,
-               status.resync_pending, manager->consecutive_abnormal);
+               status.resync_pending, status.satellites, status.snr,
+               manager->consecutive_abnormal);
     } else if (error == TK8710_PPS_OK &&
                manager->mode == GW_GPS_MODE_LOCAL_DEGRADED) {
-        TRM_LOG_INFO("GPS recovery monitor: GPS=%u PPS=%u FIX=%u RMC=%c recovered=%u/%u",
+        TRM_LOG_INFO("GPS recovery monitor: GPS=%u PPS=%u FIX=%u RMC=%c SATS=%u SNR=%u recovered=%u/%u",
                status.gps_online, status.pps_seen, status.fix_valid,
                status.rmc_status != '\0' ? status.rmc_status : '?',
+               status.satellites, status.snr,
                manager->consecutive_recovered, manager->policy.consecutive_limit);
     }
     if (error != TK8710_PPS_OK) {
