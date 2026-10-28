@@ -1,5 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include "tk8710_gw_status.h"
+#ifdef PLATFORM_RK3506
+#include "trm/trm_log.h"
+#endif
 
 #ifndef _WIN32
 #include <errno.h>
@@ -85,7 +88,7 @@ static void SetReason(const char* reason)
 }
 
 /* Called with status_lock held. Atomic rename, tmpfs only, no IRQ callback I/O. */
-static void Publish(int force)
+static void PublishTo(int force, const char* filename)
 {
     uint64_t now = MonotonicMs();
     if (directory_fd < 0 || (!force && last_write_ms && now - last_write_ms < 1000)) return;
@@ -113,7 +116,7 @@ static void Publish(int force)
             (unsigned long long)now, phase_timeout_s[current_phase]) < 0;
         if (fclose(fp) != 0) failed = 1;
     }
-    if (!failed && renameat(directory_fd, temporary, directory_fd, "status.json") != 0) failed = 1;
+    if (!failed && renameat(directory_fd, temporary, directory_fd, filename) != 0) failed = 1;
     if (failed) {
         int saved = errno;
         (void)unlinkat(directory_fd, temporary, 0);
@@ -123,6 +126,11 @@ static void Publish(int force)
         write_warning = 0;
         last_write_ms = now;
     }
+}
+
+static void Publish(int force)
+{
+    PublishTo(force, "status.json");
 }
 
 int GwStatusInit(const char* directory)
@@ -163,6 +171,13 @@ void GwStatusSet(GwStatusPhase phase, const char* reason, int error_code)
         current_error = error_code;
         SetReason(reason);
         Publish(1);
+#ifdef PLATFORM_RK3506
+        if (phase == GW_STATUS_FAULT) {
+            TRM_LOG_ERROR("Gateway fault: reason=%s error=%d pid=%ld",
+                current_reason, current_error, (long)getpid());
+            TRM_LogFlushFile();
+        }
+#endif
     }
     pthread_mutex_unlock(&status_lock);
 }
@@ -189,12 +204,16 @@ void GwStatusFinish(int exit_code)
     pthread_mutex_lock(&status_lock);
     if (directory_fd >= 0 && !finished) {
         if (current_phase != GW_STATUS_FAULT) {
+            int was_stopping = current_phase == GW_STATUS_STOPPING;
             current_phase = exit_code ? GW_STATUS_FAULT : GW_STATUS_STOPPED;
             current_error = exit_code;
-            SetReason(exit_code ? "process_exit_error" : "process_exit");
+            /* Retain the reason for an intentional restart or signal shutdown. */
+            if (exit_code || !was_stopping)
+                SetReason(exit_code ? "process_exit_error" : "process_exit");
             since_ms = MonotonicMs();
         }
         finished = 1; Publish(1);
+        PublishTo(1, "last_exit.json");
         close(directory_fd); close(owner_fd);
         directory_fd = owner_fd = -1;
     }

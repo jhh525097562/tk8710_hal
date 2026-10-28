@@ -111,8 +111,10 @@ def build_service_arguments(
     test_select: int,
     host: str,
     port: int,
+    wakeup_mode: int = 2,
+    wakeup_ms: int = 5000,
 ):
-    return [
+    arguments = [
         str(executable),
         str(mode),
         str(frequency),
@@ -125,6 +127,11 @@ def build_service_arguments(
         "--port",
         str(port),
     ]
+    if test_select == 3:
+        if not 1 <= wakeup_mode <= 3 or not 0 <= wakeup_ms <= 0xFFFFFF:
+            raise ValueError("唤醒模式范围1~3，时长范围0~16777215 ms")
+        arguments.extend(["--wakeup-mode", str(wakeup_mode), "--wakeup-ms", str(wakeup_ms)])
+    return arguments
 
 
 class RfCalibrationClient:
@@ -155,7 +162,12 @@ class RfCalibrationClient:
             greeting = self._readline()
             if greeting != SERVER_GREETING:
                 raise RuntimeError(f"服务端握手响应异常: {greeting}")
-            self._receiver = threading.Thread(target=self._receive_loop, daemon=True)
+            # Idle connections may have no log traffic. Command deadlines are
+            # enforced by the response queue, not by the background reader.
+            sock.settimeout(None)
+            self._receiver = threading.Thread(
+                target=self._receive_loop, args=(sock, reader, self._responses), daemon=True
+            )
             self._receiver.start()
             return greeting
         except Exception:
@@ -165,9 +177,19 @@ class RfCalibrationClient:
     def close(self) -> None:
         reader = self._reader
         sock = self._socket
+        receiver = self._receiver
+        responses = self._responses
         self._reader = None
         self._socket = None
         self._receiver = None
+        if sock is not None:
+            # Wake the blocking readline before closing its buffered file.
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        if receiver is not None and receiver is not threading.current_thread():
+            receiver.join(timeout=1.0)
         if reader is not None:
             try:
                 reader.close()
@@ -178,28 +200,33 @@ class RfCalibrationClient:
                 sock.close()
             except OSError:
                 pass
+        if sock is not None:
+            responses.put(ConnectionError("TCP连接已关闭，请重新连接"))
 
-    def _receive_loop(self) -> None:
+    def _receive_loop(self, sock, reader, responses) -> None:
         try:
-            while self._socket is not None:
-                line = self._readline()
+            while self._socket is sock:
+                line = self._readline(reader)
                 if line.startswith("EVENT LOG "):
                     callback = self._log_callback
                     if callback is not None:
                         callback(line)
                     continue
-                self._responses.put(line)
+                responses.put(line)
         except Exception as exc:
-            if self._socket is not None:
-                self._responses.put(exc)
+            if self._socket is sock:
+                responses.put(exc)
+                self.close()
 
     def set_log_callback(self, callback: Optional[Callable[[str], None]]) -> None:
         self._log_callback = callback
 
-    def _readline(self) -> str:
-        if self._reader is None:
+    def _readline(self, reader=None) -> str:
+        if reader is None:
+            reader = self._reader
+        if reader is None:
             raise RuntimeError("尚未连接TCP服务")
-        line = self._reader.readline(MAX_RESPONSE_LENGTH + 1)
+        line = reader.readline(MAX_RESPONSE_LENGTH + 1)
         if not line:
             raise ConnectionError("TCP连接已由服务端关闭")
         if len(line) > MAX_RESPONSE_LENGTH or not line.endswith(b"\n"):
@@ -208,13 +235,21 @@ class RfCalibrationClient:
 
     def command(self, command: str) -> str:
         with self._lock:
-            if self._socket is None:
+            sock = self._socket
+            responses = self._responses
+            if sock is None:
                 raise RuntimeError("尚未连接TCP服务")
-            self._socket.sendall((command + "\n").encode("ascii"))
             try:
-                result = self._responses.get(timeout=self.timeout)
+                sock.sendall((command + "\n").encode("ascii"))
+                result = responses.get(timeout=self.timeout)
             except queue.Empty as exc:
-                raise TimeoutError("等待服务端响应超时") from exc
+                # Discard this session so a late reply cannot become the next
+                # command's response in the protocol without request IDs.
+                self.close()
+                raise TimeoutError("等待服务端响应超时，连接已关闭，请重新连接") from exc
+            except OSError:
+                self.close()
+                raise
             if isinstance(result, Exception):
                 raise result
             response = str(result)
@@ -265,6 +300,14 @@ class RfCalibrationClient:
             )
         return readback
 
+    def send_wakeup(self, mode: int, duration_ms: int) -> str:
+        if not 1 <= mode <= 3 or not 0 <= duration_ms <= 0xFFFFFF:
+            raise ValueError("唤醒模式范围1~3，时长范围0~16777215 ms")
+        response = self.command(f"WAKEUP {mode} {duration_ms}")
+        if response != f"OK WAKEUP mode={mode} duration_ms={duration_ms}":
+            raise RuntimeError(f"WAKEUP响应格式异常: {response}")
+        return response
+
     def quit(self) -> str:
         try:
             return self.command("QUIT")
@@ -302,8 +345,9 @@ class RfCalibrationApp:
         default_exe = application_root() / "build_jtool" / "Test8710RFTest.exe"
 
         root.title("TK8710 射频测试工具")
-        root.geometry("940x740")
-        root.minsize(820, 650)
+        window_height = max(600, min(830, root.winfo_screenheight() - 80))
+        root.geometry(f"940x{window_height}")
+        root.minsize(820, min(650, window_height))
 
         self.host_var = tk.StringVar(value=DEFAULT_HOST)
         self.port_var = tk.StringVar(value=str(DEFAULT_PORT))
@@ -314,6 +358,8 @@ class RfCalibrationApp:
         self.gain_var = tk.StringVar(value="42")
         self.rx_gain_var = tk.StringVar(value="0x7e")
         self.test_select_var = tk.StringVar(value="0")
+        self.wakeup_mode_var = tk.StringVar(value="2")
+        self.wakeup_ms_var = tk.StringVar(value="5000")
         self.auto_log_var = tk.IntVar(value=1)
         self.address_var = tk.StringVar(value=f"0x{DEFAULT_REGISTER:04X}")
         self.value_var = tk.StringVar(value="0x00000000")
@@ -324,6 +370,7 @@ class RfCalibrationApp:
         container.pack(fill="both", expand=True)
         self._build_connection_frame(container)
         self._build_service_frame(container)
+        self._build_wakeup_frame(container)
         self._build_register_frame(container)
         self._build_dc_frame(container)
         self._build_log_frame(container)
@@ -372,7 +419,7 @@ class RfCalibrationApp:
                 self.ttk.Combobox(
                     frame,
                     textvariable=variable,
-                    values=("0", "1", "2"),
+                    values=("0", "1", "2", "3"),
                     state="readonly",
                     width=12,
                 ).grid(row=row, column=column + 1, padx=(5, 12), pady=(8, 0), sticky="w")
@@ -386,8 +433,26 @@ class RfCalibrationApp:
         self.ttk.Button(frame, text="停止服务", command=self._stop_service).grid(
             row=3, column=2, columnspan=2, pady=(8, 0), sticky="w"
         )
+        self.ttk.Label(frame, text="0=去直流  1=功率  2=灵敏度  3=唤醒发送").grid(
+            row=3, column=4, columnspan=3, pady=(8, 0), sticky="w"
+        )
         frame.columnconfigure(1, weight=1)
 
+    def _build_wakeup_frame(self, parent) -> None:
+        frame = self.ttk.LabelFrame(parent, text="唤醒信号发送（测试模式3；启动时发送一次）", padding=8)
+        frame.pack(fill="x", pady=(0, 8))
+        self.ttk.Label(frame, text="唤醒模式").grid(row=0, column=0, sticky="w")
+        self.ttk.Combobox(
+            frame, textvariable=self.wakeup_mode_var, values=("1", "2", "3"),
+            state="readonly", width=8,
+        ).grid(row=0, column=1, padx=(5, 15))
+        self.ttk.Label(frame, text="唤醒时长ms（0~16777215）").grid(row=0, column=2, sticky="w")
+        self.ttk.Entry(frame, textvariable=self.wakeup_ms_var, width=14).grid(
+            row=0, column=3, padx=(5, 15)
+        )
+        self.ttk.Button(frame, text="发送唤醒信号", command=self._send_wakeup).grid(
+            row=0, column=4, padx=3
+        )
     def _build_register_frame(self, parent) -> None:
         frame = self.ttk.LabelFrame(parent, text="寄存器读写", padding=8)
         frame.pack(fill="x", pady=(0, 8))
@@ -500,6 +565,8 @@ class RfCalibrationApp:
                     self.root.after(0, lambda: on_success(result))
             except Exception as exc:
                 self._log(f"{description}失败：{exc}")
+                if self.client is not None and not self.client.connected:
+                    self._set_status("未连接，请重新连接")
             finally:
                 self._operation_lock.release()
 
@@ -683,6 +750,24 @@ class RfCalibrationApp:
 
         self._run_async("刷新统计", task)
 
+    def _wakeup_parameters(self):
+        return (
+            parse_integer(self.wakeup_mode_var.get(), 1, 3, "唤醒模式"),
+            parse_integer(self.wakeup_ms_var.get(), 0, 0xFFFFFF, "唤醒时长ms"),
+        )
+
+    def _send_wakeup(self) -> None:
+        try:
+            mode, duration_ms = self._wakeup_parameters()
+        except ValueError as exc:
+            self._log(str(exc))
+            return
+
+        def task() -> object:
+            return self._require_client().send_wakeup(mode, duration_ms)
+
+        self._run_async("发送唤醒信号", task, lambda response: self._log(str(response)))
+
     def _get_log(self) -> None:
         def task() -> object:
             response = self._require_client().get_log()
@@ -765,7 +850,8 @@ class RfCalibrationApp:
             frequency = parse_integer(self.frequency_var.get(), 1, 0xFFFFFFFF, "频率")
             tx_gain = parse_integer(self.gain_var.get(), 0, 0xFF, "TX gain")
             rx_gain = parse_integer(self.rx_gain_var.get(), 0, 0xFF, "RX gain")
-            test_select = parse_integer(self.test_select_var.get(), 0, 2, "测试模式")
+            test_select = parse_integer(self.test_select_var.get(), 0, 3, "测试模式")
+            wakeup_mode, wakeup_ms = self._wakeup_parameters() if test_select == 3 else (2, 5000)
         except (ValueError, OSError) as exc:
             self._log(str(exc))
             return
@@ -785,6 +871,8 @@ class RfCalibrationApp:
             test_select,
             host,
             port,
+            wakeup_mode,
+            wakeup_ms,
         )
 
         def task() -> object:

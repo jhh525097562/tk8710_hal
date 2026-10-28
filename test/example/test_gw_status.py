@@ -83,6 +83,7 @@ class StatusTests(unittest.TestCase):
             fixture=Path(self.tmp.name)/'proc-stat'
             fixture.write_text(Path('/proc/self/stat').read_text())
             environment['GW_STATUS_PROC_FIXTURE']=str(fixture)
+        self.environment=environment
         self.proc=subprocess.Popen(self.runner+[str(self.exe),str(self.directory)],
             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=environment)
         self.addCleanup(self.close_process)
@@ -135,6 +136,32 @@ class StatusTests(unittest.TestCase):
         s=self.command('finish 1')
         self.assertEqual(s['reason'],'gps_module_unavailable');self.assertEqual(s['error_code'],-3)
         self.assertTrue(s['exited']);self.assertFalse(s['business_ready'])
+        previous=json.loads((self.directory/'last_exit.json').read_text())
+        self.assertEqual(previous['reason'],s['reason'])
+        self.assertEqual(previous['pid'],s['pid'])
+        self.assertEqual(previous['error_code'],s['error_code'])
+        self.assertTrue(previous['exited'])
+
+    def test_last_exit_survives_new_process(self):
+        self.command('set 10 md_data_irq_stalled -1')
+        self.command('finish 1')
+        before=json.loads((self.directory/'last_exit.json').read_text())
+        with subprocess.Popen(self.runner+[str(self.exe),str(self.directory)],
+                stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                text=True,env=self.environment) as next_proc:
+            try:
+                self.assertEqual(next_proc.stdout.readline().strip(),'READY')
+                self.assertNotEqual(self.read()['pid'],before['pid'])
+                self.assertEqual(self.read()['state'],'starting')
+                self.assertEqual(json.loads((self.directory/'last_exit.json').read_text()),before)
+            finally:
+                next_proc.communicate(timeout=5)
+
+    def test_restart_reason_retained_on_finish(self):
+        self.command('set 8 gps_recovered_restart 0')
+        s=self.command('finish 0')
+        self.assertEqual(s['reason'],'gps_recovered_restart')
+        self.assertEqual(s['state'],'stopped')
 
     def test_scan_and_restore(self):
         self.command('set 5 business_started 0')

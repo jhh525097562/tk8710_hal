@@ -189,6 +189,30 @@ int RfCalProcessCommand(const char* command, char* response, size_t responseSize
         return 0;
     }
 
+    if (rf_cal_text_equal(tokens[0], "WAKEUP")) {
+        uint32_t mode;
+        uint32_t durationMs;
+
+        if (tokenCount != 3 || rf_cal_parse_u32(tokens[1], &mode) != 0 ||
+            mode < 1 || mode > 3 || rf_cal_parse_u32(tokens[2], &durationMs) != 0 ||
+            durationMs > 0xFFFFFFu) {
+            snprintf(response, responseSize, "ERR INVALID_WAKEUP_PARAMETERS\n");
+            return 0;
+        }
+        if (config->sendWakeup == NULL) {
+            snprintf(response, responseSize, "ERR WAKEUP_UNAVAILABLE\n");
+            return 0;
+        }
+        ret = config->sendWakeup(mode, durationMs, config->userData);
+        if (ret != 0) {
+            snprintf(response, responseSize, "ERR WAKEUP_FAILED %d\n", ret);
+        } else {
+            snprintf(response, responseSize, "OK WAKEUP mode=%u duration_ms=%u\n",
+                     (unsigned int)mode, (unsigned int)durationMs);
+        }
+        return 0;
+    }
+
     if (rf_cal_text_equal(tokens[0], "READ")) {
         if (tokenCount != 2 || rf_cal_parse_u32(tokens[1], &addrValue) != 0 ||
             addrValue > UINT16_MAX) {

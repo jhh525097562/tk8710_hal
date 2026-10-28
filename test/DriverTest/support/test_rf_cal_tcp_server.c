@@ -23,7 +23,20 @@ typedef struct {
     int forceMismatch;
     int nextLogAvailable;
     int subscriptionEnabled;
+    uint32_t wakeupMode;
+    uint32_t wakeupMs;
+    int wakeupCalls;
+    int wakeupResult;
 } FakeRegister;
+
+static int fake_wakeup(uint32_t mode, uint32_t durationMs, void* userData)
+{
+    FakeRegister* reg = (FakeRegister*)userData;
+    reg->wakeupMode = mode;
+    reg->wakeupMs = durationMs;
+    reg->wakeupCalls++;
+    return reg->wakeupResult;
+}
 
 static int fake_read(uint16_t addr, uint32_t* value, void* userData)
 {
@@ -113,11 +126,37 @@ static void run_protocol_tests(void)
         .getLog = fake_log,
         .getNextLog = fake_next_log,
         .setLogSubscription = fake_set_subscription,
+        .sendWakeup = fake_wakeup,
         .userData = &reg,
         .running = &running
     };
 
     expect_response("PING", "OK PONG\n", &config);
+    expect_response("WAKEUP 2 5000", "OK WAKEUP mode=2 duration_ms=5000\n", &config);
+    if (reg.wakeupMode != 2 || reg.wakeupMs != 5000 || reg.wakeupCalls != 1) {
+        fprintf(stderr, "Wakeup callback parameters failed\n");
+        exit(1);
+    }
+    expect_response("WAKEUP 1 0", "OK WAKEUP mode=1 duration_ms=0\n", &config);
+    expect_response("wakeup 3 0xffffff", "OK WAKEUP mode=3 duration_ms=16777215\n", &config);
+    expect_response("WAKEUP 0 1", "ERR INVALID_WAKEUP_PARAMETERS\n", &config);
+    expect_response("WAKEUP 4 1", "ERR INVALID_WAKEUP_PARAMETERS\n", &config);
+    expect_response("WAKEUP 1 -1", "ERR INVALID_WAKEUP_PARAMETERS\n", &config);
+    expect_response("WAKEUP 1 16777216", "ERR INVALID_WAKEUP_PARAMETERS\n", &config);
+    expect_response("WAKEUP 1 4294967296", "ERR INVALID_WAKEUP_PARAMETERS\n", &config);
+    expect_response("WAKEUP 1 xyz", "ERR INVALID_WAKEUP_PARAMETERS\n", &config);
+    expect_response("WAKEUP 1", "ERR INVALID_WAKEUP_PARAMETERS\n", &config);
+    expect_response("WAKEUP 1 2 extra", "ERR INVALID_WAKEUP_PARAMETERS\n", &config);
+    if (reg.wakeupCalls != 3) {
+        fprintf(stderr, "Invalid wakeup invoked callback\n");
+        exit(1);
+    }
+    reg.wakeupResult = 7;
+    expect_response("WAKEUP 2 100", "ERR WAKEUP_FAILED 7\n", &config);
+    reg.wakeupResult = 0;
+    config.sendWakeup = NULL;
+    expect_response("WAKEUP 2 100", "ERR WAKEUP_UNAVAILABLE\n", &config);
+    config.sendWakeup = fake_wakeup;
     expect_response("READ 0x08C8", "OK READ 0x08C8 0x00000000\n", &config);
     expect_response("WRITE 0x08C8 0x04000000",
                     "OK WRITE 0x08C8 0x04000000 READBACK 0x04000000\n",
@@ -234,6 +273,7 @@ static void run_tcp_integration_test(void)
             .getLog = fake_log,
             .getNextLog = fake_next_log,
             .setLogSubscription = fake_set_subscription,
+            .sendWakeup = fake_wakeup,
             .userData = &reg,
             .running = &running
         },
@@ -282,6 +322,7 @@ static void run_tcp_integration_test(void)
     }
 
     send_and_expect(clientSocket, "PING\n", "OK PONG\n");
+    send_and_expect(clientSocket, "WAKEUP 3 1500\n", "OK WAKEUP mode=3 duration_ms=1500\n");
     send_and_expect(clientSocket, "WRITE 0x08C8 0x04000000\n",
                     "OK WRITE 0x08C8 0x04000000 READBACK 0x04000000\n");
     send_and_expect(clientSocket, "READ 0x08C8\n",

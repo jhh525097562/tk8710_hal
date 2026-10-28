@@ -62,6 +62,8 @@ int GwGpsStartup(GwGpsManager* manager, const TK8710PpsConfig* pps_config,
 uint8_t GwGpsCanConfigurePeriod(const GwGpsManager* manager);
 int GwGpsConfigurePeriod(GwGpsManager* manager, uint32_t period_s);
 GwGpsAction GwGpsPoll(GwGpsManager* manager);
+/* Atomically discard stale observations at process start or GPS disable. */
+int GwGpsResetInfo(void);
 void GwGpsUseLocalWithoutRecovery(GwGpsManager* manager);
 void GwGpsPrintDiagnostics(GwGpsManager* manager, const char* reason);
 void GwGpsClose(GwGpsManager* manager);

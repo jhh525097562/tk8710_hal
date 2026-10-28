@@ -28,11 +28,14 @@
 #define RF_TEST_TX_POWER_TONE_GAIN  0x40u
 #define RF_TEST_LOG_LINE_LEN        256u
 #define RF_TEST_LOG_QUEUE_CAPACITY  256u
+#define RF_TEST_DEFAULT_WAKEUP_MODE 2u
+#define RF_TEST_DEFAULT_WAKEUP_MS   5000u
 
 typedef enum {
     RF_TEST_SELECT_DC_REMOVAL = 0,
     RF_TEST_SELECT_TX_POWER = 1,
-    RF_TEST_SELECT_RX_SENSITIVITY = 2
+    RF_TEST_SELECT_RX_SENSITIVITY = 2,
+    RF_TEST_SELECT_WAKEUP = 3
 } RfTestSelect;
 
 static volatile int g_running = 1;
@@ -282,6 +285,8 @@ static const char* GetTestSelectName(uint8_t testSelect)
             return "TX power";
         case RF_TEST_SELECT_RX_SENSITIVITY:
             return "RX sensitivity";
+        case RF_TEST_SELECT_WAKEUP:
+            return "Wakeup signal";
         default:
             return "unknown";
     }
@@ -290,12 +295,14 @@ static const char* GetTestSelectName(uint8_t testSelect)
 static void PrintUsage(const char* program)
 {
     printf("Usage: %s [rate_mode frequency tx_gain rx_gain test_select] "
-           "[--tcp] [--bind IP] [--port PORT]\n", program);
+           "[--wakeup-mode MODE] [--wakeup-ms MS] [--tcp] [--bind IP] [--port PORT]\n", program);
     printf("  rate_mode:   5, 6, 7, 8, 9, 10, 11 or 18 (default: 6)\n");
     printf("  frequency:   RF frequency in Hz (default: 509100000)\n");
     printf("  tx_gain:     TX gain, decimal or hex (default: 42 / 0x2A)\n");
     printf("  rx_gain:     RX gain, decimal or hex (default: 126 / 0x7E)\n");
-    printf("  test_select: 0=DC removal, 1=TX power, 2=RX sensitivity\n");
+    printf("  test_select: 0=DC removal, 1=TX power, 2=RX sensitivity, 3=Wakeup signal\n");
+    printf("  --wakeup-mode: 1~3 (default: 2, for test_select=3)\n");
+    printf("  --wakeup-ms:   0~16777215 ms (default: 5000, for test_select=3)\n");
     printf("  --tcp:       Run the Windows TCP server\n");
     printf("  --bind:      Listen IPv4 address (default: %s)\n", RF_CAL_DEFAULT_BIND_IP);
     printf("  --port:      Listen TCP port (default: %u)\n", RF_CAL_DEFAULT_PORT);
@@ -303,6 +310,7 @@ static void PrintUsage(const char* program)
     printf("  %s 6 509100000 0x2a 0x7e 0\n", program);
     printf("  %s 6 509100000 0x2a 0x7e 1 --tcp\n", program);
     printf("  %s 6 509100000 0x2a 0x7e 2 --tcp --port 12879\n", program);
+    printf("  %s 6 509100000 0x2a 0x7e 3 --wakeup-mode 2 --wakeup-ms 5000 --tcp\n", program);
 }
 
 static void PrintStats(void)
@@ -414,6 +422,26 @@ static int ConfigureTone(uint8_t testSelect)
                (unsigned int)txToneConfig.gain);
     } else {
         printf("Tone configuration failed: %d\n", ret);
+    }
+    return ret;
+}
+
+static int RfTestSendWakeup(uint32_t mode, uint32_t durationMs, void* userData)
+{
+    wakeUpParam_t params = {
+        .wakeUpMode = (wakeUpMode_e)mode,
+        .wakeUpId = 0,
+        .wakeUpLen = durationMs
+    };
+    int ret;
+
+    (void)userData;
+    ret = TK8710Ctrl(TK8710_CTRL_TYPE_SEND_WAKEUP, &params);
+    if (ret == TK8710_OK) {
+        RfTestEmitLog("Wakeup configured: mode=%u duration_ms=%u",
+                      (unsigned int)mode, (unsigned int)durationMs);
+    } else {
+        printf("Wakeup configuration failed: %d\n", ret);
     }
     return ret;
 }
@@ -543,7 +571,8 @@ static int ConfigureRxSensitivity(int rateMode, uint32_t frequency)
 static int ParseCommandLine(int argc, char* argv[], int* rateMode, uint32_t* frequency,
                             uint32_t* txGain, uint32_t* rxGain,
                             uint32_t* testSelect, int* tcpMode,
-                            const char** tcpBindIp, uint16_t* tcpPort)
+                            const char** tcpBindIp, uint16_t* tcpPort,
+                            uint32_t* wakeupMode, uint32_t* wakeupMs)
 {
     uint32_t positionalValues[5] = {0};
     uint8_t positionalCount = 0;
@@ -558,6 +587,17 @@ static int ParseCommandLine(int argc, char* argv[], int* rateMode, uint32_t* fre
         }
         if (strcmp(argv[argIndex], "--tcp") == 0) {
             *tcpMode = 1;
+            continue;
+        }
+        if (strcmp(argv[argIndex], "--wakeup-mode") == 0 ||
+            strcmp(argv[argIndex], "--wakeup-ms") == 0) {
+            const char* option = argv[argIndex];
+            uint32_t* value = strcmp(option, "--wakeup-mode") == 0 ? wakeupMode : wakeupMs;
+
+            if (++argIndex >= argc || ParseU32Argument(argv[argIndex], value) != 0) {
+                printf("Error: invalid %s value\n", option);
+                return -1;
+            }
             continue;
         }
         if (strcmp(argv[argIndex], "--bind") == 0) {
@@ -610,7 +650,8 @@ static int ParseCommandLine(int argc, char* argv[], int* rateMode, uint32_t* fre
 }
 
 static int ValidateParameters(int rateMode, uint32_t frequency, uint32_t txGain,
-                              uint32_t rxGain, uint32_t testSelect)
+                              uint32_t rxGain, uint32_t testSelect,
+                              uint32_t wakeupMode, uint32_t wakeupMs)
 {
     if (!IsSupportedRateMode(rateMode)) {
         printf("Error: invalid rate mode %d. Supported modes: 5,6,7,8,9,10,11,18\n",
@@ -625,8 +666,12 @@ static int ValidateParameters(int rateMode, uint32_t frequency, uint32_t txGain,
         printf("Error: tx_gain and rx_gain must be <= 255\n");
         return -1;
     }
-    if (testSelect > RF_TEST_SELECT_RX_SENSITIVITY) {
-        printf("Error: test_select must be 0, 1 or 2\n");
+    if (testSelect > RF_TEST_SELECT_WAKEUP) {
+        printf("Error: test_select must be 0, 1, 2 or 3\n");
+        return -1;
+    }
+    if (wakeupMode < 1 || wakeupMode > 3 || wakeupMs > 0xFFFFFFu) {
+        printf("Error: wakeup mode must be 1~3 and duration must be 0~16777215 ms\n");
         return -1;
     }
     return 0;
@@ -636,7 +681,7 @@ static void RunConsoleLoop(void)
 {
     int input;
 
-    printf("Commands: s=stats, q=quit\n");
+    printf("Commands: s=stats, u=send wakeup (test_select=3), q=quit\n");
     while (g_running) {
         printf("TK8710-RF> ");
 #ifdef _WIN32
@@ -655,6 +700,46 @@ static void RunConsoleLoop(void)
 #endif
 
         switch (input) {
+            case 'u':
+            case 'U':
+            {
+                char modeText[32];
+                char durationText[32];
+                char extra[2];
+                char line[128];
+                uint32_t mode;
+                uint32_t durationMs;
+
+                if (g_testSelect != RF_TEST_SELECT_WAKEUP) {
+                    printf("Wakeup requires test_select=3\n");
+                    break;
+                }
+#ifndef _WIN32
+                /* Discard the newline left by getchar() before reading parameters. */
+                while ((input = getchar()) != '\n' && input != EOF) {}
+#endif
+                printf("Enter wakeup mode and duration_ms (e.g. 2 5000): ");
+                do {
+                    if (fgets(line, sizeof(line), stdin) == NULL) {
+                        g_running = 0;
+                        break;
+                    }
+                } while (line[strspn(line, " \t\r\n")] == '\0');
+                if (!g_running) {
+                    break;
+                }
+                if (sscanf(line, "%31s %31s %1s", modeText, durationText, extra) != 2 ||
+                    ParseU32Argument(modeText, &mode) != 0 ||
+                    ParseU32Argument(durationText, &durationMs) != 0 ||
+                    mode < 1 || mode > 3 || durationMs > 0xFFFFFFu) {
+                    printf("Invalid wakeup parameters: mode=1~3, duration=0~16777215 ms\n");
+                    break;
+                }
+                if (RfTestSendWakeup(mode, durationMs, NULL) != TK8710_OK) {
+                    printf("Wakeup request failed\n");
+                }
+                break;
+            }
             case 's':
             case 'S':
                 PrintStats();
@@ -665,7 +750,7 @@ static void RunConsoleLoop(void)
                 g_running = 0;
                 break;
             default:
-                printf("Unknown command. Commands: s=stats, q=quit\n");
+                printf("Unknown command. Commands: s=stats, u=send wakeup, q=quit\n");
                 break;
         }
     }
@@ -679,6 +764,8 @@ int main(int argc, char* argv[])
     uint32_t txGain = RF_TEST_DEFAULT_TX_GAIN;
     uint32_t rxGain = RF_TEST_DEFAULT_RX_GAIN;
     uint32_t testSelect = RF_TEST_DEFAULT_SELECT;
+    uint32_t wakeupMode = RF_TEST_DEFAULT_WAKEUP_MODE;
+    uint32_t wakeupMs = RF_TEST_DEFAULT_WAKEUP_MS;
     int tcpMode = 0;
     const char* tcpBindIp = RF_CAL_DEFAULT_BIND_IP;
     uint16_t tcpPort = RF_CAL_DEFAULT_PORT;
@@ -730,12 +817,14 @@ int main(int argc, char* argv[])
     };
 
     ret = ParseCommandLine(argc, argv, &rateMode, &frequency, &txGain, &rxGain,
-                           &testSelect, &tcpMode, &tcpBindIp, &tcpPort);
+                           &testSelect, &tcpMode, &tcpBindIp, &tcpPort,
+                           &wakeupMode, &wakeupMs);
     if (ret > 0) {
         return 0;
     }
     if (ret != 0 ||
-        ValidateParameters(rateMode, frequency, txGain, rxGain, testSelect) != 0) {
+        ValidateParameters(rateMode, frequency, txGain, rxGain, testSelect,
+                           wakeupMode, wakeupMs) != 0) {
         return 1;
     }
 
@@ -780,6 +869,8 @@ int main(int argc, char* argv[])
 
     if (testSelect == RF_TEST_SELECT_RX_SENSITIVITY) {
         ret = ConfigureRxSensitivity(rateMode, frequency);
+    } else if (testSelect == RF_TEST_SELECT_WAKEUP) {
+        ret = RfTestSendWakeup(wakeupMode, wakeupMs, NULL);
     } else {
         ret = ConfigureTone((uint8_t)testSelect);
     }
@@ -801,7 +892,8 @@ int main(int argc, char* argv[])
             .getNextLog = RfTestPopLog,
             .setLogSubscription = RfTestSetLogSubscription,
             .userData = NULL,
-            .running = &g_running
+            .running = &g_running,
+            .sendWakeup = testSelect == RF_TEST_SELECT_WAKEUP ? RfTestSendWakeup : NULL
         };
 
         ret = RfCalTcpServerRun(&tcpConfig);

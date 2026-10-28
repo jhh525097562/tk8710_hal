@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <ctype.h>
 #include "tk8710_hal.h"
 #include "hal_api.h"   /* HAL API接口 */
@@ -83,7 +84,8 @@
 #define TK8710_GW_VERSION_STRING   TK8710_GW_VERSION " (" TK8710_GW_VERSION_PLATFORM ")"
 
 /* Running flag */
-static volatile int g_running = 1;
+static volatile sig_atomic_t g_running = 1;
+static volatile sig_atomic_t g_exit_signal;
 typedef enum {
     GW_INIT_IDLE = 0,
     GW_INIT_IN_PROGRESS,
@@ -97,7 +99,7 @@ static volatile int g_fatal_error = 0;
 static uint8_t g_rf_tx_gain = 0x2a;
 static uint32_t g_reg_a064_value = 0x00044003u;
 static GwGpsManager g_gps_manager;
-static time_t g_last_gps_poll_time;
+static uint64_t g_last_gps_poll_time;
 
 static void SaveRfStatus(uint8_t abnormal_mask)
 {
@@ -527,9 +529,8 @@ static int SaveTxDcFromRfRam(void)
  */
 static void signal_handler(int sig)
 {
-    (void)sig;
+    g_exit_signal = sig;
     g_running = 0;
-    printf("\nReceived signal, exiting...\n");
 }
 #endif
 
@@ -991,6 +992,7 @@ static int ReadConsoleCommandWithIrqWatchdog(char* input, uint8_t watchdog_enabl
         }
 
         perror("select");
+        TRM_LOG_ERROR("Gateway console select failed: errno=%d (%s)", errno, strerror(errno));
         return -1;
     }
 
@@ -1005,6 +1007,10 @@ static int ReadConsoleCommandWithIrqWatchdog(char* input, uint8_t watchdog_enabl
         } else if (now_sec >= last_md_data_change_sec + DRIVER_IRQ_STALL_TIMEOUT_SEC) {
             printf("\nDriver MD_DATA interrupt count unchanged for %u seconds, exiting.\n",
                    DRIVER_IRQ_STALL_TIMEOUT_SEC);
+            TRM_LOG_ERROR("Driver MD_DATA IRQ stalled: count=%u unchanged_s=%llu limit_s=%u",
+                current_md_data_irq_count,
+                (unsigned long long)(now_sec - last_md_data_change_sec), DRIVER_IRQ_STALL_TIMEOUT_SEC);
+            GwStatusSet(GW_STATUS_FAULT, "md_data_irq_stalled", -1);
             return -1;
         }
 
@@ -1014,6 +1020,10 @@ static int ReadConsoleCommandWithIrqWatchdog(char* input, uint8_t watchdog_enabl
         } else if (now_sec >= last_s3_change_sec + DRIVER_IRQ_STALL_TIMEOUT_SEC) {
             printf("\nDriver S3 interrupt count unchanged for %u seconds, exiting.\n",
                    DRIVER_IRQ_STALL_TIMEOUT_SEC);
+            TRM_LOG_ERROR("Driver S3 IRQ stalled: count=%u unchanged_s=%llu limit_s=%u",
+                current_s3_irq_count,
+                (unsigned long long)(now_sec - last_s3_change_sec), DRIVER_IRQ_STALL_TIMEOUT_SEC);
+            GwStatusSet(GW_STATUS_FAULT, "s3_irq_stalled", -1);
             return -1;
         }
     }
@@ -1371,6 +1381,10 @@ static int ApplyNsConfig(const NsConfigDown_t* config) {
             return -1;
         }
     } else {
+        if (GwGpsResetInfo() != 0) {
+            GwStatusSet(GW_STATUS_FAULT, "gps_info_reset_failed", -1);
+            return -1;
+        }
         printf("NS gps_enable=0: GPS disabled, local synchronization required\n");
     }
 
@@ -1728,7 +1742,7 @@ static int HandleNsConfig(const NsConfigDown_t* config)
         return ret;
     }
 
-    g_last_gps_poll_time = time(NULL);
+    g_last_gps_poll_time = TK8710GetMonotonicTimeUs() / 1000000ull;
     g_applied_ns_config = *config;
     g_applied_ns_valid = 1;
     g_init_state = GW_INIT_SUCCESS;
@@ -1756,7 +1770,7 @@ static int RestoreManagedScan(void)
     int ret = ApplyNsConfig(&g_pre_scan_config);
     g_pre_scan_valid = 0;
     g_init_state = ret == 0 ? GW_INIT_SUCCESS : GW_INIT_FAILED;
-    g_last_gps_poll_time = time(NULL);
+    g_last_gps_poll_time = TK8710GetMonotonicTimeUs() / 1000000ull;
     if (ret) {
         GwStatusSet(GW_STATUS_FAULT, "scan_restore_failed", ret);
         g_fatal_error = 1; g_running = 0;
@@ -2103,10 +2117,20 @@ int main(int argc, char* argv[])
     if (ConfigureRuntimeDirectory(work_dir) != 0) {
         return 1;
     }
+    /* Configure file logging before NS/GPS startup, including early failures. */
+    ApplyRuntimeLogLevels();
+    TRM_LOG_WARN("Gateway starting: version=%s pid=%ld gain=0x%02X",
+        TK8710_GW_VERSION_STRING, (long)getpid(), g_rf_tx_gain);
     if (PublishGatewayVersion() != 0)
         fprintf(stderr, "Warning: unable to publish gateway version file\n");
     if (GwStatusInit("/var/run/tk8710_gw") != 0)
         fprintf(stderr, "Warning: gateway lifecycle snapshot unavailable\n");
+    /* Clear the previous process's GPS data before waiting for the NS policy. */
+    if (GwGpsResetInfo() != 0) {
+        GwStatusSet(GW_STATUS_FAULT, "gps_info_init_failed", -1);
+        GwStatusFinish(1);
+        return 1;
+    }
 #ifdef TK8710_GPS_TEST_HOOKS
     if ((g_test_gps_scenario_set || g_test_gps_run_id != NULL) &&
         GwGpsTestSetScenario(g_test_gps_scenario, g_test_gps_run_id) != 0) {
@@ -2271,7 +2295,7 @@ runtime_loop:
         GwStatusTouch();
         uint8_t abnormal_rf_mask = 0;
         uint8_t abnormal_rf_count = 0;
-        time_t now = time(NULL);
+        uint64_t now = TK8710GetMonotonicTimeUs() / 1000000ull;
 
         if (g_init_state == GW_INIT_IN_PROGRESS) {
             usleep(100000);
@@ -2284,7 +2308,7 @@ runtime_loop:
         }
 
         if (g_last_gps_poll_time == 0 ||
-            difftime(now, g_last_gps_poll_time) >= CONSOLE_POLL_INTERVAL_SEC) {
+            now - g_last_gps_poll_time >= CONSOLE_POLL_INTERVAL_SEC) {
             GwGpsAction gps_action;
 
             g_last_gps_poll_time = now;
@@ -2304,6 +2328,8 @@ runtime_loop:
             }
             TK8710ScanConfigUnlock();
             if (gps_action == GW_GPS_ACTION_FATAL_EXIT) {
+                TRM_LOG_ERROR("GPS/PPS unhealthy for %u consecutive checks; stopping gateway",
+                    g_gps_manager.policy.consecutive_limit);
                 GwStatusSet(GW_STATUS_FAULT, "gps_runtime_failed", -1);
                 fprintf(stderr,
                         "FATAL: GPS/PPS remained unhealthy for %u consecutive checks\n",
@@ -2314,6 +2340,8 @@ runtime_loop:
                 break;
             }
             if (gps_action == GW_GPS_ACTION_RESTART_EXIT) {
+                TRM_LOG_WARN("GPS/PPS recovered for %u consecutive checks; requesting restart",
+                    g_gps_manager.policy.consecutive_limit);
                 GwStatusSet(GW_STATUS_STOPPING, "gps_recovered_restart", 0);
                 fprintf(stderr,
                         "GPS/PPS recovered for %u consecutive checks; requesting restart\n",
@@ -2325,6 +2353,8 @@ runtime_loop:
         }
 
         if (abnormal_rf_count >= 3) {
+            TRM_LOG_ERROR("RF channels abnormal: count=%u mask=0x%02X; stopping gateway",
+                abnormal_rf_count, abnormal_rf_mask);
             GwStatusSet(GW_STATUS_FAULT, "rf_channels_failed", abnormal_rf_count);
             fprintf(stderr,
                     "FATAL: %u RF channels are abnormal (mask=0x%02X); "
@@ -2339,6 +2369,8 @@ runtime_loop:
         if (TRM_IsShutdownRequested()) {
             GwStatusSet(GW_STATUS_FAULT, "trm_shutdown_requested", -1);
             uint32_t failure_count = TRM_GetAcmConsecutiveFailureCount();
+            TRM_LOG_ERROR("TRM shutdown requested: ACM consecutive calibration failures=%u",
+                failure_count);
 
             fprintf(stderr,
                     "FATAL: ACM shutdown requested (consecutive calibration failures=%u); "
@@ -2447,13 +2479,21 @@ runtime_loop:
     
 shutdown:
     ; /* A label must precede a statement before the declaration below. */
+    if (g_exit_signal) {
+        TRM_LOG_WARN("Gateway received signal=%d; shutting down", (int)g_exit_signal);
+        GwStatusSet(GW_STATUS_STOPPING, "signal_received", (int)g_exit_signal);
+    }
     if (g_fatal_error) {
         exit_code = 1;
     }
     if (exit_code && exit_code != GPS_RECOVERY_EXIT_CODE)
         GwStatusSet(GW_STATUS_FAULT, "gateway_shutdown_error", exit_code);
-    else
+    else if (!g_exit_signal && exit_code != GPS_RECOVERY_EXIT_CODE)
         GwStatusSet(GW_STATUS_STOPPING, "shutdown_requested", 0);
+
+    TRM_LOG_WARN("Gateway shutting down: exit_code=%d fatal=%d signal=%d",
+        exit_code, g_fatal_error, (int)g_exit_signal);
+    TRM_LogFlushFile();
 
     TK8710LogConfig_t defaultLogConfig = {
         .level = TK8710_LOG_ALL,
@@ -2493,6 +2533,7 @@ shutdown:
     
     printf("Program ended\n");
     GwStatusFinish(exit_code == GPS_RECOVERY_EXIT_CODE ? 0 : exit_code);
+    TRM_LogFlushFile();
     return exit_code;
 }
 

@@ -17,6 +17,7 @@ typedef int (*RfCalStatsFn)(char* response, size_t responseSize, void* userData)
 typedef int (*RfCalLogFn)(char* response, size_t responseSize, void* userData);
 typedef int (*RfCalNextLogFn)(char* response, size_t responseSize, void* userData);
 typedef void (*RfCalLogSubscriptionFn)(int enabled, void* userData);
+typedef int (*RfCalWakeupFn)(uint32_t mode, uint32_t durationMs, void* userData);
 
 typedef struct {
     const char* bindIp;
@@ -29,6 +30,7 @@ typedef struct {
     RfCalLogSubscriptionFn setLogSubscription;
     void* userData;
     volatile int* running;
+    RfCalWakeupFn sendWakeup;
 } RfCalTcpServerConfig;
 
 int RfCalProcessCommand(const char* command, char* response, size_t responseSize,

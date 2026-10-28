@@ -21,7 +21,9 @@
 #define GW_GPS_DETECT_TIMEOUT_MS 1000u
 #define GW_GPS_DETECT_RETRY_DELAY_MS 200u
 #define GW_GPS_PERIOD_UNIT_US 1000000ull
+#ifndef GW_GPS_INFO_DIR
 #define GW_GPS_INFO_DIR "/userdata/GPS"
+#endif
 #define GW_GPS_INFO_FILE GW_GPS_INFO_DIR "/GPSinfo.txt"
 #define GW_GPS_INFO_TMP_FORMAT GW_GPS_INFO_DIR "/GPSinfo.txt.tmp.%ld"
 
@@ -264,7 +266,8 @@ static TK8710PpsError get_effective_status(TK8710PpsContext* context,
 }
 #endif
 
-static int write_gps_info(const TK8710PpsPosition* position, uint64_t status)
+static int write_gps_info(const TK8710PpsPosition* position, uint64_t status,
+    const TK8710PpsStatus* gps, uint8_t reset)
 {
 #ifdef PLATFORM_RK3506
     double latitude = position != NULL && position->valid ? position->latitude : 0.0;
@@ -306,8 +309,14 @@ static int write_gps_info(const TK8710PpsPosition* position, uint64_t status)
         (void)unlink(temporary_path);
         return -1;
     }
-    write_ok = fprintf(file, "lon=%.6f\nlat=%.6f\nstatus=%llu\n",
-        longitude, latitude, (unsigned long long)status) > 0;
+    if (reset) {
+        write_ok = fprintf(file,
+            "lon=unknown\nlat=unknown\nstatus=0\ncount=null\navgsnr=null\n") > 0;
+    } else {
+        write_ok = fprintf(file, "lon=%.6f\nlat=%.6f\nstatus=%llu\ncount=%u\navgsnr=%u\n",
+            longitude, latitude, (unsigned long long)status,
+            gps != NULL ? gps->satellites : 0, gps != NULL ? gps->snr : 0) > 0;
+    }
     if (write_ok && (fflush(file) != 0 || fsync(fd) != 0)) {
         write_ok = 0;
     }
@@ -324,8 +333,19 @@ static int write_gps_info(const TK8710PpsPosition* position, uint64_t status)
 #else
     (void)position;
     (void)status;
+    (void)gps;
+    (void)reset;
     return 0;
 #endif
+}
+
+int GwGpsResetInfo(void)
+{
+    int result = write_gps_info(NULL, 0, NULL, 1);
+    if (result != 0) {
+        TRM_LOG_ERROR("GPS info reset failed: %s", GW_GPS_INFO_FILE);
+    }
+    return result;
 }
 
 static void record_gps_unavailable(GwGpsManager* manager)
@@ -334,7 +354,7 @@ static void record_gps_unavailable(GwGpsManager* manager)
         return;
     }
     manager->consecutive_healthy_status = 0;
-    if (write_gps_info(NULL, 0) != 0) {
+    if (write_gps_info(NULL, 0, NULL, 0) != 0) {
         TRM_LOG_ERROR("GPS info file update failed: %s", GW_GPS_INFO_FILE);
     }
 }
@@ -365,7 +385,8 @@ static TK8710PpsError get_status_for_gateway(GwGpsManager* manager,
         manager->consecutive_healthy_status = 0;
     }
     if (write_gps_info(position_error == TK8710_PPS_OK ? &position : NULL,
-            manager->consecutive_healthy_status) != 0) {
+            manager->consecutive_healthy_status,
+            status_error == TK8710_PPS_OK ? status : NULL, 0) != 0) {
         TRM_LOG_ERROR("GPS info file update failed: %s", GW_GPS_INFO_FILE);
     }
     if (status_error == TK8710_PPS_OK && position_error != TK8710_PPS_OK) {
