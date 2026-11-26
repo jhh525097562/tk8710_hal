@@ -38,7 +38,7 @@ else
 LDFLAGS = --sysroot=$(SYSROOT) -Wl,-rpath-link=$(SYSROOT)/lib:$(SYSROOT)/usr/lib -L$(SYSROOT)/lib -L$(SYSROOT)/usr/lib -L$(CURDIR)/inc
 CFLAGS = $(patsubst %, -I%, $(INC_DIR)) -I$(SYSROOT)/usr/include -Wall
 endif
-LIB= -lpthread  -lm   -lrt -O2 -Wall -lgpiod
+LIB= -lpthread  -lm   -lrt -O2 -Wall -lgpiod -ljson-c
 #依赖的库函数
 
 #目标文件

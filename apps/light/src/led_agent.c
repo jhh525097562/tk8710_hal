@@ -1,224 +1,237 @@
+#define _GNU_SOURCE
+#include "led_policy.h"
+#include "file_logger.h"
+#include <gpiod.h>
+#include <json-c/json.h>
+#include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <time.h>
-#include <sys/time.h>
+#include <sys/file.h>
 #include <sys/stat.h>
-#include <gpiod.h> // 引入 libgpiod 库
-#include "file_logger.h"
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 
-#define LED_FILE_LOG "/var/log/led_agent.log"
-#define printf(...) file_logger_printf(LED_FILE_LOG, "INFO", __VA_ARGS__)
-#define perror(prefix) file_logger_perror(LED_FILE_LOG, prefix)
-
-#define LED_DIR "/run/led"
-#define MQTT_STATE_FILE "/run/led/mqtt.state"
-#define NET_STATE_FILE "/run/led/net.state"
-
-// 定义硬件LED控制节点 (使用 libgpiod)
-// GPIO1_C7: 偏移量 = 2*8 + 7 = 23
-// GPIO1_D0: 偏移量 = 3*8 + 0 = 24
-#define GPIO_CHIP_NAME "gpiochip1"
-#define RUN_LED_OFFSET 23
-#define NET_LED_OFFSET 24
-
-// 全局 GPIO 线句柄
-struct gpiod_line *run_led_line = NULL;
-struct gpiod_line *net_led_line = NULL;
-
-// 灯状态枚举
-typedef enum {
-    LED_OFF = 0,
-    LED_ON = 1
-} LedState;
-
-// 当前灯的物理状态缓存
-LedState current_run_led = LED_OFF;
-LedState current_net_led = LED_OFF;
-
-// 初始化 GPIO
-int init_gpio() {
-    struct gpiod_chip *chip;
-
-    chip = gpiod_chip_open_by_name(GPIO_CHIP_NAME);
-    if (!chip) {
-        perror("Open gpiochip failed");
-        return -1;
-    }
-
-    // 获取 RUN_LED (GPIO1_C7)
-    run_led_line = gpiod_chip_get_line(chip, RUN_LED_OFFSET);
-    if (!run_led_line) {
-        perror("Get RUN_LED line failed");
-        gpiod_chip_close(chip);
-        return -1;
-    }
-
-    // 获取 NET_LED (GPIO1_D0)
-    net_led_line = gpiod_chip_get_line(chip, NET_LED_OFFSET);
-    if (!net_led_line) {
-        perror("Get NET_LED line failed");
-        gpiod_chip_close(chip);
-        return -1;
-    }
-
-    // 请求输出模式，默认初始状态为高电平 (高电平关闭，低电平打开)
-    if (gpiod_line_request_output(run_led_line, "led_agent_run", 1) < 0) {
-        perror("Request RUN_LED output failed");
-        return -1;
-    }
-    current_run_led = LED_OFF; // 初始状态为灭 (高电平)
-
-    if (gpiod_line_request_output(net_led_line, "led_agent_net", 1) < 0) {
-        perror("Request NET_LED output failed");
-        return -1;
-    }
-    current_net_led = LED_OFF; // 初始状态为灭 (高电平)
-
-    return 0;
+#ifndef LED_ACTIVE_LOW
+#define LED_ACTIVE_LOW 0
+#endif
+#define LOG "/var/log/led_agent.log"
+static volatile sig_atomic_t stopping;
+static char boot_id[64];
+static uint64_t observed_gw_start;
+static void stop(int sig) { (void)sig; stopping=1; }
+static uint64_t clock_ms(clockid_t clock)
+{
+    struct timespec ts;
+    if (clock_gettime(clock,&ts)) return 0;
+    return (uint64_t)ts.tv_sec*1000+ts.tv_nsec/1000000;
 }
-
-// 释放 GPIO
-void release_gpio() {
-    if (run_led_line) gpiod_line_release(run_led_line);
-    if (net_led_line) gpiod_line_release(net_led_line);
+static uint64_t age_ms(uint64_t now,uint64_t stamp) {return now>=stamp ? now-stamp : 0;}
+static int stale(uint64_t now,uint64_t stamp,uint64_t limit)
+{
+    /* Producers may replace a snapshot just after this polling tick sampled now. */
+    return stamp>now ? stamp-now>1000 : now-stamp>limit;
 }
-
-// 设置LED状态 (libgpiod 底层驱动，低电平打开，高电平关闭)
-void set_led(struct gpiod_line* line, LedState state, LedState* current_state) {
-    if (!line) return;
-    if (*current_state == state) return; // 状态未变，无需重复操作
-
-    // LED_ON -> 0 (低电平), LED_OFF -> 1 (高电平)
-    if (gpiod_line_set_value(line, state == LED_ON ? 0 : 1) == 0) {
-        *current_state = state;
+static int number(struct json_object *j,const char *key,uint64_t *out)
+{
+    struct json_object *v;
+    if (!json_object_object_get_ex(j,key,&v) || !json_object_is_type(v,json_type_int) ||
+        json_object_get_int64(v)<0) return 0;
+    *out=(uint64_t)json_object_get_int64(v); return 1;
+}
+static const char *text(struct json_object *j,const char *key)
+{
+    struct json_object *v;
+    return json_object_object_get_ex(j,key,&v) && json_object_is_type(v,json_type_string) ? json_object_get_string(v) : "";
+}
+static int boolean(struct json_object *j,const char *key,int expected)
+{
+    struct json_object *v;
+    return json_object_object_get_ex(j,key,&v) && json_object_is_type(v,json_type_boolean) &&
+        !!json_object_get_boolean(v)==expected;
+}
+static int identity(struct json_object *j,int kind)
+{
+    uint64_t pid,start;
+    char path[96],buf[4096];
+    if (!number(j,"pid",&pid) || pid<2 || pid>4194304 || !number(j,"start_ticks",&start) ||
+        strcmp(text(j,"boot_id"),boot_id)) return 0;
+    snprintf(path,sizeof(path),"/proc/%llu/stat",(unsigned long long)pid);
+    FILE *f=fopen(path,"r"); if (!f) return 0;
+    int ok=fgets(buf,sizeof(buf),f)!=NULL; fclose(f);
+    char *p=ok ? strrchr(buf,')') : NULL;
+    if (!p) return 0;
+    p+=2; if (*p=='Z' || *p=='X') return 0;
+    for(int n=3;n<22;n++) { while(*p==' ')p++; if(!*p)return 0; while(*p && *p!=' ')p++; }
+    if (strtoull(p,NULL,10)!=start) return 0;
+    snprintf(path,sizeof(path),"/proc/%llu/cmdline",(unsigned long long)pid);
+    f=fopen(path,"r"); if (!f) return 0;
+    size_t size=fread(buf,1,sizeof(buf)-1,f);fclose(f);buf[size]=0;
+    if (!size) return 0;
+    if (kind==0) {
+        for(size_t i=0;i<size;) {
+            if (!strcmp(buf+i,"/usr/bin/tdaemon.sh")) return 1;
+            i+=strlen(buf+i)+1;
+        }
+        return 0;
+    }
+    const char *base=strrchr(buf,'/');base=base ? base+1 : buf;
+    return !strcmp(base,kind==1 ? "mqtt_bridge" : "tk8710_gw");
+}
+static LedInput gateway_fault(const char *reason)
+{
+    if(!strcmp(reason,"invalid_gps_policy") || !strncmp(reason,"ns_config",9))return INPUT_NS_FAULT;
+    if(!strncmp(reason,"gps_",4) || !strncmp(reason,"pps_",4))return INPUT_GPS_FAULT;
+    if(!strncmp(reason,"hal_",4) || !strncmp(reason,"rf_",3) ||
+       !strncmp(reason,"trm_",4) || !strncmp(reason,"console_or_irq",14) ||
+       !strcmp(reason,"scan_restore_failed"))return INPUT_HW_FAULT;
+    return INPUT_FAULT;
+}
+static LedInput read_input(const char *path,int kind,uint64_t mono,uint64_t boot)
+{
+    struct stat st;
+    if (stat(path,&st) || st.st_size>8192) return INPUT_MISSING;
+    struct json_object *j=json_object_from_file(path);
+    if (!j) return INPUT_MISSING;
+    LedInput result=INPUT_MISSING;
+    uint64_t schema,updated,since;
+    const char *state=text(j,"state");
+    if (!number(j,"schema",&schema) || schema!=1) goto done;
+    if(!identity(j,kind)) {
+        uint64_t previous;
+        /* Only retain a fault from the exact previously observed gateway life;
+         * never trust a dead process's ready/preparing snapshot. */
+        if(kind!=2 || strcmp(state,"fault") || strcmp(text(j,"boot_id"),boot_id) ||
+           !number(j,"start_ticks",&previous) || !previous || previous!=observed_gw_start)goto done;
+    }
+    if(kind==2) (void)number(j,"start_ticks",&observed_gw_start);
+    if (kind==0) {
+        uint64_t checked,progress;
+        if (strcmp(text(j,"clock"),"boottime") || !number(j,"updated_boottime_ms",&updated) ||
+            stale(boot,updated,5000) || !number(j,"checked_boottime_ms",&checked) ||
+            !number(j,"publisher_progress_boottime_ms",&progress) || checked>boot+1000 || progress>boot+1000) goto done;
+        if (!strcmp(state,"unknown")) {
+            result=!strcmp(text(j,"reason"),"process_start") || !strcmp(text(j,"reason"),"maintenance") ? INPUT_PREPARING : INPUT_FAULT;
+        } else if (age_ms(boot,progress)>45000) result=INPUT_FAULT;
+        else if (!strcmp(state,"down") && age_ms(boot,checked)<=45000) result=INPUT_DOWN;
+        else if (!strcmp(state,"up") && age_ms(boot,checked)<=45000 && boolean(j,"ready",1) &&
+                 boolean(j,"link_up",1) && boolean(j,"ipv4_ready",1)) result=INPUT_READY;
+        else if (!strcmp(state,"checking") || !strcmp(state,"switching")) result=INPUT_PREPARING;
     } else {
-        perror("Set LED value failed");
-    }
-}
-
-// 获取当前毫秒级时间戳 (用于计算 <200ms)
-unsigned long long get_current_ms() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (unsigned long long)(tv.tv_sec) * 1000 + (unsigned long long)(tv.tv_usec) / 1000;
-}
-
-// 读取状态文件 (将时间戳改为毫秒级别)
-void read_state(const char* filepath, char* status_out, unsigned long long* ts_out) {
-    status_out[0] = '\0';
-    *ts_out = 0;
-
-    FILE* fp = fopen(filepath, "r");
-    if (!fp) return;
-
-    char line[128];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strncmp(line, "STATUS=", 7) == 0) {
-            sscanf(line + 7, "%63s", status_out);
-        } else if (strncmp(line, "TS_MS=", 6) == 0) {
-            sscanf(line + 6, "%llu", ts_out);
-        } else if (strncmp(line, "TS=", 3) == 0) {
-            unsigned long long ts_val = 0;
-            sscanf(line + 3, "%llu", &ts_val);
-            // 自动兼容：如果是10位数的秒级时间戳，则转换为毫秒
-            if (ts_val < 10000000000ULL) {
-                *ts_out = ts_val * 1000;
-            } else {
-                *ts_out = ts_val;
-            }
-        }
-    }
-    fclose(fp);
-}
-
-int main() {
-    printf("LED Agent Started.\n");
-
-    // 初始化 libgpiod
-    if (init_gpio() < 0) {
-        printf("GPIO Init failed, mock mode fallback.\n");
-        // 实际使用中这里可以决定是否退出
-        // return -1;
-    }
-
-    // 确保 /run/led 目录存在 (通常由 SysV 脚本创建，这里加一层保险)
-    mkdir(LED_DIR, 0755);
-
-    char mqtt_status[64] = {0};
-    unsigned long long mqtt_ts = 0;
-
-    char net_status[64] = {0};
-    unsigned long long net_ts = 0;
-
-    // 主循环 tick (每 100ms 一次)
-    unsigned long long tick = 0;
-    
-    // 用于快闪的状态标志
-    LedState run_blink_state = LED_OFF;
-    LedState net_blink_state = LED_OFF;
-
-    while (1) {
-        unsigned long long now = get_current_ms();
-
-        // 1. 读取业务状态
-        read_state(MQTT_STATE_FILE, mqtt_status, &mqtt_ts);
-        read_state(NET_STATE_FILE, net_status, &net_ts);
-
-        // 2. 更新闪烁状态
-        // 100ms tick，5Hz闪烁 = 100ms亮/100ms灭 -> 每次 tick 翻转
-        run_blink_state = (run_blink_state == LED_ON) ? LED_OFF : LED_ON;
-        
-        // 2Hz闪烁 = 250ms亮/250ms灭 -> 大约每 2~3 个 tick 翻转 (这里简化为200ms翻转)
-        if (tick % 2 == 0) {
-            net_blink_state = (net_blink_state == LED_ON) ? LED_OFF : LED_ON;
-        }
-
-        // 3. 仲裁 RUN 灯 (健康与业务数据)
-        // 需求：当上下行数据时间少于200ms，不变更运行灯状态
-        // 增加看门狗逻辑：如果 MQTT 进程超过 3 秒没有更新时间戳，视为异常，熄灭运行灯
-        unsigned long long mqtt_diff = now > mqtt_ts ? (now - mqtt_ts) : 0;
-        
-        if (mqtt_status[0] == '\0') {
-            // 如果状态字段为空 (可能文件被清空或者尚未写入)，熄灭 RUN 灯
-            set_led(run_led_line, LED_OFF, &current_run_led);
-        } else if (mqtt_diff > 3000) {
-            // 超过 3 秒没更新，认为业务进程挂了，熄灭 RUN 灯
-            set_led(run_led_line, LED_OFF, &current_run_led);
-        } else if (strcmp(mqtt_status, "txrx") == 0) {
-            if (mqtt_diff < 200) {
-                // 如果上下行数据时间间隔 < 200ms，不变更当前 RUN 灯的状态
-                // 直接跳过 set_led 操作
-            } else if (mqtt_diff <= 1000) {
-                // > 200ms 且 <= 1秒，执行快闪
-                set_led(run_led_line, run_blink_state, &current_run_led);
-            } else {
-                // > 1秒 且 <= 3秒，恢复常亮 (空闲存活状态)
-                set_led(run_led_line, LED_ON, &current_run_led);
-            }
+        if ((kind==1 && strcmp(text(j,"clock"),"monotonic")) ||
+            !number(j,"updated_mono_ms",&updated) || stale(mono,updated,kind==1 ? 5000 : 45000) ||
+            !number(j,"state_since_mono_ms",&since) || since>mono+1000) goto done;
+        if (!strcmp(state,"fault")) { result=kind==1 ? INPUT_MQTT_FAULT : gateway_fault(text(j,"reason")); goto done; }
+        if (!boolean(j,"exited",0)) goto done;
+        if (kind==1) {
+            if (!strcmp(state,"connected") && boolean(j,"ready",1) && boolean(j,"connack_ok",1) && boolean(j,"subscribed",1)) result=INPUT_READY;
+            else if (!strcmp(state,"connecting") || !strcmp(state,"reconnecting"))
+                result=age_ms(mono,since)<=10000 ? INPUT_PREPARING : INPUT_MQTT_FAULT;
         } else {
-            // 系统运行正常且在3秒心跳内 (比如状态为 connected)，默认常亮
-            set_led(run_led_line, LED_ON, &current_run_led);
+            if (!strcmp(state,"running") && boolean(j,"business_ready",1)) result=INPUT_READY;
+            else if (!strcmp(state,"degraded")) result=gateway_fault(text(j,"reason"));
+            else {
+                const char *names[]={"starting","wait_ns_config","configuring","wait_gps_sync","wait_pps_alignment","stopping","scanning"};
+                const unsigned limits[]={60,35,120,330,90,30,600};
+                for(unsigned i=0;i<sizeof(limits)/sizeof(limits[0]);i++)
+                    if (!strcmp(state,names[i])) {
+                        if(age_ms(mono,since)>(uint64_t)limits[i]*1000)
+                            result=i==1 ? INPUT_NS_FAULT : (i==3 || i==4) ? INPUT_GPS_FAULT : INPUT_HW_FAULT;
+                        else result=i==1 ? INPUT_WAIT_NS : (i==3 || i==4) ? INPUT_WAIT_GPS : i==6 ? INPUT_OPERATION : INPUT_PREPARING;
+                    }
+            }
         }
-
-        // 4. 仲裁 NET 灯 (网络L3状态)
-        // L3正常 -> 常亮； 恢复中 -> 2Hz闪烁； 其它/异常 -> 灭
-        // 若状态超时(超过15秒没更新)，视为网络守护进程异常，灯灭
-        if ((now > net_ts) && (now - net_ts) > 15000) {
-            set_led(net_led_line, LED_OFF, &current_net_led);
-        } else if (strcmp(net_status, "L3_OK") == 0) {
-            set_led(net_led_line, LED_ON, &current_net_led);
-        } else if (strcmp(net_status, "RECOVERING") == 0) {
-            set_led(net_led_line, net_blink_state, &current_net_led);
-        } else { // L3_DOWN 或其他
-            set_led(net_led_line, LED_OFF, &current_net_led);
-        }
-
-        tick++;
-        usleep(100 * 1000); // 休眠 100ms
     }
-
-    release_gpio();
-    return 0;
+done:
+    json_object_put(j);return result;
+}
+static const char *mode_name(LedMode m)
+{
+    static const char *names[]={"green_single","ready","network_fault","red_four",
+        "green_double","green_triple","green_slow","red_single","red_double","red_triple"};
+    return names[m];
+}
+static void save_policy(const LedPolicy *p)
+{
+    FILE *f=fopen("/run/led/arbiter_history.tmp","w"); if (!f) return;
+    int bad=fprintf(f,"%s %u %u %llu %llu %u %u\n",boot_id,p->ready_seen,p->fault_latched,
+        (unsigned long long)p->gw_start,(unsigned long long)p->restart_since,p->restarts,p->fault_class)<0;
+    if(fclose(f))bad=1;
+    if(!bad)(void)rename("/run/led/arbiter_history.tmp","/run/led/arbiter_history");
+}
+int main(int argc,char **argv)
+{
+    int check=argc==2 && !strcmp(argv[1],"--check");
+    if(argc>1 && !check) { fprintf(stderr,"Usage: led_agent [--check]\n");return 2; }
+    FILE *f=fopen("/proc/sys/kernel/random/boot_id","r");
+    if(!f)return 1;
+    int ok=fgets(boot_id,sizeof(boot_id),f)!=NULL;fclose(f);if(!ok)return 1;
+    boot_id[strcspn(boot_id,"\r\n")]=0;
+    if(check) {
+        uint64_t mono=clock_ms(CLOCK_MONOTONIC),boot=clock_ms(CLOCK_BOOTTIME);
+        printf("inputs: 0=missing 1=preparing 2=ready 3=unknown_fault 4=network_down 5=wait_ns 6=wait_gps 7=operation 8=mqtt_fault 9=ns_fault 10=gps_fault 11=hardware_fault\nnetwork=%d mqtt=%d gateway=%d\n",
+            read_input("/run/led/network_status.json",0,mono,boot),read_input("/run/led/mqtt_status.json",1,mono,boot),
+            read_input("/var/run/tk8710_gw/status.json",2,mono,boot));return 0;
+    }
+    if(mkdir("/run/led",0755) && errno!=EEXIST)return 1;
+    int lockfd=open("/run/led/arbiter.lock",O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW,0600);
+    if(lockfd<0)return 1;
+    if(flock(lockfd,LOCK_EX|LOCK_NB)) {close(lockfd);return 1;}
+    struct gpiod_chip *chip=gpiod_chip_open_by_name("gpiochip1");
+    struct gpiod_line_bulk lines;
+    unsigned offsets[]={23,24};int off[]={LED_ACTIVE_LOW,LED_ACTIVE_LOW};
+    if(!chip || gpiod_chip_get_lines(chip,offsets,2,&lines) ||
+       gpiod_line_request_bulk_output(&lines,"led_arbiter",off)) {
+        file_logger_perror(LOG,"LED GPIO init");if(chip)gpiod_chip_close(chip);close(lockfd);return 1;
+    }
+    signal(SIGINT,stop);signal(SIGTERM,stop);signal(SIGHUP,stop);
+    LedPolicy policy={0};
+    char previous_boot[64];unsigned was_ready,was_fault,restarts,category=0;
+    unsigned long long gw_start,restart_since;
+    f=fopen("/run/led/arbiter_history","r");
+    if(f) {
+        if(fscanf(f,"%63s %u %u %llu %llu %u %u",previous_boot,&was_ready,&was_fault,&gw_start,&restart_since,&restarts,&category)>=6 && !strcmp(previous_boot,boot_id)) {
+            policy.ready_seen=!!was_ready;policy.fault_latched=!!was_fault;
+            policy.gw_start=gw_start;policy.restart_since=restart_since;policy.restarts=restarts;
+            policy.fault_class=was_fault && category<=5 ? category : 0;
+            observed_gw_start=gw_start;
+        }
+        fclose(f);
+    }
+    int previous=-1, last[2]={LED_ACTIVE_LOW,LED_ACTIVE_LOW}, result=0;
+    uint64_t maintenance_since=0;
+    uint64_t pattern_since=clock_ms(CLOCK_MONOTONIC);
+    while(!stopping) {
+        uint64_t mono=clock_ms(CLOCK_MONOTONIC),boot=clock_ms(CLOCK_BOOTTIME);
+        int maintenance=access("/var/run/app-upgrade-maintenance",F_OK)==0;
+        if(maintenance && !maintenance_since)maintenance_since=mono;
+        if(!maintenance)maintenance_since=0;
+        LedInput net=read_input("/run/led/network_status.json",0,mono,boot);
+        LedInput mqtt=read_input("/run/led/mqtt_status.json",1,mono,boot);
+        LedInput gw=read_input("/var/run/tk8710_gw/status.json",2,mono,boot);
+        uint64_t old_start=policy.gw_start;
+        unsigned old_restarts=policy.restarts;
+        unsigned old_category=policy.fault_class;
+        LedObserveGateway(&policy,observed_gw_start,mono,maintenance);
+        if(maintenance && mono-maintenance_since>600000) {maintenance=0;gw=INPUT_FAULT;}
+        LedMode mode=LedDecide(&policy,net,mqtt,gw,mono,boot,maintenance);
+        if((int)mode!=previous)pattern_since=mono;
+        int levels[2];LedLevels(mode,mono-pattern_since,LED_ACTIVE_LOW,levels);
+        if(levels[0]!=last[0] || levels[1]!=last[1]) {
+            if(gpiod_line_set_value_bulk(&lines,off) || gpiod_line_set_value_bulk(&lines,levels)) {
+                file_logger_perror(LOG,"LED output failed");result=1;break;
+            }
+            memcpy(last,levels,sizeof(last));
+        }
+        if((int)mode!=previous || old_start!=policy.gw_start || old_restarts!=policy.restarts || old_category!=policy.fault_class) {
+            file_logger_printf(LOG,"INFO","mode=%s network=%d mqtt=%d gateway=%d\n",mode_name(mode),net,mqtt,gw);
+            save_policy(&policy);previous=mode;
+        }
+        struct timespec delay={0,50000000};nanosleep(&delay,NULL);
+    }
+    (void)gpiod_line_set_value_bulk(&lines,off);
+    gpiod_line_release_bulk(&lines);gpiod_chip_close(chip);close(lockfd);
+    return result;
 }

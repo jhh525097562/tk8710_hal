@@ -1,12 +1,12 @@
 add_library(ipc_smp SHARED
     src/ipc_smp.c
-    ../../../common/src/file_logger.c
+    ../../common/src/file_logger.c
 )
 
 target_include_directories(ipc_smp
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/inc
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../common/inc
 )
 
 target_link_libraries(ipc_smp

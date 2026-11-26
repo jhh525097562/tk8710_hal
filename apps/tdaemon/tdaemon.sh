@@ -72,6 +72,7 @@ TDAEMON_MODULE_DIR=$(tdaemon_resolve_module_dir)
 tdaemon_source_required "$TDAEMON_MODULE_DIR" "tdaemon_common.sh"
 tdaemon_source_required "$TDAEMON_MODULE_DIR" "tdaemon_gpio.sh"
 tdaemon_source_required "$TDAEMON_MODULE_DIR" "tdaemon_net.sh"
+tdaemon_source_required "$TDAEMON_MODULE_DIR" "tdaemon_status.sh"
 tdaemon_source_required "$TDAEMON_MODULE_DIR" "tdaemon_dns.sh"
 tdaemon_source_required "$TDAEMON_MODULE_DIR" "tdaemon_recovery.sh"
 tdaemon_source_required "$TDAEMON_MODULE_DIR" "tdaemon_proc.sh"
@@ -103,12 +104,13 @@ tdaemon_run() {
     ACTIVE_CFG_FINGERPRINT=$(get_config_fingerprint "$cfg_path")
 
     pidfile_write "$DAEMON_PID_FILE"
-    trap 'log WARN "收到退出信号，清理PID文件并退出"; pidfile_remove "$DAEMON_PID_FILE"; lock_release "$lock_dir"; exit 0' TERM INT
+    trap 'network_status_stop; log WARN "收到退出信号，清理PID文件并退出"; pidfile_remove "$DAEMON_PID_FILE"; lock_release "$lock_dir"; exit 0' TERM INT
 
     log INFO "tdaemon启动：version=$TDAEMON_VERSION cfg=$cfg_path pidfile=$DAEMON_PID_FILE"
 
     NETWORK_READY=0
     CURRENT_IFACE=""
+    network_status_start || log WARN "网络状态JSON观察器启动失败"
 
     ### Enhancement begin ###
     wlan_bootstrap_ap || true
@@ -129,7 +131,11 @@ tdaemon_run() {
     config_json_fingerprint=$(get_config_fingerprint "$config_json_path")
 
     while true; do
-        if [ -e /var/run/app-upgrade-maintenance ]; then sleep 1; continue; fi
+        network_status_progress || true
+        if [ -e /var/run/app-upgrade-maintenance ]; then
+            network_status_event unknown none maintenance || true
+            sleep 1; continue
+        fi
         tick=$((tick + 1))
         cfg_reload_if_changed "$ACTIVE_CFG_PATH"
         dns_ensure_config || true

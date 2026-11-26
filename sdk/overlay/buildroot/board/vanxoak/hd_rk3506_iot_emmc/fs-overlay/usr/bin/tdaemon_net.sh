@@ -10,6 +10,14 @@ net_disabled_to_set() {
 
 net_led_write_state() {
     local status="$1"
+    # Preserve old state files; accurate JSON has its own observer and timestamps.
+    if command -v network_status_event >/dev/null 2>&1; then
+        case "$status" in
+            L3_OK) network_status_event up "${CURRENT_IFACE:-none}" probe_passed || true;;
+            L3_DOWN) network_status_event down none no_qualified_interface || true;;
+            RECOVERING) network_status_event switching "${CURRENT_IFACE:-none}" link_recovery || true;;
+        esac
+    fi
     local led_dir="/run/led"
     local state_file="$led_dir/net.state"
     local tmp_file="$led_dir/net.tmp"
@@ -595,13 +603,16 @@ net_prepare_candidate_iface() {
     local iface="$1"
     local targets="$2"
     local count="$3"
+    if command -v network_status_event >/dev/null 2>&1; then
+        network_status_event checking "$iface" candidate_probe || true
+    fi
 
     if [ "$iface" = "wlan0" ]; then
         if [ ! -f "$SCRIPT_DIR/switch_to_sta.sh" ]; then
             log ERROR "候选准备失败：未找到 $SCRIPT_DIR/switch_to_sta.sh"
             return 1
         fi
-        
+
         local sta_err
         sta_err=$(sh "$SCRIPT_DIR/switch_to_sta.sh" 2>&1 >/dev/null)
         if [ $? -ne 0 ]; then
@@ -756,6 +767,9 @@ net_switch_to() {
     local iface="$1"
     local reason="${2:-切换活跃链路}"
     local previous_iface="$CURRENT_IFACE"
+    if command -v network_status_event >/dev/null 2>&1; then
+        network_status_event switching "$iface" route_switch || true
+    fi
     if ! net_route_activate_iface "$iface" "$reason"; then
         log ERROR "切换失败：写默认路由Metric失败 iface=$iface"
         return 1
@@ -811,6 +825,9 @@ net_select_best_iface() {
 net_tick() {
     local targets
     targets=$(echo "$ACTIVE_NET_TARGETS" | tr ',' ' ')
+    if command -v network_status_event >/dev/null 2>&1; then
+        network_status_event checking "${CURRENT_IFACE:-none}" periodic_probe || true
+    fi
 
     if [ -z "$CURRENT_IFACE" ]; then
         local best

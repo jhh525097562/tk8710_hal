@@ -10,6 +10,14 @@ net_disabled_to_set() {
 
 net_led_write_state() {
     local status="$1"
+    # Preserve old state files; accurate JSON has its own observer and timestamps.
+    if command -v network_status_event >/dev/null 2>&1; then
+        case "$status" in
+            L3_OK) network_status_event up "${CURRENT_IFACE:-none}" probe_passed || true;;
+            L3_DOWN) network_status_event down none no_qualified_interface || true;;
+            RECOVERING) network_status_event switching "${CURRENT_IFACE:-none}" link_recovery || true;;
+        esac
+    fi
     local led_dir="/run/led"
     local state_file="$led_dir/net.state"
     local tmp_file="$led_dir/net.tmp"
@@ -510,21 +518,110 @@ wlan_bootstrap_ap() {
     return 0
 }
 
+net_usb_tty_present() {
+    ls /dev/ttyUSB* >/dev/null 2>&1
+}
+
+net_usb_wait_tty_and_ip() {
+    local timeout_s="$1"
+    local t=0
+    while [ "$t" -lt "$timeout_s" ]; do
+        if net_usb_tty_present && net_check_dhcp_ready "usb0"; then
+            return 0
+        fi
+        sleep 1
+        t=$((t + 1))
+    done
+    return 1
+}
+
+net_prepare_usb0_candidate() {
+    local targets="$1"
+    local count="$2"
+    local reset_limit=3
+    local wait_tty_ip_s_base=40
+    local wait_tty_ip_s="$wait_tty_ip_s_base"
+    local reset_count
+
+    reset_count="${usb0_candidate_reset_count:-0}"
+    [ -z "$reset_count" ] && reset_count=0
+
+    if net_usb_tty_present && net_check_dhcp_ready "usb0"; then
+        if net_check_iface_qualified "usb0" "$targets" "$count"; then
+            usb0_candidate_reset_count=0
+            log INFO "usb0候选恢复：已检测到ttyUSB+IP且qualified通过，跳过reset"
+            return 0
+        fi
+        log INFO "usb0候选恢复：已检测到ttyUSB+IP但qualified未通过，继续恢复流程"
+    fi
+
+    if ! gpio_modem_reset_pulse; then
+        log WARN "候选准备失败：usb0 执行modem reset脉冲失败"
+        return 1
+    fi
+
+    reset_count=$((reset_count + 1))
+    case "$reset_count" in
+        1) wait_tty_ip_s=40 ;;
+        2) wait_tty_ip_s=50 ;;
+        *) wait_tty_ip_s=60 ;;
+    esac
+    usb0_candidate_reset_count="$reset_count"
+    log INFO "usb0候选恢复：reset完成 reset_count=$reset_count/$reset_limit wait_ttyusb_ip_s=$wait_tty_ip_s"
+
+    if net_usb_wait_tty_and_ip "$wait_tty_ip_s"; then
+        if net_check_iface_qualified "usb0" "$targets" "$count"; then
+            usb0_candidate_reset_count=0
+            return 0
+        fi
+    else
+        log WARN "候选准备失败：usb0 reset后 ${wait_tty_ip_s}s 内未检测到ttyUSB或IP"
+    fi
+
+    if [ "$reset_count" -ge "$reset_limit" ]; then
+        log WARN "usb0候选恢复：reset失败达到阈值，执行power-cycle并清零计数 threshold=$reset_limit"
+        if ! gpio_modem_power_cycle; then
+            log WARN "候选准备失败：usb0 执行modem power-cycle失败"
+            return 1
+        fi
+        usb0_candidate_reset_count=0
+        wait_tty_ip_s="$wait_tty_ip_s_base"
+
+        if net_usb_wait_tty_and_ip "$wait_tty_ip_s"; then
+            if net_check_iface_qualified "usb0" "$targets" "$count"; then
+                return 0
+            fi
+        else
+            log WARN "候选准备失败：usb0 power-cycle后 ${wait_tty_ip_s}s 内未检测到ttyUSB或IP"
+        fi
+    fi
+
+    return 1
+}
+
 net_prepare_candidate_iface() {
     local iface="$1"
     local targets="$2"
     local count="$3"
+    if command -v network_status_event >/dev/null 2>&1; then
+        network_status_event checking "$iface" candidate_probe || true
+    fi
 
     if [ "$iface" = "wlan0" ]; then
         if [ ! -f "$SCRIPT_DIR/switch_to_sta.sh" ]; then
             log ERROR "候选准备失败：未找到 $SCRIPT_DIR/switch_to_sta.sh"
             return 1
         fi
-        sh "$SCRIPT_DIR/switch_to_sta.sh" >/dev/null 2>&1
+
+        local sta_err
+        sta_err=$(sh "$SCRIPT_DIR/switch_to_sta.sh" 2>&1 >/dev/null)
         if [ $? -ne 0 ]; then
-            log WARN "候选准备失败：wlan0 切换STA模式失败"
-            return 1
+            log WARN "候选准备失败：wlan0 切换STA模式出错，原因：$sta_err"
+            # 移除 return 1，让它继续往下走，由 net_wait_link_up 兜底
         fi
+    elif [ "$iface" = "usb0" ]; then
+        net_prepare_usb0_candidate "$targets" "$count"
+        return $?
     else
         net_ifup_iface "$iface"
         if [ $? -ne 0 ]; then
@@ -670,6 +767,9 @@ net_switch_to() {
     local iface="$1"
     local reason="${2:-切换活跃链路}"
     local previous_iface="$CURRENT_IFACE"
+    if command -v network_status_event >/dev/null 2>&1; then
+        network_status_event switching "$iface" route_switch || true
+    fi
     if ! net_route_activate_iface "$iface" "$reason"; then
         log ERROR "切换失败：写默认路由Metric失败 iface=$iface"
         return 1
@@ -725,6 +825,9 @@ net_select_best_iface() {
 net_tick() {
     local targets
     targets=$(echo "$ACTIVE_NET_TARGETS" | tr ',' ' ')
+    if command -v network_status_event >/dev/null 2>&1; then
+        network_status_event checking "${CURRENT_IFACE:-none}" periodic_probe || true
+    fi
 
     if [ -z "$CURRENT_IFACE" ]; then
         local best
@@ -735,6 +838,7 @@ net_tick() {
             NETWORK_READY=0
             log ERROR "网络闸门关闭：无可用链路"
             net_led_write_state "L3_DOWN" || true
+            killall -9 mqtt_bridge 2>/dev/null || true
         fi
         return 0
     fi
@@ -751,6 +855,7 @@ net_tick() {
             net_switch_to "$best" "禁用接口后切换"
         else
             net_led_write_state "L3_DOWN" || true
+            killall -9 mqtt_bridge 2>/dev/null || true
         fi
         return 0
     fi
@@ -786,6 +891,7 @@ net_tick() {
             net_switch_to "$best" "故障降级后切换"
         else
             net_led_write_state "L3_DOWN" || true
+            killall -9 mqtt_bridge 2>/dev/null || true
         fi
         return 0
     fi

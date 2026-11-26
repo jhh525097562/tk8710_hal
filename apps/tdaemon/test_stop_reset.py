@@ -44,7 +44,7 @@ void gpiod_chip_close(struct gpiod_chip *c) {(void)c;}
     for var in ['FAIL_REQUEST','FAIL_HIGH']:
         env=os.environ.copy();env[var]='1'
         assert subprocess.run([str(binary)],env=env).returncode!=0
-    source=(here/'S99tdaemon_job').read_text()
+    source=(here/'S99tdaemon_job').read_text(encoding="utf-8")
     function=source.split('reset_stopped_tk8710() {',1)[1].split('\n}\n',1)[0]
     script='reset_stopped_tk8710() {'+function+'\n}\n'
     # Mock pidof/sleep/tool: ensure a live process blocks reset, and failure propagates.
@@ -65,3 +65,47 @@ if reset_stopped_tk8710; then exit 13; fi
     assert source.index('kill_configured_processes_force\n',source.index('  stop)')) < source.index('reset_stopped_tk8710 ||')
     assert '"$0" stop || exit $?' in source
     print('PASS: GPIO low/10ms/high, error propagation, process-exit guard, stop-before-reset, restart failure gate')
+
+    # Exercise the complete stop branch against synthetic processes. Every signal
+    # command is a shell stub; /proc and service paths point into this temp tree.
+    trace=root/'trace'
+    proc=root/'proc'
+    for pid,command in [(4242,'/userdata/frp/start_frpc.sh'),
+                        (4243,'/userdata/mqtt_bridge')]:
+        entry=proc/str(pid);entry.mkdir(parents=True)
+        (entry/'cmdline').write_bytes(command.encode()+b'\0')
+        (entry/'comm').write_text(command.rsplit('/',1)[-1])
+    config=root/'tdaemon.conf'
+    config.write_text('proc=/userdata/frp/start_frpc.sh\nproc=/userdata/mqtt_bridge\n')
+    ipc=root/'ipc_spi_to_mqtt';ipc.write_text('pending uplink')
+    tool=root/'reset-tool'
+    tool.write_text('#!/bin/sh\necho reset >> "$TRACE"\nexit "${RESET_FAIL:-0}"\n')
+    tool.chmod(0o755)
+    sandbox=source.replace('/proc/',str(proc)+'/')
+    sandbox=sandbox.replace('/var/run/tdaemon_job.pid',str(root/'pid'))
+    sandbox=sandbox.replace('/var/run/tdaemon_job.lock',str(root/'lock'))
+    sandbox=sandbox.replace('/etc/tdaemon.conf',str(config))
+    sandbox=sandbox.replace('/usr/bin/tk8710_reset',str(tool))
+    stubs='''
+kill() { echo "kill $*" >> "$TRACE"; }
+killall() { echo "killall $*" >> "$TRACE"; }
+pidof() { return "${PROCESS_GONE:-1}"; }
+sleep() { :; }
+'''
+    sandbox=sandbox.replace('\ncase "$1" in\n','\n'+stubs+'\ncase "$1" in\n',1)
+    stop=root/'stop';stop.write_text(sandbox);stop.chmod(0o755)
+    env=dict(os.environ,TRACE=str(trace))
+    result=subprocess.run(['sh',str(stop),'stop'],env=env,capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
+    calls=trace.read_text().splitlines()
+    assert 'killall -q -9 start_frpc.sh' in calls,calls
+    assert 'killall -q -9 mqtt_bridge' in calls,calls
+    assert 'killall -q -9 tk8710_gw' in calls,calls
+    assert calls[-1]=='reset',calls
+    assert ipc.read_text()=='pending uplink'
+    trace.write_text('')
+    result=subprocess.run(['sh',str(stop),'stop'],env=dict(env,PROCESS_GONE='0'),capture_output=True,text=True)
+    assert result.returncode!=0 and 'reset' not in trace.read_text().splitlines()
+    result=subprocess.run(['sh',str(stop),'restart'],env=dict(env,RESET_FAIL='7'),capture_output=True,text=True)
+    assert result.returncode==7 and 'Starting' not in result.stdout
+    print('PASS: WSL stop policy, configured FRP/MQTT force-stop, IPC preservation, reset/restart failure gates')
