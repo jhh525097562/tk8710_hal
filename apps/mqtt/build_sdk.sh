@@ -7,6 +7,10 @@ COMPILER="$HOST/bin/arm-buildroot-linux-gnueabihf-gcc"
 SYSROOT="$HOST/arm-buildroot-linux-gnueabihf/sysroot"
 mkdir -p build_arm
 "$COMPILER" --sysroot="$SYSROOT" -std=gnu11 -Wall -Wextra -Werror -O2 -Iinc -I../common/inc \
+  -ffunction-sections -fdata-sections tests/test_gps_heartbeat.c src/gps_info.c src/mac_msg_parser.c \
+  ../common/src/file_logger.c src/gateway_telemetry.c -Wl,--gc-sections \
+  -ljson-c -lmbedcrypto -lpthread -o build_arm/test_gps_heartbeat
+"$COMPILER" --sysroot="$SYSROOT" -std=gnu11 -Wall -Wextra -Werror -O2 -Iinc -I../common/inc \
   -ffunction-sections -fdata-sections tests/test_ns_gps_config.c src/mac_msg_parser.c \
   ../common/src/file_logger.c src/gateway_telemetry.c -Wl,--gc-sections \
   -ljson-c -lmbedcrypto -lpthread -o build_arm/test_ns_gps_config

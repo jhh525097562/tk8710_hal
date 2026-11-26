@@ -1,6 +1,29 @@
 #!/bin/sh
 
 # The FRP watchdog stays alive and regenerates its config after the child exits.
+MQTT_READY_FILE="${MQTT_READY_FILE:-/run/led/mqtt_status.json}"
+MQTT_READY_TIMEOUT="${MQTT_READY_TIMEOUT:-15}"
+
+proc_mqtt_ready() {
+    local pid status
+    pid=$(pidof mqtt_bridge 2>/dev/null | awk '{print $1}')
+    [ -n "$pid" ] || return 1
+    [ -r "$MQTT_READY_FILE" ] || return 1
+    status=$(cat "$MQTT_READY_FILE" 2>/dev/null) || return 1
+    echo "$status" | grep -Eq '"pid"[[:space:]]*:[[:space:]]*'"$pid"'([,}])' || return 1
+    echo "$status" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true([,}])'
+}
+
+proc_wait_mqtt_ready() {
+    local elapsed=0
+    while [ "$elapsed" -lt "$MQTT_READY_TIMEOUT" ]; do
+        proc_mqtt_ready && return 0
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    proc_mqtt_ready
+}
+
 proc_reload_frp_config() {
     local frpc_bin="${1:-/userdata/frp/frpc}"
     local pid exe
@@ -101,6 +124,11 @@ proc_tick() {
 
         if [ $gated -eq 1 ] && [ "$NETWORK_READY" -ne 1 ]; then
             log ERROR "启动阻断：网络未就绪，禁止启动 $name"
+            continue
+        fi
+
+        if [ "$name" = "tk8710_gw" ] && ! proc_wait_mqtt_ready; then
+            log WARN "启动阻断：MQTT未完成CONNACK/SUBACK，延后启动 $name"
             continue
         fi
 

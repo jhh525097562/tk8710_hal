@@ -110,6 +110,8 @@ char* pack_gw_batch_data_up_msg(const GwBatchDataUp_t* msg, int start_index, int
 char* pack_gw_alive_up_msg(const GwAliveUp_t* msg);
 char* pack_gw_alive_up_msg_with_location(const GwAliveUp_t* msg, const char *lon, const char *lat);
 char* pack_gw_alive_up_msg_with_gps(const GwAliveUp_t* msg, const char *lon, const char *lat, int64_t status);
+char* pack_gw_alive_up_msg_with_gps_metrics(const GwAliveUp_t* msg, const char *lon,
+    const char *lat, int64_t status, int64_t count, int64_t avgsnr);
 
 /**
  * @brief 释放由 pack_gw_data_up_msg 分配的 JSON 字符串内存

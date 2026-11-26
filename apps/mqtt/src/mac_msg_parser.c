@@ -175,7 +175,8 @@ char* pack_gw_batch_data_up_msg(const GwBatchDataUp_t* msg, int start_index, int
     return result;
 }
 
-static char* pack_alive(const GwAliveUp_t* msg, const char *lon, const char *lat, int64_t status) {
+static char* pack_alive(const GwAliveUp_t* msg, const char *lon, const char *lat,
+    int64_t status, int64_t count, int64_t avgsnr) {
     if (!msg || msg->msg_type != MSG_TYPE_GW_ALIVE_UP) return NULL;
 
     struct json_object *root = json_object_new_object();
@@ -200,6 +201,8 @@ static char* pack_alive(const GwAliveUp_t* msg, const char *lon, const char *lat
     }
     if (status >= 0) {
         json_object_object_add(alive, "status", json_object_new_int64(status));
+        json_object_object_add(alive, "count", count >= 0 ? json_object_new_int64(count) : NULL);
+        json_object_object_add(alive, "avgsnr", avgsnr >= 0 ? json_object_new_int64(avgsnr) : NULL);
         telemetry_add(alive);
     }
     json_object_object_add(root, "alive", alive);
@@ -214,11 +217,16 @@ static char* pack_alive(const GwAliveUp_t* msg, const char *lon, const char *lat
 }
 
 char* pack_gw_alive_up_msg_with_gps(const GwAliveUp_t* msg, const char *lon, const char *lat, int64_t status) {
-    return pack_alive(msg, lon, lat, status < 0 ? 0 : status);
+    return pack_alive(msg, lon, lat, status < 0 ? 0 : status, -1, -1);
+}
+
+char* pack_gw_alive_up_msg_with_gps_metrics(const GwAliveUp_t* msg, const char *lon,
+    const char *lat, int64_t status, int64_t count, int64_t avgsnr) {
+    return pack_alive(msg, lon, lat, status < 0 ? 0 : status, count, avgsnr);
 }
 
 char* pack_gw_alive_up_msg_with_location(const GwAliveUp_t* msg, const char *lon, const char *lat) {
-    return pack_alive(msg, lon, lat, -1);
+    return pack_alive(msg, lon, lat, -1, -1, -1);
 }
 
 char* pack_gw_alive_up_msg(const GwAliveUp_t* msg) {

@@ -21,6 +21,8 @@
 #include "mac_msg_parser.h"
 #include "file_logger.h"
 #include "ns_scan_manager.h"
+#include "gps_info.h"
+#include "mqtt_status.h"
 
 #define IPC_CH_MQTT_TO_SPI "/ipc_mqtt_to_spi"
 #define IPC_CH_SPI_TO_MQTT "/ipc_spi_to_mqtt"
@@ -337,73 +339,6 @@ static uint64_t get_time_ms(void) {
     return ((uint64_t)tv.tv_sec * 1000ULL) + ((uint64_t)tv.tv_usec / 1000ULL);
 }
 
-static void trim_line_end(char *s) {
-    size_t len;
-    if (s == NULL) {
-        return;
-    }
-    len = strlen(s);
-    while (len > 0 && (s[len - 1] == '\n' || s[len - 1] == '\r' || s[len - 1] == ' ' || s[len - 1] == '\t')) {
-        s[len - 1] = '\0';
-        len--;
-    }
-}
-
-static int load_gps_info(const char *file_path, char *out_lon, size_t lon_len, char *out_lat, size_t lat_len, int64_t *out_status) {
-    FILE *fp;
-    char line[128];
-    int got_lon = 0;
-    int got_lat = 0;
-    if (out_lon == NULL || out_lat == NULL || out_status == NULL || lon_len == 0 || lat_len == 0) {
-        return -1;
-    }
-    *out_status = 0;
-    strncpy(out_lon, "unknown", lon_len - 1);
-    out_lon[lon_len - 1] = '\0';
-    strncpy(out_lat, "unknown", lat_len - 1);
-    out_lat[lat_len - 1] = '\0';
-    fp = fopen(file_path, "r");
-    if (fp == NULL) {
-        return -1;
-    }
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        trim_line_end(line);
-        if (strncmp(line, "lon=", 4) == 0) {
-            const char *v = line + 4;
-            if (v[0] != '\0') {
-                strncpy(out_lon, v, lon_len - 1);
-                out_lon[lon_len - 1] = '\0';
-                got_lon = 1;
-            }
-        } else if (strncmp(line, "status=", 7) == 0) {
-            const char *value = line + 7;
-            char *end = NULL;
-            long long status;
-            errno = 0;
-            status = strtoll(value, &end, 10);
-            if (value[0] >= '0' && value[0] <= '9' && end != value && *end == '\0' && errno == 0 && status >= 0) {
-                *out_status = (int64_t)status;
-            }
-        } else if (strncmp(line, "lat=", 4) == 0) {
-            const char *v = line + 4;
-            if (v[0] != '\0') {
-                strncpy(out_lat, v, lat_len - 1);
-                out_lat[lat_len - 1] = '\0';
-                got_lat = 1;
-            }
-        }
-    }
-    if (ferror(fp)) {
-        got_lon = 0;
-        got_lat = 0;
-    }
-    fclose(fp);
-    if (!(got_lon && got_lat)) {
-        *out_status = 0;
-    }
-    return (got_lon && got_lat) ? 0 : -1;
-}
-
 static int write_mqtt_stats_file_locked(const AppContext *ctx, uint64_t now_ms) {
     FILE *fp;
     if (ctx == NULL) {
@@ -714,16 +649,20 @@ static GwBatchDataUp_t g_spi_batch_rx;
 
 static void on_connect(struct mosquitto *mosq, void *obj, int rc) {
     AppContext *ctx = (AppContext *)obj;
+    mqtt_status_connack(rc);
     if (rc != 0) {
         app_logf(stderr, APP_LOG_ERROR, "mqtt connect failed rc=%d\n", rc);
         return;
     }
 
     if (strlen(ctx->config.sub_topic) == 0) {
+        mqtt_status_fault("subscription_topic_missing", MOSQ_ERR_INVAL);
         return;
     }
 
-    rc = mosquitto_subscribe(mosq, NULL, ctx->config.sub_topic, ctx->config.qos);
+    int mid = -1;
+    rc = mosquitto_subscribe(mosq, &mid, ctx->config.sub_topic, ctx->config.qos);
+    mqtt_status_subscribe(mid, rc);
     if (rc != MOSQ_ERR_SUCCESS) {
         app_logf(stderr, APP_LOG_ERROR, "subscribe %s failed: %s\n", ctx->config.sub_topic, mosquitto_strerror(rc));
     } else {
@@ -734,6 +673,13 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc) {
     ctx->last_heartbeat_time = time(NULL);
     ctx->config_ack_received = 0;
     ctx->config_request_triggered = 0;
+}
+
+static void on_subscribe(struct mosquitto *mosq, void *obj, int mid,
+                         int qos_count, const int *granted_qos) {
+    (void)mosq;
+    (void)obj;
+    mqtt_status_suback(mid, qos_count, granted_qos);
 }
 
 static void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *message) {
@@ -812,6 +758,7 @@ static void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto
 static void on_disconnect(struct mosquitto *mosq, void *obj, int rc) {
     (void)mosq;
     (void)obj;
+    mqtt_status_disconnect(rc);
     app_logf(stderr, APP_LOG_WARN, "mqtt disconnected rc=%d\n", rc);
 }
 
@@ -933,9 +880,7 @@ static void process_spi_uplink(AppContext *ctx) {
 static void send_heartbeat(AppContext *ctx) {
     char topic[256];
     char net_name[64];
-    char lon[32];
-    char lat[32];
-    int64_t gps_status = 0;
+    GpsInfo gps;
     GwAliveUp_t alive_msg;
     char *payload_str;
     int rc;
@@ -959,11 +904,12 @@ static void send_heartbeat(AppContext *ctx) {
         power = ctx->power_level;
     }
     alive_msg.power = power;
-    if (load_gps_info(GPS_INFO_FILE_PATH, lon, sizeof(lon), lat, sizeof(lat), &gps_status) != 0) {
-        (void)load_gps_info(BDGPS_FILE_PATH, lon, sizeof(lon), lat, sizeof(lat), &gps_status);
+    if (gps_info_load(GPS_INFO_FILE_PATH, &gps) != 0) {
+        (void)gps_info_load(BDGPS_FILE_PATH, &gps);
     }
 
-    payload_str = pack_gw_alive_up_msg_with_gps(&alive_msg, lon, lat, gps_status);
+    payload_str = pack_gw_alive_up_msg_with_gps_metrics(&alive_msg, gps.lon, gps.lat,
+        gps.status, gps.count, gps.avgsnr);
     if (payload_str != NULL) {
         rc = mosquitto_publish(ctx->mosq, NULL, topic, (int)strlen(payload_str), payload_str, ctx->config.qos, false);
         if (rc != MOSQ_ERR_SUCCESS) {
@@ -1018,6 +964,9 @@ static int publish_scan(void *context, const char *payload, int qos) {
 int main(int argc, char *argv[]) {
     AppContext ctx;
     int rc;
+    int exit_code = 1;
+    int mosquitto_initialized = 0;
+    int loop_started = 0;
     int epfd = -1;
     int notify_fd;
     struct epoll_event event;
@@ -1045,8 +994,13 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
+    if (mqtt_status_init(LED_DIR) != 0) {
+        app_logf(stderr, APP_LOG_WARN, "mqtt status observer init failed; LED status unavailable\n");
+    }
     if (load_config(CONFIG_FILE_PATH, &ctx.config) != 0) {
         app_logf(stderr, APP_LOG_ERROR, "load %s failed\n", CONFIG_FILE_PATH);
+        mqtt_status_fault("config_load_failed", -1);
+        mqtt_status_stop();
         return 1;
     }
     if (load_comm_version(DEVICE_VERSION_FILE_PATH, ctx.comm_version, sizeof(ctx.comm_version)) != 0) {
@@ -1071,18 +1025,22 @@ int main(int argc, char *argv[]) {
     }
 
     if (init_ipc_channels(&ctx) != 0) {
+        mqtt_status_fault("ipc_init_failed", -1);
         goto cleanup;
     }
 
     notify_fd = ipc_smp_get_eventfd(ctx.ch_spi_to_mqtt);
     if (notify_fd < 0) {
         app_logf(stderr, APP_LOG_ERROR, "get ipc notify fd failed\n");
+        mqtt_status_fault("ipc_notify_fd_failed", notify_fd);
         goto cleanup;
     }
 
     epfd = epoll_create1(0);
     if (epfd < 0) {
-        app_logf(stderr, APP_LOG_ERROR, "epoll_create1 failed errno=%d\n", errno);
+        int error = errno;
+        app_logf(stderr, APP_LOG_ERROR, "epoll_create1 failed errno=%d\n", error);
+        mqtt_status_fault("epoll_create_failed", error);
         goto cleanup;
     }
 
@@ -1090,7 +1048,9 @@ int main(int argc, char *argv[]) {
     event.events = EPOLLIN;
     event.data.fd = notify_fd;
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, notify_fd, &event) != 0) {
-        app_logf(stderr, APP_LOG_ERROR, "epoll_ctl add notify fd failed errno=%d\n", errno);
+        int error = errno;
+        app_logf(stderr, APP_LOG_ERROR, "epoll_ctl add notify fd failed errno=%d\n", error);
+        mqtt_status_fault("ipc_epoll_add_failed", error);
         goto cleanup;
     }
     if (ctx.power_gpio_fd >= 0) {
@@ -1103,14 +1063,19 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (mosquitto_lib_init() != MOSQ_ERR_SUCCESS) {
+    rc = mosquitto_lib_init();
+    if (rc != MOSQ_ERR_SUCCESS) {
         app_logf(stderr, APP_LOG_ERROR, "mosquitto_lib_init failed\n");
+        mqtt_status_fault("mosquitto_init_failed", rc);
         goto cleanup;
     }
+    mosquitto_initialized = 1;
 
     ctx.mosq = mosquitto_new(ctx.config.gateway_id, true, &ctx);
     if (ctx.mosq == NULL) {
+        int error = errno;
         app_logf(stderr, APP_LOG_ERROR, "mosquitto_new failed\n");
+        mqtt_status_fault("mosquitto_new_failed", error);
         goto cleanup;
     }
 
@@ -1118,6 +1083,7 @@ int main(int argc, char *argv[]) {
         rc = mosquitto_username_pw_set(ctx.mosq, ctx.config.mqtt_username, ctx.config.mqtt_password);
         if (rc != MOSQ_ERR_SUCCESS) {
             app_logf(stderr, APP_LOG_ERROR, "set mqtt username/password failed: %s\n", mosquitto_strerror(rc));
+            mqtt_status_fault("credentials_setup_failed", rc);
             goto cleanup;
         }
     }
@@ -1125,26 +1091,33 @@ int main(int argc, char *argv[]) {
     ctx.scan_manager = ns_scan_manager_open("/userdata/mqtt_scan", "/tmp/data_collect.sock", publish_scan, &ctx);
     if (ctx.scan_manager == NULL) {
         app_logf(stderr, APP_LOG_ERROR, "scan journal initialization failed\n");
+        mqtt_status_fault("scan_init_failed", -1);
         goto cleanup;
     }
 
     mosquitto_connect_callback_set(ctx.mosq, on_connect);
+    mosquitto_subscribe_callback_set(ctx.mosq, on_subscribe);
     mosquitto_message_callback_set(ctx.mosq, on_message);
     mosquitto_disconnect_callback_set(ctx.mosq, on_disconnect);
 
     rc = mosquitto_connect(ctx.mosq, ctx.config.mqtt_host, ctx.config.mqtt_port, ctx.config.heartbeat_interval * 2);
     if (rc != MOSQ_ERR_SUCCESS) {
         app_logf(stderr, APP_LOG_ERROR, "mqtt connect failed: %s\n", mosquitto_strerror(rc));
+        mqtt_status_connect_error(rc);
     }
 
     rc = mosquitto_loop_start(ctx.mosq);
     if (rc != MOSQ_ERR_SUCCESS) {
         app_logf(stderr, APP_LOG_ERROR, "mosquitto_loop_start failed: %s\n", mosquitto_strerror(rc));
+        mqtt_status_fault("mqtt_loop_start_failed", rc);
         goto cleanup;
     }
+    loop_started = 1;
     mqtt_led_init_connected(&ctx);
 
+    exit_code = 0;
     while (g_running) {
+        mqtt_status_tick();
         int n = epoll_wait(epfd, events, 4, 100);
         int i;
 
@@ -1152,7 +1125,10 @@ int main(int argc, char *argv[]) {
             if (errno == EINTR) {
                 continue;
             }
-            app_logf(stderr, APP_LOG_ERROR, "epoll_wait failed errno=%d\n", errno);
+            int error = errno;
+            app_logf(stderr, APP_LOG_ERROR, "epoll_wait failed errno=%d\n", error);
+            mqtt_status_fault("epoll_wait_failed", error);
+            exit_code = 1;
             break;
         }
 
@@ -1166,6 +1142,8 @@ int main(int argc, char *argv[]) {
                     app_logf(stderr, APP_LOG_ERROR, "epoll error/hup on unknown fd=%d, exiting\n", events[i].data.fd);
                 }
                 g_running = 0;
+                mqtt_status_fault("epoll_fd_error", (int)events[i].events);
+                exit_code = 1;
                 goto cleanup;
             }
 
@@ -1184,7 +1162,7 @@ int main(int argc, char *argv[]) {
                     } else {
                         (void)read_power_gpio_level(&ctx, &ctx.power_level);
                     }
-                    
+
                     static uint64_t last_gpio_hb_ms = 0;
                     static int last_throttled_power = -1;
                     uint64_t now_ms = get_time_ms();
@@ -1228,13 +1206,15 @@ int main(int argc, char *argv[]) {
 
 cleanup:
     g_running = 0;
+    /* Revoke readiness before teardown; late callbacks cannot revive it. */
+    mqtt_status_stop();
     stats_flush(&ctx);
 
     if (ctx.mosq != NULL) {
-        mosquitto_loop_stop(ctx.mosq, true);
+        if (loop_started) mosquitto_loop_stop(ctx.mosq, true);
         mosquitto_destroy(ctx.mosq);
     }
-    mosquitto_lib_cleanup();
+    if (mosquitto_initialized) mosquitto_lib_cleanup();
     ns_scan_manager_close(ctx.scan_manager);
 
     if (epfd >= 0) {
@@ -1251,5 +1231,5 @@ cleanup:
     pthread_mutex_destroy(&ctx.tx_lock);
     pthread_mutex_destroy(&ctx.led_lock);
     pthread_mutex_destroy(&ctx.stats_lock);
-    return 0;
+    return exit_code;
 }
