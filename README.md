@@ -6,6 +6,11 @@
 
 ## 目录和维护入口
 
+2026-11-26 已整合现有 App 更新：统一灯控及独立守护、网络状态 JSON、
+MQTT/GPS 心跳扩展，并保留 MQTT 就绪启动门控。服务停止流程按用户选择
+与现用 WSL 一致：按配置强制停止，不清空 IPC，不显式保留 FRP。
+验证范围与二进制来源见 [本轮整合与验证](docs/App版本整合与验证_20261126.md)。
+
 - `apps/`：App维护主线。已集成模块以当前SDK副本为准，补充本地独立工具（含PPS计数器）。
 - `sdk/baseline/`：原厂子仓库提交、manifest和定制文件/删除清单。
 - `sdk/overlay/`：按SDK相对路径保存新增及修改文件。既有文件的修改也保存完整文件，便于审查和维护；删除项在changes.json中。
@@ -41,6 +46,11 @@ bash external/rk3506app/build_apps.sh --stage
 ./build.sh extra-parts
 ./build.sh updateimg
 ```
+
+SDK 内的 `build_apps.sh --stage` 现在会先从 Windows 开发目录自动同步应用，
+备份被覆盖/删除的旧文件并校验内容。已有 SDK 产物时可只重做 Buildroot、
+extra-parts 和 updateimg，参见 [App自动同步与构建](docs/App自动同步与构建.md)。
+在本仓库 `apps/` 中直接构建时仍使用仓库源码。
 
 `apps/tk8710app/`保存现用ARM程序和测试数据。TK8710 HAL源码继续在独立的
 `jhh525097562/tk8710_hal`项目中维护；更新这里的二进制时同步记录来源版本及SHA256。
