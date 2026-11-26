@@ -383,6 +383,7 @@ ar rcs ${BUILD_DIR}/libtk8710_hal_complete.a \
     ${BUILD_DIR}/tk8710_core.o \
     ${BUILD_DIR}/tk8710_config.o \
     ${BUILD_DIR}/tk8710_irq.o \
+    ${BUILD_DIR}/tk8710_wakeup.o \
     ${BUILD_DIR}/tk8710_log.o \
     ${BUILD_DIR}/tk8710_rk3506.o \
     ${BUILD_DIR}/hal_api.o \

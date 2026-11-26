@@ -198,6 +198,28 @@ typedef enum {
     TK8710_WAKEUP_MODE_3 = 3,
 } wakeUpMode_e;
 
+/* 异步唤醒发送状态；WAIT_BCN表示时长已到，尚未收到下一次S0结束中断。 */
+typedef enum {
+    TK8710_WAKEUP_IDLE = 0,
+    TK8710_WAKEUP_SENDING,
+    TK8710_WAKEUP_WAIT_BCN,
+    TK8710_WAKEUP_DONE,
+    TK8710_WAKEUP_CANCELLED,
+    TK8710_WAKEUP_ERROR
+} TK8710WakeupState;
+
+typedef struct {
+    TK8710WakeupState state;
+    wakeUpMode_e mode;
+    uint8_t wakeup_id;
+    uint8_t stopped;       /* 1: SPI状态机复位及中断清理已成功 */
+    uint32_t duration_ms;
+    uint64_t elapsed_us;
+    int result;           /* 0成功；非0配置/切换/停止失败 */
+} TK8710WakeupStatus;
+
+typedef void (*TK8710WakeupCallback)(const TK8710WakeupStatus* status, void* user_data);
+
 /* 芯片初始化配置结构体 */
 typedef struct {
     uint32_t bcn_agc;       /* BCN AGC长度, 默认32 */

@@ -120,6 +120,10 @@ static void* IrqThreadFunc(void* arg)
             printf("gpiod_line_event_wait");
             break;
         } else if (ret == 0) {
+            /* Wakeup waits for a real S0 event. Do not clear its pending IRQ
+             * from the ordinary idle timeout path or restart the slave watchdog.
+             */
+            if (TK8710WakeupOwnsIrq()) continue;
             /* 超时，继续等待 */
             s_irq_ctrl1 irqCtrl1;
             irqCtrl1.data = 0x1ff;

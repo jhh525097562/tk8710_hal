@@ -114,11 +114,12 @@ static int parse_u32_argument(const char* text, uint32_t* value)
 
 static void print_usage(const char* program)
 {
-    printf("Usage: %s [mode frequency tx_gain] [--tcp] [--bind IP] [--port PORT]\n",
+    printf("Usage: %s [mode frequency tx_gain] [--wakeup-debug] [--tcp] [--bind IP] [--port PORT]\n",
            program);
     printf("  mode:      5, 6, 7, 8, 9, 10, 11 or 18 (default: 6)\n");
     printf("  frequency: RF frequency in Hz (default: 509100000)\n");
     printf("  tx_gain:   TX gain in decimal or hex (default: 42 / 0x2A)\n");
+    printf("  --wakeup-debug: DEBUG logs with per-antenna register readback (default: INFO)\n");
     printf("  --tcp:     Run the Windows TCP register server instead of console mode\n");
     printf("  --bind:    Listen IPv4 address (default: %s)\n", RF_CAL_DEFAULT_BIND_IP);
     printf("  --port:    Listen TCP port (default: %u)\n", RF_CAL_DEFAULT_PORT);
@@ -274,9 +275,9 @@ static void OnDriverSlotEnd(TK8710IrqResult* irqResult)
 {
     if (!irqResult) return;
     
-    printf("=== Driver Slot End Callback ===\n");
-    printf("中断类型: %d\n", irqResult->irq_type);
-    printf("============================\n");
+    // printf("=== Driver Slot End Callback ===\n");
+    // printf("中断类型: %d\n", irqResult->irq_type);
+    // printf("============================\n");
 }
 
 /**
@@ -801,6 +802,8 @@ void show_help(void)
     printf("  w/W - Write register (input address and value in hex)\n");
     printf("\nTone Configuration Commands:\n");
     printf("  t/T - Configure TX Tone signal (frequency and gain)\n");
+    printf("  u/U - Configure and send wakeup signal\n");
+    printf("  p/P - Stop wakeup transmission, keep program running\n");
     printf("\nTRM Commands (when TRM enabled):\n");
     printf("  m/M - Show TRM statistics\n");
     printf("\nDriver Test Commands:\n");
@@ -953,6 +956,14 @@ void show_irq_statistics(void)
 /**
  * @brief 主函数
  */
+static void OnWakeupComplete(const TK8710WakeupStatus* status, void* user_data)
+{
+    (void)user_data;
+    printf("WAKEUP_FINISHED state=%u result=%d stopped=%u elapsed_us=%llu\n",
+           (unsigned int)status->state, status->result, status->stopped,
+           (unsigned long long)status->elapsed_us);
+}
+
 int main(int argc, char* argv[])
 {
     // Set CPU affinity to core 2
@@ -967,6 +978,7 @@ int main(int argc, char* argv[])
     uint32_t testFreq = 509100000;
     uint32_t Txgain = 0x2a;
     uint8_t tcpMode = 0;
+    uint8_t wakeupDebug = 0;
     const char* tcpBindIp = RF_CAL_DEFAULT_BIND_IP;
     uint16_t tcpPort = RF_CAL_DEFAULT_PORT;
     uint32_t positionalValues[3] = {0};
@@ -977,6 +989,10 @@ int main(int argc, char* argv[])
             strcmp(argv[argIndex], "-h") == 0) {
             print_usage(argv[0]);
             return 0;
+        }
+        if (strcmp(argv[argIndex], "--wakeup-debug") == 0) {
+            wakeupDebug = 1;
+            continue;
         }
         if (strcmp(argv[argIndex], "--tcp") == 0) {
             tcpMode = 1;
@@ -1153,7 +1169,12 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+    /* Init installs WARN defaults; enable diagnostic output after it returns. */
+    TK8710LogSetLevel(wakeupDebug ? TK8710_LOG_DEBUG : TK8710_LOG_INFO);
+    ret = TK8710RegisterWakeupCallback(OnWakeupComplete, NULL);
+    if (ret != TK8710_OK) return 1;
     printf("HAL initialization completed (including RF)\n");
+    printf("WAKEUP_SESSION_V2: driver timed, stop at next S0; p=cancel, u=send next ID\n");
     
     /* 配置并发送单Tone信号 */
     printf("配置单Tone信号...\n");
@@ -1300,6 +1321,7 @@ int main(int argc, char* argv[])
 #endif
     while (g_running) {
         printf("TK8710> ");
+        fflush(stdout);
         
 #ifdef _WIN32
         input = _getch();
@@ -1365,34 +1387,35 @@ int main(int argc, char* argv[])
                 show_trm_statistics();
                 break;
 
+            case 'p':
+            case 'P':
+                ret = TK8710CancelWakeup();
+                if (ret != TK8710_OK) printf("WAKEUP_STOP_FAILED ret=%d\n", ret);
+                break;
+
             case 'u':
             case 'U':
             {
-                unsigned int wakeupMode;
-                unsigned int wakeupLen;
-                wakeUpParam_t wakeupParam;
-
-                printf("请输入唤醒模式和持续时间 (格式: mode len_ms，例如: 2 5000): ");
+                unsigned int wakeup_mode, wakeup_ms, wakeup_id;
+                printf("Enter wakeup mode, duration_ms and ID (mode len_ms id): ");
                 fflush(stdout);
-                if (scanf("%u %u", &wakeupMode, &wakeupLen) != 2 ||
-                    wakeupMode < 1 || wakeupMode > 3 || wakeupLen > 0xFFFFFFu) {
-                    printf("无效参数，模式范围: 1~3，持续时间范围: 0~16777215 ms\n");
+                if (scanf("%u %u %u", &wakeup_mode, &wakeup_ms, &wakeup_id) != 3 ||
+                    wakeup_mode < 1 || wakeup_mode > 3 || wakeup_ms == 0 ||
+                    wakeup_ms > 0xffffffu || wakeup_id > 255u) {
+                    printf("Invalid wakeup parameters\n");
                     break;
                 }
-
-                wakeupParam.wakeUpMode = (wakeUpMode_e)wakeupMode;
-                wakeupParam.wakeUpId = 0;
-                wakeupParam.wakeUpLen = wakeupLen;
-                ret = TK8710Ctrl(TK8710_CTRL_TYPE_SEND_WAKEUP, &wakeupParam);
+                ret = TK8710SendWakeup((wakeUpMode_e)wakeup_mode, wakeup_ms,
+                                       (uint8_t)wakeup_id);
                 if (ret == TK8710_OK) {
-                    printf("唤醒信号发送配置成功: mode=%u, len=%u ms\n",
-                           wakeupMode, wakeupLen);
+                    printf("WAKEUP_STARTED mode=%u duration_ms=%u id=%u\n",
+                           wakeup_mode, wakeup_ms, wakeup_id);
                 } else {
-                    printf("唤醒信号发送配置失败: ret=%d\n", ret);
+                    printf("WAKEUP_START_FAILED ret=%d\n", ret);
                 }
                 break;
             }
-                
+
             case 'q':
             case 'Q':
                 printf("Exiting program...\n");
@@ -1411,7 +1434,13 @@ int main(int argc, char* argv[])
     printf("\n=== 最终中断处理时间统计报告 ===\n");
     TK8710PrintIrqTimeStats();
 
-    TK8710Reset(TK8710_RST_STATE_MACHINE);
+    ret = TK8710CancelWakeup();
+    if (ret != TK8710_OK) {
+        printf("WAKEUP_STOP_FAILED ret=%d\n", ret);
+        return 1;
+    }
+    ret = TK8710Reset(TK8710_RST_STATE_MACHINE);
+    if (ret != TK8710_OK) return 1;
     
     printf("Program ended\n");
     return 0;

@@ -59,6 +59,15 @@ int TK8710GetConfig(TK8710ConfigType type, void* params);
  */
 int TK8710Ctrl(TK8710CtrlType type, const void* params);
 
+/* Driver唤醒模块生命周期/IRQ路由，仅内部使用。 */
+uint8_t TK8710WakeupBusy(void);
+uint8_t TK8710WakeupOwnsIrq(void);
+int TK8710WakeupPrepareInit(void);
+void TK8710WakeupInitComplete(void);
+void TK8710WakeupResetComplete(void);
+uint8_t TK8710WakeupProcessIrq(void);
+void TK8710WakeupDispatchCompletion(void);
+
 typedef enum {
     TK8710_ACM_LOG_SOURCE_MANUAL = 0,
     TK8710_ACM_LOG_SOURCE_INIT,

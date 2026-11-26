@@ -56,6 +56,23 @@ int TK8710RfConfig(const ChiprfConfig* initrfConfig);
  */
 int TK8710Reset(uint8_t rstType);
 
+/** 异步发送唤醒信号。先Init配置频率；调用方先停止/暂停普通业务。
+ * duration_ms=1~16777215，ID=0~255；成功返回仅表示启动。
+ * 从触发时刻计时，到期后的第一个S0结束中断停止。无S0则保持WAIT_BCN。
+ * 发送/等待期间禁止Init、普通Start及配置；正常业务由外部Init/配置/Start恢复。
+ * 调用方须串行化普通业务控制与唤醒启动，不能与已有普通IRQ处理并发切换。
+ */
+int TK8710SendWakeup(wakeUpMode_e mode, uint32_t duration_ms, uint8_t wakeup_id);
+/** 主动取消立即停止，不等待S0。停止失败后仍需检查stopped并复位恢复。 */
+int TK8710CancelWakeup(void);
+int TK8710GetWakeupStatus(TK8710WakeupStatus* status);
+/** 单独注册，不改变原Driver回调结构体ABI。发送期间不能更换。
+ * 完成回调在GPIO IRQ处理线程（取消时为调用线程），释放内部锁后调用一次。
+ * 回调仅投递事件，勿阻塞或直接Init/关闭IRQ线程；应用线程负责恢复正常业务。
+ * status指针仅在回调期间有效。配置启动失败直接返回错误，不发完成事件。
+ */
+int TK8710RegisterWakeupCallback(TK8710WakeupCallback callback, void* user_data);
+
 /* ============================================================================
  * 配置管理API
  * ============================================================================

@@ -1,0 +1,6 @@
+config.json
+results/
+__pycache__/
+password.local.json
+known_hosts.local
+settings.local.json

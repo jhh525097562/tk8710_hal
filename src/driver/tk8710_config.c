@@ -1010,6 +1010,7 @@ uint8_t TK8710GetTxBeamCtrlMode(void)
  */
 int TK8710SetConfig(TK8710ConfigType type, const void* params)
 {
+    if (TK8710WakeupBusy()) return TK8710_ERR;
     if (params == NULL) {
         TK8710_LOG_CONFIG_ERROR("Config params is NULL for type %d", type);
         return TK8710_ERR;
@@ -1342,6 +1343,7 @@ int TK8710GetConfig(TK8710ConfigType type, void* params)
  */
 int TK8710Ctrl(TK8710CtrlType type, const void* params)
 {
+    if (type != TK8710_CTRL_TYPE_SEND_WAKEUP && TK8710WakeupBusy()) return TK8710_ERR;
     switch (type) {
         case TK8710_CTRL_TYPE_ACM_START:
         {
@@ -1388,24 +1390,17 @@ int TK8710Ctrl(TK8710CtrlType type, const void* params)
         {
             const wakeUpParam_t* wakeUpParam = (const wakeUpParam_t*)params;
             s_wakeup_ctrl wakeupCtrl;
-            
-            if (wakeUpParam == NULL) {
-                return TK8710_ERR;
-            }
 
-            if (wakeUpParam->wakeUpMode < TK8710_WAKEUP_MODE_1 ||
+            /* Legacy hardware control retained for callers with custom register
+             * settings. New managed async sending uses TK8710SendWakeup instead.
+             */
+            if (TK8710WakeupBusy() || wakeUpParam == NULL ||
+                wakeUpParam->wakeUpMode < TK8710_WAKEUP_MODE_1 ||
                 wakeUpParam->wakeUpMode > TK8710_WAKEUP_MODE_3 ||
-                wakeUpParam->wakeUpLen > 0xFFFFFFu) {
-                TK8710_LOG_CONFIG_ERROR("Invalid wakeup parameters: mode=%u, len=%u ms",
-                                        (unsigned int)wakeUpParam->wakeUpMode,
-                                        (unsigned int)wakeUpParam->wakeUpLen);
-                return TK8710_ERR;
-            }
-
+                wakeUpParam->wakeUpLen > 0xffffffu) return TK8710_ERR;
             wakeupCtrl.data = 0;
             wakeupCtrl.b.wakeup_mode = (uint32_t)wakeUpParam->wakeUpMode;
             wakeupCtrl.b.wakeup_len = wakeUpParam->wakeUpLen;
-
             return TK8710WriteReg(TK8710_REG_TYPE_GLOBAL,
                                   MAC_BASE + offsetof(struct mac, wakeup_ctrl),
                                   wakeupCtrl.data);
@@ -1432,6 +1427,7 @@ int TK8710Ctrl(TK8710CtrlType type, const void* params)
 int TK8710DebugCtrl(TK8710DebugCtrlType ctrlType, CtrlOptType optType,
                     const void* inputParams, void* outputParams)
 {
+    if (TK8710WakeupBusy()) return TK8710_ERR;
     switch (ctrlType) {
         case TK8710_DBG_TYPE_TX_TONE:
         {

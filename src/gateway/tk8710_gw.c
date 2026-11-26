@@ -79,7 +79,7 @@
 
 /* 运行标志 */
 /* Version info */
-#define TK8710_GW_VERSION          "1.0.0"
+#define TK8710_GW_VERSION          "1.0.1"
 #define TK8710_GW_VERSION_PLATFORM "RK3506"
 #define TK8710_GW_VERSION_STRING   TK8710_GW_VERSION " (" TK8710_GW_VERSION_PLATFORM ")"
 

@@ -413,6 +413,15 @@ void TK8710_IRQHandler(void)
     
     /* 设置中断处理进行标志 */
     g_irqInProgress = 1;
+
+    /* Wakeup owns all IRQs until external Init restores normal operation.
+     * In particular, S0 must not rotate BCN antennas or invoke normal TX callbacks.
+     */
+    if (TK8710WakeupProcessIrq()) {
+        g_irqInProgress = 0;
+        TK8710WakeupDispatchCompletion();
+        return;
+    }
     
     /* 1. 读取中断状态寄存器 */
     ret = TK8710ReadReg(TK8710_REG_TYPE_GLOBAL, 
@@ -1634,6 +1643,7 @@ int TK8710ClearTxUserData(uint8_t userIndex)
  */
 int TK8710SetTxData(TK8710DownlinkType downlinkType, uint8_t index, const uint8_t* data, uint16_t dataLen, uint8_t txPower, uint8_t beamType)
 {
+    if (TK8710WakeupBusy()) return TK8710_ERR;
     if (downlinkType == TK8710_DOWNLINK_A) {
         /* 下行1 (广播数据) */
         if (index >= 16 || data == NULL || dataLen == 0) {

@@ -340,6 +340,8 @@ int TK8710Init(const ChipConfig* initConfig)
     s_irq_ctrl1 irqCtrl1;
     const ChipConfig* cfg = initConfig ? initConfig : &g_defaultChipConfig;
 
+    if (TK8710WakeupPrepareInit() != TK8710_OK) return TK8710_ERR;
+
     ret = TK8710HardwareResetPulse();
     if (ret != TK8710_OK) {
 #ifdef PLATFORM_JTOOL
@@ -609,6 +611,7 @@ int TK8710Init(const ChipConfig* initConfig)
     TK8710LogInit(&defaultLogConfig);
     
     TK8710_LOG_CORE_INFO("TK8710 initialized successfully");
+    TK8710WakeupInitComplete();
     return TK8710_OK;
 }
 
@@ -879,6 +882,7 @@ static int tk8710_start_once(uint8_t workType, uint8_t workMode)
  */
 int TK8710Start(uint8_t workType, uint8_t workMode)
 {
+    if (TK8710WakeupBusy()) return TK8710_ERR;
     uint8_t enableSlaveBcnWatchdog =
         (workType == TK8710_MODE_SLAVE &&
          workMode == TK8710_WORK_MODE_CONTINUOUS);
@@ -926,6 +930,7 @@ void TK8710StartSlaveBcnWatchdog(void)
 
 void TK8710ProcessRuntimeWatchdog(void)
 {
+    if (TK8710WakeupOwnsIrq()) return;
     uint32_t nowMs;
     int ret;
 
@@ -985,6 +990,7 @@ int TK8710FastStart(uint8_t workType, uint8_t workMode)
 
 int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
 {
+    if (TK8710WakeupBusy()) return TK8710_ERR;
     int ret;
     slotCfg_t* slotCfg = (slotCfg_t*)TK8710GetSlotConfig();
     s_init_5 init5;
@@ -1131,6 +1137,7 @@ int TK8710FastStartPrepare(uint8_t workType, uint8_t workMode)
 
 int TK8710FastStartTrigger(uint8_t workType)
 {
+    if (TK8710WakeupBusy()) return TK8710_ERR;
     int ret;
 
     if (workType == TK8710_MODE_MASTER || workType == TK8710_MODE_LOOPBACK) {
@@ -1164,6 +1171,7 @@ int TK8710FastStartTrigger(uint8_t workType)
  */
 int TK8710RfConfig(const ChiprfConfig* initrfConfig)
 {
+    if (TK8710WakeupBusy()) return TK8710_ERR;
     int ret;
     int i;
     s_tx_config_29 txConfig29;
@@ -1453,6 +1461,7 @@ int TK8710Txbcnctl(uint8_t bcnantennasel, uint8_t bcnbits)
  */
 int TK8710Reset(uint8_t rstType)
 {
+    if (TK8710WakeupBusy()) return TK8710_ERR;
     int ret;
     uint8_t resetConfig = 0;
 
@@ -1481,6 +1490,7 @@ int TK8710Reset(uint8_t rstType)
     
     /* 调用HAL层SPI复位命令 */
     ret = TK8710SpiReset(resetConfig);
+    if (ret == TK8710_OK) TK8710WakeupResetComplete();
     
     return (ret == 0) ? TK8710_OK : TK8710_ERR;
 }

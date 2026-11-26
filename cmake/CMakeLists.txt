@@ -49,6 +49,7 @@ set(LEGACY_SOURCES
     ../src/driver/tk8710_core.c
     ../src/driver/tk8710_config.c
     ../src/driver/tk8710_irq.c
+    ../src/driver/tk8710_wakeup.c
     ../src/trm/trm_core.c
     ../src/trm/trm_pps_monitor.c
     ../src/trm/trm_beam.c

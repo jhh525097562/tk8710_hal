@@ -27,6 +27,7 @@ COMMON_SRC = src/driver/tk8710_log.c
 DRIVER_SRC = src/driver/tk8710_core.c \
              src/driver/tk8710_spi.c \
              src/driver/tk8710_irq.c \
+             src/driver/tk8710_wakeup.c \
              src/driver/tk8710_config.c
 TRM_SRC = src/trm/trm_core.c \
           src/trm/trm_pps_monitor.c \
