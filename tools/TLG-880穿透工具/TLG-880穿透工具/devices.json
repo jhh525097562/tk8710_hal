@@ -1,0 +1,11 @@
+{
+    "serverAddr":  "amqtt.taolink-tech.com",
+    "serverPort":  8866,
+    "webBindPort":  18090,
+    "sshBindPort":  10022,
+    "gateways":  [
+                     {
+                         "gatewayId":  "1499999999999991"
+                     }
+                 ]
+}
