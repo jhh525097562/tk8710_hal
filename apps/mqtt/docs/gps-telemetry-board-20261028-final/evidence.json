@@ -1,0 +1,482 @@
+{
+  "host": "192.168.100.208",
+  "remote_backup": "/userdata/gps_telemetry_20261028_113129",
+  "commands": {
+    "mqtt_bridge": "/userdata/mqtt_bridge",
+    "tk8710_gw": "/userdata/tk8710_gw -w /userdata/ -g 0x2e --driver-log-level warn --trm-log-level warn"
+  },
+  "states": [
+    {
+      "schema": 1,
+      "pid": 426,
+      "start_ticks": 169840,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "wait_ns_config",
+      "reason": "awaiting_ns_config",
+      "error_code": 0,
+      "gps_enable": -1,
+      "business_ready": false,
+      "exited": false,
+      "state_since_mono_ms": 1698420,
+      "updated_mono_ms": 1698420,
+      "phase_timeout_s": 35
+    },
+    {
+      "schema": 1,
+      "pid": 426,
+      "start_ticks": 169840,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "configuring",
+      "reason": "hal_initialization",
+      "error_code": 0,
+      "gps_enable": 1,
+      "business_ready": false,
+      "exited": false,
+      "state_since_mono_ms": 1698621,
+      "updated_mono_ms": 1698621,
+      "phase_timeout_s": 120
+    },
+    {
+      "schema": 1,
+      "pid": 426,
+      "start_ticks": 169840,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "wait_pps_alignment",
+      "reason": "pps_period_alignment",
+      "error_code": 0,
+      "gps_enable": 1,
+      "business_ready": false,
+      "exited": false,
+      "state_since_mono_ms": 1700774,
+      "updated_mono_ms": 1700774,
+      "phase_timeout_s": 90
+    },
+    {
+      "schema": 1,
+      "pid": 426,
+      "start_ticks": 169840,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "configuring",
+      "reason": "hal_configuration",
+      "error_code": 0,
+      "gps_enable": 1,
+      "business_ready": false,
+      "exited": false,
+      "state_since_mono_ms": 1720917,
+      "updated_mono_ms": 1720917,
+      "phase_timeout_s": 120
+    },
+    {
+      "schema": 1,
+      "pid": 426,
+      "start_ticks": 169840,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "running",
+      "reason": "business_started",
+      "error_code": 0,
+      "gps_enable": 1,
+      "business_ready": true,
+      "exited": false,
+      "state_since_mono_ms": 1720919,
+      "updated_mono_ms": 1720919,
+      "phase_timeout_s": 0
+    },
+    {
+      "schema": 1,
+      "pid": 546,
+      "start_ticks": 172295,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "wait_ns_config",
+      "reason": "awaiting_ns_config",
+      "error_code": 0,
+      "gps_enable": -1,
+      "business_ready": false,
+      "exited": false,
+      "state_since_mono_ms": 1722970,
+      "updated_mono_ms": 1722970,
+      "phase_timeout_s": 35
+    },
+    {
+      "schema": 1,
+      "pid": 546,
+      "start_ticks": 172295,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "configuring",
+      "reason": "hal_initialization",
+      "error_code": 0,
+      "gps_enable": 1,
+      "business_ready": false,
+      "exited": false,
+      "state_since_mono_ms": 1723166,
+      "updated_mono_ms": 1723166,
+      "phase_timeout_s": 120
+    },
+    {
+      "schema": 1,
+      "pid": 546,
+      "start_ticks": 172295,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "wait_pps_alignment",
+      "reason": "pps_period_alignment",
+      "error_code": 0,
+      "gps_enable": 1,
+      "business_ready": false,
+      "exited": false,
+      "state_since_mono_ms": 1725318,
+      "updated_mono_ms": 1725318,
+      "phase_timeout_s": 90
+    },
+    {
+      "schema": 1,
+      "pid": 546,
+      "start_ticks": 172295,
+      "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+      "state": "running",
+      "reason": "business_started",
+      "error_code": 0,
+      "gps_enable": 1,
+      "business_ready": true,
+      "exited": false,
+      "state_since_mono_ms": 1745461,
+      "updated_mono_ms": 1745461,
+      "phase_timeout_s": 0
+    }
+  ],
+  "gps_samples": [
+    {
+      "received_time": 1793158343.4748936,
+      "mtime": 1793158342,
+      "values": {
+        "lon": "114.537070",
+        "lat": "30.492825",
+        "status": "4",
+        "count": "31",
+        "avgsnr": "36"
+      }
+    },
+    {
+      "received_time": 1793158353.9159749,
+      "mtime": 1793158352,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "5",
+        "count": "33",
+        "avgsnr": "36"
+      }
+    },
+    {
+      "received_time": 1793158364.3026965,
+      "mtime": 1793158363,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "6",
+        "count": "32",
+        "avgsnr": "37"
+      }
+    },
+    {
+      "received_time": 1793158373.6437929,
+      "mtime": 1793158373,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "7",
+        "count": "33",
+        "avgsnr": "35"
+      }
+    },
+    {
+      "received_time": 1793158383.9981735,
+      "mtime": 1793158383,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "8",
+        "count": "35",
+        "avgsnr": "36"
+      }
+    },
+    {
+      "received_time": 1793158394.3966432,
+      "mtime": 1793158393,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "9",
+        "count": "33",
+        "avgsnr": "36"
+      }
+    },
+    {
+      "received_time": 1793158403.7379491,
+      "mtime": 1793158403,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "10",
+        "count": "31",
+        "avgsnr": "38"
+      }
+    },
+    {
+      "received_time": 1793158414.0853748,
+      "mtime": 1793158413,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "11",
+        "count": "31",
+        "avgsnr": "34"
+      }
+    },
+    {
+      "received_time": 1793158424.4399376,
+      "mtime": 1793158423,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "12",
+        "count": "31",
+        "avgsnr": "37"
+      }
+    },
+    {
+      "received_time": 1793158433.7962942,
+      "mtime": 1793158433,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "13",
+        "count": "31",
+        "avgsnr": "37"
+      }
+    },
+    {
+      "received_time": 1793158444.1778932,
+      "mtime": 1793158443,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "14",
+        "count": "31",
+        "avgsnr": "39"
+      }
+    },
+    {
+      "received_time": 1793158454.5262372,
+      "mtime": 1793158453,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "15",
+        "count": "31",
+        "avgsnr": "38"
+      }
+    },
+    {
+      "received_time": 1793158463.8833692,
+      "mtime": 1793158463,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492826",
+        "status": "16",
+        "count": "32",
+        "avgsnr": "40"
+      }
+    },
+    {
+      "received_time": 1793158474.2302942,
+      "mtime": 1793158473,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492827",
+        "status": "17",
+        "count": "32",
+        "avgsnr": "39"
+      }
+    },
+    {
+      "received_time": 1793158484.7143345,
+      "mtime": 1793158483,
+      "values": {
+        "lon": "114.537068",
+        "lat": "30.492827",
+        "status": "18",
+        "count": "33",
+        "avgsnr": "37"
+      }
+    }
+  ],
+  "config_hashes_before": {
+    "/etc/config.json": "ecbe6821f0afb9df71bd00b139502a32b907826268458904ee854f046181eda4",
+    "/etc/tdaemon.conf": "eae1651e2087771ab7aeda43d0b5f2f046a7ca95b5eeb6cdb454069ba6def815"
+  },
+  "boot_id_before": "2cee5713-d836-4405-972e-3df98199e09e",
+  "other_apps_before": {
+    "web_server": [
+      "2327"
+    ],
+    "frpc": [
+      "3128"
+    ],
+    "tdaemon.sh": [
+      "1731"
+    ]
+  },
+  "original_args": {
+    "tk8710_gw": [
+      "-w",
+      "/userdata/",
+      "-g",
+      "0x2e",
+      "--driver-log-level",
+      "warn",
+      "--trm-log-level",
+      "warn"
+    ],
+    "mqtt_bridge": []
+  },
+  "new_sha256": {
+    "tk8710_gw": "0dfb01c980cfbdacb8c2c33d6d90962ea00ea4d06485d70704b9286546e76ad7",
+    "mqtt_bridge": "6315bfcf4a843642f6aafb423308eba80ba5226bc391ce7546882384736e405f"
+  },
+  "graceful_exit": {
+    "schema": 1,
+    "pid": 426,
+    "start_ticks": 169840,
+    "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+    "state": "stopped",
+    "reason": "signal_received",
+    "error_code": 0,
+    "gps_enable": 1,
+    "business_ready": false,
+    "exited": true,
+    "state_since_mono_ms": 1721794,
+    "updated_mono_ms": 1721794,
+    "phase_timeout_s": 0
+  },
+  "gps_update_intervals_s": [
+    10,
+    11,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10
+  ],
+  "broker_heartbeats": [
+    {
+      "received_time": 1793158380.4034038,
+      "payload": {
+        "alive": {
+          "ver": "mqtt_spi_v1.0.0",
+          "uptime": 1793158380,
+          "net": "eth0",
+          "power": 1,
+          "rfstatus": "11111111",
+          "lon": "114.537068",
+          "lat": "30.492826",
+          "status": 7,
+          "count": 33,
+          "avgsnr": 35,
+          "system": {
+            "uptime_s": 1783,
+            "ram_total_bytes": 501223424,
+            "ram_used_bytes": 120467456,
+            "ram_used_percent": 24.034681986450817,
+            "disk_total_bytes": 1002381312,
+            "disk_used_bytes": 36311040,
+            "disk_used_percent": 3.6224777502635646,
+            "load_avg": [
+              0.0986328125,
+              0.1474609375,
+              0.1103515625
+            ]
+          },
+          "tk8710_gw": {
+            "running": true,
+            "uptime_s": 59
+          }
+        }
+      },
+      "retained": false
+    },
+    {
+      "received_time": 1793158440.4300616,
+      "payload": {
+        "alive": {
+          "ver": "mqtt_spi_v1.0.0",
+          "uptime": 1793158440,
+          "net": "eth0",
+          "power": 1,
+          "rfstatus": "11111111",
+          "lon": "114.537068",
+          "lat": "30.492826",
+          "status": 13,
+          "count": 31,
+          "avgsnr": 37,
+          "system": {
+            "uptime_s": 1843,
+            "ram_total_bytes": 501223424,
+            "ram_used_bytes": 121040896,
+            "ram_used_percent": 24.149090047315905,
+            "disk_total_bytes": 1002381312,
+            "disk_used_bytes": 36311040,
+            "disk_used_percent": 3.6224777502635646,
+            "load_avg": [
+              0.103515625,
+              0.146484375,
+              0.10986328125
+            ]
+          },
+          "tk8710_gw": {
+            "running": true,
+            "uptime_s": 119
+          }
+        }
+      },
+      "retained": false
+    }
+  ],
+  "final_status": {
+    "schema": 1,
+    "pid": 546,
+    "start_ticks": 172295,
+    "boot_id": "2cee5713-d836-4405-972e-3df98199e09e",
+    "state": "running",
+    "reason": "business_running",
+    "error_code": 0,
+    "gps_enable": 1,
+    "business_ready": true,
+    "exited": false,
+    "state_since_mono_ms": 1745461,
+    "updated_mono_ms": 1896196,
+    "phase_timeout_s": 0
+  },
+  "boot_id_after": "2cee5713-d836-4405-972e-3df98199e09e",
+  "other_apps_after": {
+    "web_server": [
+      "2327"
+    ],
+    "frpc": [
+      "3128"
+    ],
+    "tdaemon.sh": [
+      "1731"
+    ]
+  },
+  "result": "PASS",
+  "config_hashes_after": {
+    "/etc/config.json": "ecbe6821f0afb9df71bd00b139502a32b907826268458904ee854f046181eda4",
+    "/etc/tdaemon.conf": "eae1651e2087771ab7aeda43d0b5f2f046a7ca95b5eeb6cdb454069ba6def815"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "initial": {
+    "hostname": "TurMassLink",
+    "model": "RK3506b2",
+    "arch": "ARMv7",
+    "device_coords": "",
+    "firmware_version": "mqtt_spi_v1.0.0",
+    "kernel_version": "6.1",
+    "local_time": "2026-09-11 17:50:27",
+    "uptime": "102h 12m 17s",
+    "load_avg": [
+      0.05,
+      0.1,
+      0.09
+    ],
+    "app_version": "web_v1.0.0",
+    "disk_percent": 4,
+    "disk_used": 42,
+    "disk_total": 967,
+    "mem_percent": 29,
+    "mem_used": 141,
+    "mem_total": 478,
+    "tk8710_gw": {
+      "running": false,
+      "uptime_s": null
+    },
+    "rfstatus": null,
+    "gps_enabled": null
+  },
+  "missing_state_pass": true,
+  "off_display_fixture_pass": true,
+  "after_gateway_exit": {
+    "hostname": "TurMassLink",
+    "model": "RK3506b2",
+    "arch": "ARMv7",
+    "device_coords": "",
+    "firmware_version": "mqtt_spi_v1.0.0",
+    "kernel_version": "6.1",
+    "local_time": "2026-09-11 17:51:03",
+    "uptime": "102h 12m 53s",
+    "load_avg": [
+      0.21,
+      0.14,
+      0.1
+    ],
+    "app_version": "web_v1.0.0",
+    "disk_percent": 4,
+    "disk_used": 43,
+    "disk_total": 967,
+    "mem_percent": 29,
+    "mem_used": 142,
+    "mem_total": 478,
+    "tk8710_gw": {
+      "running": false,
+      "uptime_s": null
+    },
+    "rfstatus": null,
+    "gps_enabled": null
+  },
+  "passed": true,
+  "restored_web": "/userdata/web_server"
+}

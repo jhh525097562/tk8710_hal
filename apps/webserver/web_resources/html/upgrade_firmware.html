@@ -1,0 +1,154 @@
+<div class="panel">
+  <div class="panel-header">固件升级</div>
+  <div class="panel-body">
+    <div class="alert alert-warning">注意：升级过程中请勿断电，升级完成后设备将自动重启。</div>
+    <div id="upload-form">
+      <div class="form-group">
+        <label class="form-label">选择固件 (.swu)</label>
+        <input type="file" id="firmware-file" accept=".swu">
+      </div>
+      <div class="form-group">
+        <label class="form-label"></label>
+        <button onclick="startUpgrade()" class="btn">开始升级</button>
+      </div>
+    </div>
+    <div id="progress-container" style="display:none; padding: 20px;">
+      <div style="margin-bottom: 10px;">正在升级中，请勿断电... <span id="progress-text">0</span></div>
+      <div class="progress-container">
+        <div id="progress-bar" class="progress-bar" style="width:0">0</div>
+      </div>
+      <div id="upgrade-status" style="margin-top: 10px; color: #666;">正在上传文件...</div>
+    </div>
+  </div>
+</div>
+<script>
+var UPLOAD_CHUNK_SIZE = 512 * 1024;
+var PERCENT_SIGN = String.fromCharCode(37);
+
+function startUpgrade() {
+  var fileInput = document.getElementById('firmware-file');
+  var file = fileInput.files[0];
+  if (!file) {
+    alert('请选择固件文件');
+    return;
+  }
+  if (!/\.swu$/i.test(file.name)) {
+    alert('请选择 .swu 固件文件');
+    return;
+  }
+  document.getElementById('upload-form').style.display = 'none';
+  document.getElementById('progress-container').style.display = 'block';
+  updateProgress(0, '正在上传文件...');
+
+  uploadFileInChunks(file, 0, function() {
+    startUpgradeInstall();
+  }, function(message) {
+    alert(message);
+    resetForm();
+  });
+}
+
+function updateProgress(percent, text) {
+  document.getElementById('progress-bar').style.width = percent + PERCENT_SIGN;
+  document.getElementById('progress-bar').innerText = percent + PERCENT_SIGN;
+  document.getElementById('progress-text').innerText = percent + PERCENT_SIGN;
+  if (text) document.getElementById('upgrade-status').innerText = text;
+}
+
+function formatRequestError(xhr, prefix) {
+  var text = xhr && xhr.responseText ? xhr.responseText.trim() : '';
+  var code = xhr ? xhr.status : 0;
+  if (!text) text = 'HTTP ' + code;
+  return prefix + ': ' + text;
+}
+
+function uploadFileInChunks(file, offset, onSuccess, onError) {
+  var end = Math.min(offset + UPLOAD_CHUNK_SIZE, file.size);
+  var chunk = file.slice(offset, end);
+  var xhr = new XMLHttpRequest();
+  var url = '/upload?file=' + encodeURIComponent('image.swu') + '&offset=' + offset;
+
+  xhr.upload.addEventListener('progress', function(e) {
+    if (!e.lengthComputable) return;
+    var uploaded = offset + e.loaded;
+    var percent = Math.min(90, Math.round((uploaded / file.size) * 90));
+    updateProgress(percent, '正在上传文件... ' + Math.min(100, Math.round((uploaded / file.size) * 100)) + PERCENT_SIGN);
+  });
+
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState !== 4) return;
+    if (xhr.status !== 200) {
+      onError(formatRequestError(xhr, '上传失败'));
+      return;
+    }
+
+    var nextOffset = end;
+    var percent = Math.min(90, Math.round((nextOffset / file.size) * 90));
+    updateProgress(percent, nextOffset >= file.size ? '文件上传完成，正在启动升级...' : '正在上传文件... ' + Math.min(100, Math.round((nextOffset / file.size) * 100)) + PERCENT_SIGN);
+
+    if (nextOffset >= file.size) {
+      onSuccess();
+      return;
+    }
+    uploadFileInChunks(file, nextOffset, onSuccess, onError);
+  };
+
+  xhr.onerror = function() {
+    onError('上传失败: 网络异常');
+  };
+
+  xhr.open('POST', url, true);
+  xhr.send(chunk);
+}
+
+function startUpgradeInstall() {
+  var xhr = new XMLHttpRequest();
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState !== 4) return;
+    if (xhr.status === 200) {
+      updateProgress(92, '文件上传完成，正在写入固件...');
+      checkUpgradeStatus();
+    } else {
+      alert(formatRequestError(xhr, '启动升级失败'));
+      resetForm();
+    }
+  };
+  xhr.onerror = function() {
+    alert('启动升级失败: 网络异常');
+    resetForm();
+  };
+  xhr.open('POST', '/upload/start', true);
+  xhr.send('');
+}
+
+function checkUpgradeStatus() {
+  var interval = setInterval(function() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/upgrade_status', true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4 && xhr.status === 200) {
+        var res = JSON.parse(xhr.responseText);
+        if (res.status === 'done') {
+          clearInterval(interval);
+          updateProgress(100, '升级成功，设备即将重启...');
+          setTimeout(function() { location.reload(); }, 5000);
+        } else if (res.status === 'error') {
+          clearInterval(interval);
+          alert('升级失败: ' + res.message);
+          resetForm();
+        } else if (res.status === 'installing') {
+          var current = parseInt(document.getElementById('progress-bar').style.width);
+          if (isNaN(current) || current < 92) current = 92;
+          if (current < 99) updateProgress(current + 1, '正在安装固件...');
+        }
+      }
+    };
+    xhr.send();
+  }, 1000);
+}
+
+function resetForm() {
+  document.getElementById('upload-form').style.display = 'block';
+  document.getElementById('progress-container').style.display = 'none';
+}
+</script>

@@ -1,0 +1,21 @@
+serverAddr = "amqtt.taolink-tech.com"
+serverPort = 8866
+
+auth.method = "token"
+auth.token = "DEPLOYMENT_REQUIRED"
+
+# DEVICE_ID_STRING is replaced by start_frpc.sh from /etc/config.json gateway_id.
+
+[[proxies]]
+name = "rk3506-DEVICE_ID_STRING-web"
+type = "stcp"
+secretKey = "DEPLOYMENT_REQUIRED"
+localIP = "127.0.0.1"
+localPort = 8090
+
+[[proxies]]
+name = "rk3506-DEVICE_ID_STRING-ssh"
+type = "stcp"
+secretKey = "DEPLOYMENT_REQUIRED"
+localIP = "127.0.0.1"
+localPort = 22

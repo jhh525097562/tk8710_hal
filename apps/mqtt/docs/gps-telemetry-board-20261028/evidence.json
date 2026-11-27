@@ -1,0 +1,35 @@
+{
+  "host": "192.168.100.208",
+  "remote_backup": "/userdata/gps_telemetry_20261028_112826",
+  "commands": {
+    "mqtt_bridge": "/userdata/mqtt_bridge"
+  },
+  "states": [],
+  "gps_samples": [],
+  "config_hashes_before": {
+    "/etc/config.json": "ecbe6821f0afb9df71bd00b139502a32b907826268458904ee854f046181eda4",
+    "/etc/tdaemon.conf": "eae1651e2087771ab7aeda43d0b5f2f046a7ca95b5eeb6cdb454069ba6def815"
+  },
+  "boot_id_before": "2cee5713-d836-4405-972e-3df98199e09e",
+  "other_apps_before": {
+    "web_server": [
+      "2327"
+    ],
+    "frpc": [
+      "3128"
+    ],
+    "tdaemon.sh": [
+      "1731"
+    ]
+  },
+  "new_sha256": {
+    "tk8710_gw": "0dfb01c980cfbdacb8c2c33d6d90962ea00ea4d06485d70704b9286546e76ad7",
+    "mqtt_bridge": "6315bfcf4a843642f6aafb423308eba80ba5226bc391ce7546882384736e405f"
+  },
+  "error": "",
+  "result": "FAIL",
+  "config_hashes_after": {
+    "/etc/config.json": "ecbe6821f0afb9df71bd00b139502a32b907826268458904ee854f046181eda4",
+    "/etc/tdaemon.conf": "eae1651e2087771ab7aeda43d0b5f2f046a7ca95b5eeb6cdb454069ba6def815"
+  }
+}

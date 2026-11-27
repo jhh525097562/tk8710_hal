@@ -1,0 +1,98 @@
+#!/bin/sh
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+LOG_FILE="/root/cfg_restore_gpio.log"
+exec >>"$LOG_FILE" 2>&1
+
+GPIO_CHIP="${GPIO_CHIP:-/dev/gpiochip1}"
+GPIO_LINE="${GPIO_LINE:-16}"
+GPIO_LOW_STABLE_COUNT="${GPIO_LOW_STABLE_COUNT:-5}"
+GPIO_POLL_INTERVAL_S="${GPIO_POLL_INTERVAL_S:-1}"
+
+SRC_DIR="/oem"
+DST_ETC="/etc"
+DST_NET="/etc/network"
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [cfg_restore_gpio] $1"
+}
+
+read_gpio_level() {
+    command -v gpioget >/dev/null 2>&1 || return 2
+    gpioget "$GPIO_CHIP" "$GPIO_LINE" 2>/dev/null
+}
+
+copy_required_file() {
+    local src="$1"
+    local dst="$2"
+    [ -f "$src" ] || {
+        log "缺少源文件: $src"
+        return 1
+    }
+    cp -f "$src" "$dst" || {
+        log "拷贝失败: $src -> $dst"
+        return 1
+    }
+    return 0
+}
+
+restore_configs() {
+    mkdir -p "$DST_NET" || return 1
+
+    copy_required_file "$SRC_DIR/config.json" "$DST_ETC/config.json" || return 1
+    copy_required_file "$SRC_DIR/tdaemon.conf" "$DST_ETC/tdaemon.conf" || return 1
+    copy_required_file "$SRC_DIR/wpa_supplicant.conf" "$DST_ETC/wpa_supplicant.conf" || return 1
+    copy_required_file "$SRC_DIR/hostapd.conf" "$DST_ETC/hostapd.conf" || return 1
+    copy_required_file "$SRC_DIR/interfaces" "$DST_NET/interfaces" || return 1
+
+    sync >/dev/null 2>&1 || true
+    return 0
+}
+
+reboot_system_now() {
+    log "配置恢复完成，准备重启设备"
+    if command -v reboot >/dev/null 2>&1; then
+        reboot -f >/dev/null 2>&1 || reboot >/dev/null 2>&1 || true
+        return 0
+    fi
+    [ -x /sbin/reboot ] && {
+        /sbin/reboot -f >/dev/null 2>&1 || /sbin/reboot >/dev/null 2>&1 || true
+        return 0
+    }
+    command -v busybox >/dev/null 2>&1 && {
+        busybox reboot -f >/dev/null 2>&1 || busybox reboot >/dev/null 2>&1 || true
+        return 0
+    }
+    return 1
+}
+
+main() {
+    # 捕获 SIGINT (Ctrl+C) 信号，收到时立即退出脚本
+    # trap 'log "收到 SIGINT (Ctrl+C) 信号，脚本退出"; exit 0' INT
+    # trap 'log "收到 SIGTERM 信号，脚本退出"; exit 0' TERM
+
+    local low_count=0
+    local level
+
+    if ! command -v gpioget >/dev/null 2>&1; then
+        log "未找到gpioget，退出"
+        exit 1
+    fi
+
+    while true; do
+        level=$(read_gpio_level)
+        if [ "$level" = "0" ]; then
+            low_count=$((low_count + 1))
+            if [ "$low_count" -ge "$GPIO_LOW_STABLE_COUNT" ]; then
+                log "检测到GPIO低电平稳定触发: chip=$GPIO_CHIP line=$GPIO_LINE"
+                restore_configs || exit 1
+                reboot_system_now || exit 1
+                exit 0
+            fi
+        else
+            low_count=0
+        fi
+        sleep "$GPIO_POLL_INTERVAL_S"
+    done
+}
+
+main "$@" &

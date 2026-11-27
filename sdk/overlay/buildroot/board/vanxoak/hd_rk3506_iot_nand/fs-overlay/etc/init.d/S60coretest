@@ -1,0 +1,46 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          rk3506_core_test
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Run RK3506 core test on startup
+### END INIT INFO
+
+# 定义目录和文件路径
+MOUNT_POINT="/mnt/udisk"
+TEST_DIR="$MOUNT_POINT/rk3506-nand-core-test"
+SCRIPT_FILE="$TEST_DIR/rk3506_core_test.sh"
+TEST_MAIN="$TEST_DIR/test_main.sh"
+
+case "$1" in
+  start)
+    echo "Checking for RK3506 core test script..."
+    if [ -f "$SCRIPT_FILE" ]; then
+        echo "Script found, remounting $MOUNT_POINT with execute permissions..."
+        mount -o remount,exec $MOUNT_POINT
+        chmod +x "$SCRIPT_FILE" "$TEST_MAIN"
+        cd "$TEST_DIR" || exit 1
+        echo "Executing test_main.sh..."
+        sh "$TEST_MAIN" &
+    else
+        echo "RK3506 core test script not found, skipping."
+    fi
+    ;;
+  stop)
+    echo "Stopping RK3506 core test..."
+    # 可添加停止脚本的逻辑，如杀掉相关进程
+    ;;
+  restart)
+    $0 stop
+    $0 start
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac
+
+exit 0
+

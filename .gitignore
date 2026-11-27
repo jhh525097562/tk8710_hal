@@ -1,40 +1,18 @@
-# 编译输出文件
+/.private/
+/.sync/
+/local.env
+**/__pycache__/
+**/build_arm/
+**/build_sdk/
+**/remote_logs/
+**/logs/
+**/backup/
 *.o
-*.a
-*.exe
-*.out
-*.elf
-*.bin
-*.hex
-
-# 临时文件
-*.tmp
-*.temp
-*~
-
-# 日志文件
+*.pyc
 *.log
-
-# IDE文件
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# 系统文件
-.DS_Store
-Thumbs.db
-
-# 编译器生成的文件夹
-build/
-dist/
-# build_rk3506/  # 注释掉，允许上传编译结果
-
-# 调试文件
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# 配置文件（如果包含敏感信息）
-config.local.h
+*.img
+*.rar
+*.bak
+*.bak[0-9]*
+*.generated.toml
+*.private.pem

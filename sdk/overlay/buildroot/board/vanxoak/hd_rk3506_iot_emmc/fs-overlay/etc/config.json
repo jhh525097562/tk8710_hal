@@ -1,0 +1,21 @@
+{
+  "mqtt_host":"47.92.195.235",
+  "mqtt_port":41883,
+  "username":"admin",
+  "password":"DEPLOYMENT_REQUIRED",
+  "gateway_id":"9999999999999991",
+  "pub_topic":"tkg9999999999999991\/msg\/up",
+  "sub_topic":"tkg9999999999999991\/msg\/down",
+  "heartbeat_interval":60,
+  "qos":0,
+  "net_interface":"ETH,WiFi,4G",
+  "antenna_count":8,
+  "web_password":"DEPLOYMENT_REQUIRED",
+  "hostname":"TurMassLink",
+  "model":"RK3506b2",
+  "arch":"ARMv7",
+  "platform":"cortexa7",
+  "kernel_version":"6.1",
+  "firmware_version":"v1.0_202604",
+  "app_version":"V1.0.1"
+}

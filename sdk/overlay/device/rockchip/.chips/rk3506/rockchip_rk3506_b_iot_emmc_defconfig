@@ -1,0 +1,22 @@
+RK_BUILDROOT_BASE_CFG="hd_rk3506b_iot_emmc"
+RK_ROOTFS_INSTALL_MODULES=y
+RK_WIFIBT=y
+RK_WIFIBT_ON_BOARD=y
+RK_WIFIBT_CHIP="AIC8800DC"
+# RK_ROOTFS_LOG_GUARDIAN is not set
+RK_UBOOT_CFG_FRAGMENTS="rk3506b rk-emmc"
+RK_UBOOT_SPL=y
+RK_KERNEL_CFG="vanxoak_hd_rk3506b_iot_emmc_defconfig"
+RK_KERNEL_CFG_FRAGMENTS="rk3506-display.config rk3506-usb-otg.config"
+RK_KERNEL_DTS_NAME="vanxoak-hd-rk3506b-iot-emmc-v1"
+RK_BOOT_COMPRESSED=y
+RK_RECOVERY_FIT_ITS_NAME="thunderboot4recovery.its"
+RK_EXTRA_PARTITION_1_FSTYPE="ext2"
+RK_EXTRA_PARTITION_1_SRC="rk3506_oem"
+RK_EXTRA_PARTITION_2_FSTYPE="ext2"
+RK_EXTRA_PARTITION_NUM=2
+RK_PARAMETER="parameter-iot-emmc.txt"
+RK_USE_FIT_IMG=y
+# Do not abort builds only because sources.buildroot.net is unreachable.
+# Missing source archives will still fail later with the real download error.
+# RK_NETWORK_CHECK is not set

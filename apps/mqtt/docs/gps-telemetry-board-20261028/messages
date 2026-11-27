@@ -1,0 +1,469 @@
+Jan  1 08:00:01 rk3506-buildroot syslog.info syslogd started: BusyBox v1.36.1
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: klogd started: BusyBox v1.36.1 (2026-07-23 12:42:26 CST)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.606357] Booting Linux on physical CPU 0xf00
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    4.606378] Linux version 6.1.118 (hjh@TaoLink) (arm-none-linux-gnueabihf-gcc (GNU Toolchain for the A-profile Architecture 10.3-2021.07 (arm-10.29)) 10.3.1 20210621, GNU ld (GNU Toolchain for the A-profile Architecture 10.3-
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.606389] CPU: ARMv7 Processor [410fc075] revision 5 (ARMv7), cr=50c5387d
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.606399] CPU: div instructions available: patching division code
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.606404] CPU: PIPT / VIPT nonaliasing data cache, VIPT aliasing instruction cache
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.606637] OF: fdt: Machine model: Vanxoak RK3506B/J IOT V1 Board
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.608306] earlycon: uart8250 at MMIO32 0xff0a0000 (options '')
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.675357] printk: bootconsole [uart8250] enabled
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.680371] Memory policy: Data cache writealloc
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    4.685320] OF: fdt: Reserved memory: failed to reserve memory for node 'drm-logo@0': base 0x00000000, size 0 MiB
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.696006] Reserved memory: created CMA memory pool at 0x1ea00000, size 22 MiB
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.703583] OF: reserved mem: initialized node linux,cma, compatible id shared-dma-pool
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.712289] Zone ranges:
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.714935]   Normal   [mem 0x0000000000000000-0x000000001fffffff]
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.721345] Movable zone start for each node
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.725739] Early memory node ranges
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.729446]   node   0: [mem 0x0000000000000000-0x000000001fffffff]
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.735947] Initmem setup node 0 [mem 0x0000000000000000-0x000000001fffffff]
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.759068] psci: probing for conduit method from DT.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.764328] psci: PSCIv1.0 detected in firmware.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.769103] psci: Using standard PSCI v0.2 function IDs
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.774522] psci: MIGRATE_INFO_TYPE not supported.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.779479] psci: SMC Calling Convention v1.1
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.784128] percpu: Embedded 11 pages/cpu s16276 r8192 d20588 u45056
+Jan  1 08:00:01 rk3506-buildroot kern.debug kernel: [    4.790740] pcpu-alloc: s16276 r8192 d20588 u45056 alloc=11*4096
+Jan  1 08:00:01 rk3506-buildroot kern.debug kernel: [    4.790755] pcpu-alloc: [0] 0 [0] 1 [0] 2 
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.790831] Built 1 zonelists, mobility grouping on.  Total pages: 130048
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    4.797878] Kernel command line: storagemedia=emmc androidboot.storagemedia=emmc androidboot.mode=normal  rw rootwait earlycon=uart8250,mmio32,0xff0a0000 console=ttyFIQ0 isolcpus=2 root=PARTUUID=614e0000-0000 snd_aloop.index=
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    4.829890] Unknown kernel command line parameters "storagemedia=emmc", will be passed to user space.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.839585] Dentry cache hash table entries: 65536 (order: 6, 262144 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.847574] Inode-cache hash table entries: 32768 (order: 5, 131072 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.855405] mem auto-init: stack:off, heap alloc:off, heap free:off
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.874336] Memory: 489300K/524288K available (4043K kernel code, 354K rwdata, 2124K rodata, 176K init, 102K bss, 12460K reserved, 22528K cma-reserved)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.888537] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=3, Nodes=1
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.895533] rcu: Preemptible hierarchical RCU implementation.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.901505] rcu: 	RCU event tracing is enabled.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.906185] rcu: 	RCU restricting CPUs from NR_CPUS=4 to nr_cpu_ids=3.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.912947] rcu: RCU calculated value of scheduler-enlistment delay is 30 jiffies.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.920790] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=3
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.927766] NR_IRQS: 16, nr_irqs: 16, preallocated irqs: 16
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.934366] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.951599] arch_timer: cp15 timer(s) running at 24.00MHz (virt).
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.957951] clocksource: arch_sys_counter: mask: 0xffffffffffffff max_cycles: 0x588fe9dc0, max_idle_ns: 440795202592 ns
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.969136] sched_clock: 56 bits at 24MHz, resolution 41ns, wraps every 4398046511097ns
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.977436] Switching to timer-based delay loop, resolution 41ns
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.983995] Calibrating delay loop (skipped), value calculated using timer frequency.. 48.00 BogoMIPS (lpj=80000)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.994676] CPU: Testing write buffer coherency: ok
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    4.999791] pid_max: default: 4096 minimum: 301
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.004614] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.012178] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.020988] /cpus/cpu@f00 missing clock-frequency property
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.026748] /cpus/cpu@f01 missing clock-frequency property
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.032477] /cpus/cpu@f02 missing clock-frequency property
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.038177] CPU0: thread -1, cpu 0, socket 15, mpidr 80000f00
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.044930] Setting up static identity map for 0x108240 - 0x108294
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.051568] rcu: Hierarchical SRCU implementation.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.056473] rcu: 	Max phase no-delay instances is 1000.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.062624] smp: Bringing up secondary CPUs ...
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.075837] CPU1: thread -1, cpu 1, socket 15, mpidr 80000f01
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.084428] CPU2: thread -1, cpu 2, socket 15, mpidr 80000f02
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.084553] smp: Brought up 1 node, 3 CPUs
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.100733] SMP: Total of 3 processors activated (144.00 BogoMIPS).
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.107233] CPU: All CPU(s) started in SVC mode.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.112820] devtmpfs: initialized
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.123329] VFP support v0.3: implementor 41 architecture 2 part 30 variant 7 rev 5
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.131509] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 6370867519511994 ns
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.141639] futex hash table entries: 16 (order: -2, 1024 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.148641] pinctrl core: initialized pinctrl subsystem
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.155235] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.161882] DMA: preallocated 256 KiB pool for atomic coherent allocations
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.169738] Registered FIQ tty driver
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.173884] thermal_sys: Registered thermal governor 'step_wise'
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.173896] thermal_sys: Registered thermal governor 'user_space'
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.180216] cpuidle: using governor menu
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.192061] ramoops: boot-log-0	0xd000@0x00083000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.197024] ramoops: console	0x20000@0x00090000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.201994] printk: console [ramoops-1] enabled
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.206715] pstore: Registered ramoops as persistent store backend
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.213134] ramoops: using 0x2d000@0x83000, ecc: 0
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.228729] rockchip-gpio ff940000.gpio: probed /pinctrl/gpio@ff940000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.236417] rockchip-gpio ff870000.gpio: probed /pinctrl/gpio@ff870000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.244068] rockchip-gpio ff1c0000.gpio: probed /pinctrl/gpio@ff1c0000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.251726] rockchip-gpio ff1d0000.gpio: probed /pinctrl/gpio@ff1d0000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.259379] rockchip-gpio ff1e0000.gpio: probed /pinctrl/gpio@ff1e0000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.266293] rockchip-pinctrl pinctrl: probed pinctrl
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.282442] fiq_debugger fiq_debugger.0: error -ENXIO: IRQ fiq not found
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.289453] fiq_debugger fiq_debugger.0: error -ENXIO: IRQ wakeup not found
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.296731] fiq_debugger_probe: could not install nmi irq handler
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.303204] printk: console [ttyFIQ0] enabled
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.312082] printk: bootconsole [uart8250] disabled
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.317460] Registered fiq debugger ttyFIQ0
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    5.319784] SCSI subsystem initialized
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.320012] usbcore: registered new interface driver usbfs
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.320074] usbcore: registered new interface driver hub
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.320127] usbcore: registered new device driver usb
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.320372] mc: Linux media interface: v0.10
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.320475] videodev: Linux video capture interface: v2.00
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.320630] pps_core: LinuxPPS API ver. 1 registered
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.320648] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.320683] PTP clock support registered
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.321923] Advanced Linux Sound Architecture Driver Initialized.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.322645] rockchip-cpuinfo cpuinfo: SoC		: 35060000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.322679] rockchip-cpuinfo cpuinfo: Serial		: def91c32323354e0
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.323504] clocksource: Switched to clocksource arch_sys_counter
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.325392] usbcore: registered new interface driver usb_ch343
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.325425] ch343: USB serial driver for ch342/ch343/ch344/ch346/ch347/ch339/ch9101/ch9102/ch9103/ch9104/ch9143, etc.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.325438] ch343: V2.0 On 2025.09
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.325571] NET: Registered PF_INET protocol family
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.325795] IP idents hash table entries: 8192 (order: 4, 65536 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.327111] tcp_listen_portaddr_hash hash table entries: 512 (order: 0, 4096 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.327164] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.327198] TCP established hash table entries: 4096 (order: 2, 16384 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.327239] TCP bind hash table entries: 4096 (order: 4, 65536 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.327364] TCP: Hash tables configured (established 4096 bind 4096)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.327486] UDP hash table entries: 256 (order: 1, 8192 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.327540] UDP-Lite hash table entries: 256 (order: 1, 8192 bytes, linear)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.327740] NET: Registered PF_UNIX/PF_LOCAL protocol family
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.329300] rockchip-thermal ff650000.tsadc: tsadc is probed successfully!
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    5.330473] Initialise system trusted keyrings
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.330762] workingset: timestamp_bits=30 max_order=17 bucket_order=0
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.334443] squashfs: version 4.0 (2009/01/31) Phillip Lougher
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    5.334823] Key type asymmetric registered
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    5.334851] Asymmetric key parser 'x509' registered
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.334952] io scheduler mq-deadline registered
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.334973] io scheduler kyber registered
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.335115] io scheduler bfq registered
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.336143] rockchip-usb2phy ff2b0000.usb2-phy: error -ENXIO: IRQ index 0 not found
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.339771] pwm-backlight backlight: supply power not found, using dummy regulator
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.343971] dma-pl330 ff000000.dma-controller: Loaded driver for PL330 DMAC-241330
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.344008] dma-pl330 ff000000.dma-controller: 	DBUFF-32x8bytes Num_Chans-6 Num_Peri-12 Num_Events-12
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.345375] dma-pl330 ff008000.dma-controller: Loaded driver for PL330 DMAC-241330
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.345408] dma-pl330 ff008000.dma-controller: 	DBUFF-128x8bytes Num_Chans-8 Num_Peri-20 Num_Events-16
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.345631] rockchip-system-monitor rockchip-system-monitor: system monitor probe
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.346352] Serial: 8250/16550 driver, 6 ports, IRQ sharing disabled
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.347036] ff0b0000.serial: ttyS1 at MMIO 0xff0b0000 (irq = 61, base_baud = 1500000) is a 16550A
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.347842] ff0c0000.serial: ttyS2 at MMIO 0xff0c0000 (irq = 62, base_baud = 1500000) is a 16550A
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.348646] ff0d0000.serial: ttyS3 at MMIO 0xff0d0000 (irq = 63, base_baud = 1500000) is a 16550A
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.349421] ff0e0000.serial: ttyS4 at MMIO 0xff0e0000 (irq = 64, base_baud = 1500000) is a 16550A
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    5.350577] random: crng init done
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.367254] no ATF memory for init
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.368988] rockchip-spi ff120000.spi: no high_speed pinctrl state
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.369858] rockchip-spi ff120000.spi: probed, poll=0, rsd=0, cs-inactive=0, ready=0
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.371134] CAN device driver interface
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.371553] PPP generic driver version 2.4.2
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.371844] usbcore: registered new interface driver asix
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.371913] usbcore: registered new interface driver ax88179_178a
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.371958] usbcore: registered new interface driver cdc_ether
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.372014] usbcore: registered new interface driver net1080
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.372055] usbcore: registered new interface driver cdc_subset
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.372093] usbcore: registered new interface driver zaurus
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.372145] usbcore: registered new interface driver sierra_net
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.372200] usbcore: registered new interface driver cdc_ncm
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.372240] usbcore: registered new interface driver qmi_wwan
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.372276] usbcore: registered new interface driver r8153_ecm
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.372800] dwc2 ff740000.usb: supply vusb_d not found, using dummy regulator
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.372952] dwc2 ff740000.usb: supply vusb_a not found, using dummy regulator
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.376707] dwc2 ff740000.usb: EPs: 10, dedicated fifos, 972 entries in SPRAM
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.377468] dwc2 ff780000.usb: supply vusb_d not found, using dummy regulator
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.377636] dwc2 ff780000.usb: supply vusb_a not found, using dummy regulator
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.391515] dwc2 ff780000.usb: DWC OTG Controller
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.391565] dwc2 ff780000.usb: new USB bus registered, assigned bus number 1
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.391606] dwc2 ff780000.usb: irq 67, io mem 0xff780000
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.392318] hub 1-0:1.0: USB hub found
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.392382] hub 1-0:1.0: 1 port detected
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.393112] usbcore: registered new interface driver cdc_wdm
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.393213] usbcore: registered new interface driver usb-storage
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.393328] usbcore: registered new interface driver option
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.393365] usbserial: USB Serial support registered for GSM modem (1-port)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.394050] i2c_dev: i2c /dev entries driver
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.395771] usbcore: registered new interface driver uvcvideo
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.397127] cpu cpu0: bin=0
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.397200] cpu cpu0: leakage=4
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.397245] cpu cpu0: pvtm = 1746, get from otp
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.397275] cpu cpu0: pvtm-volt-sel=4
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.397294] cpu cpu0: soc version=0, speed=4
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.397403] cpu cpu0: failed to set opp config
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.397424] cpu cpu0: failed to init opp info
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.397435] Failed to initialize dvfs info cpu0
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.397766] Synopsys Designware Multimedia Card Interface Driver
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.398402] dwmmc_rockchip ff480000.mmc: No normal pinctrl state
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.398434] dwmmc_rockchip ff480000.mmc: No idle pinctrl state
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.398597] dwmmc_rockchip ff480000.mmc: IDMAC supports 32-bit address mode.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.398636] dwmmc_rockchip ff480000.mmc: Using internal DMA controller.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.398654] dwmmc_rockchip ff480000.mmc: Version ID is 270a
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.398721] dwmmc_rockchip ff480000.mmc: DW MMC controller at irq 70,32 bit host data width,256 deep fifo
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.398899] mmc_host mmc0: card is non-removable.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.404706] NET: Registered PF_PACKET protocol family
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.404771] can: controller area network core
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.404833] NET: Registered PF_CAN protocol family
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.404851] can: raw protocol
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.404867] can: broadcast manager protocol
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.404884] can: netlink gateway - max_hops=1
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    5.405175] Registering SWP/SWPB emulation handler
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    5.405462] Loading compiled-in X.509 certificates
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.410039] rga2 ff610000.rga: probe successfully, irq = 72, hw_version:3.a.07135
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.410251] mmc_host mmc0: Bus speed (slot 0) = 400000Hz (slot req 400000Hz, actual 400000HZ div = 0)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.410404] rga: IOMMU binding successfully, default mapping core[0x4]
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.410684] rga: Module initialized. v1.3.8
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.428341] clk: Disabling unused clocks
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.428838] rockchip-pm rockchip-suspend: not set pwm-regulator-config
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.429003] rockchip-suspend not set sleep-mode-config for mem-lite
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.429020] rockchip-suspend not set wakeup-config for mem-lite
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.429035] rockchip-suspend not set sleep-mode-config for mem-ultra
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.429045] rockchip-suspend not set wakeup-config for mem-ultra
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.429846] ALSA device list:
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.429874]   No soundcards found.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.430063] Waiting for root device PARTUUID=614e0000-0000...
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.490445] mmc_host mmc0: Bus speed (slot 0) = 50176000Hz (slot req 52000000Hz, actual 50176000HZ div = 0)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.490513] mmc_host mmc0: Bus speed (slot 0) = 150000000Hz (slot req 150000000Hz, actual 150000000HZ div = 0)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.497083] dwmmc_rockchip ff480000.mmc: Successfully tuned phase to 175
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.497436] mmc0: new HS200 MMC card at address 0001
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.498090] mmcblk0: mmc0:0001 08A391 7.28 GiB 
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.501987]  mmcblk0: p1 p2 p3 p4 p5 p6 p7
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.503394] mmcblk0boot0: mmc0:0001 08A391 4.00 MiB 
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.504411] mmcblk0boot1: mmc0:0001 08A391 4.00 MiB 
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.505372] mmcblk0rpmb: mmc0:0001 08A391 4.00 MiB, chardev (245:0)
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.586743] EXT4-fs (mmcblk0p5): recovery complete
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.587068] EXT4-fs (mmcblk0p5): mounted filesystem with ordered data mode. Quota mode: disabled.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.587159] VFS: Mounted root (ext4 filesystem) on device 179:5.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.588154] devtmpfs: mounted
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.588311] Freeing unused kernel image (initmem) memory: 176K
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.588332] Kernel memory protection not selected by kernel config.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.588355] Run /sbin/init as init process
+Jan  1 08:00:01 rk3506-buildroot kern.debug kernel: [    5.588367]   with arguments:
+Jan  1 08:00:01 rk3506-buildroot kern.debug kernel: [    5.588371]     /sbin/init
+Jan  1 08:00:01 rk3506-buildroot kern.debug kernel: [    5.588375]   with environment:
+Jan  1 08:00:01 rk3506-buildroot kern.debug kernel: [    5.588379]     HOME=/
+Jan  1 08:00:01 rk3506-buildroot kern.debug kernel: [    5.588383]     TERM=linux
+Jan  1 08:00:01 rk3506-buildroot kern.debug kernel: [    5.588387]     storagemedia=emmc
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.680215] usb 1-1: new high-speed USB device number 2 using dwc2
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.878160] hub 1-1:1.0: USB hub found
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    5.878318] hub 1-1:1.0: 4 ports detected
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.880119] 8<--- cut here ---
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.880190] lv_demo: unhandled page fault (11) at 0x00000000, code 0x005
+Jan  1 08:00:01 rk3506-buildroot kern.err kernel: [    5.880212] [00000000] *pgd=00000000
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880231] CPU: 1 PID: 82 Comm: lv_demo Not tainted 6.1.118 #18
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880246] Hardware name: Generic DT based system
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880258] PC is at 0x48e3f8
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880274] LR is at 0x48e3f8
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880285] pc : [<0048e3f8>]    lr : [<0048e3f8>]    psr: 60000010
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880296] sp : ae983d00  ip : 00494f80  fp : 00494d68
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880308] r10: a6fe0ce0  r9 : 0048d458  r8 : a6fe1000
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880319] r7 : 00494d68  r6 : 00000000  r5 : 00006aac  r4 : 00000000
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880331] r3 : a6fb0e5c  r2 : 00000001  r1 : 00000202  r0 : 00000000
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880343] Flags: nZCv  IRQs on  FIQs on  Mode USER_32  ISA ARM  Segment user
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    5.880357] Control: 50c5387d  Table: 0111006a  DAC: 00000055
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.160244] usb 1-1.1: new high-speed USB device number 3 using dwc2
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.330254] usb 1-1.2: new high-speed USB device number 4 using dwc2
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.332831] EXT4-fs (mmcblk0p5): re-mounted. Quota mode: disabled.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.400951] EXT4-fs (mmcblk0p6): mounted filesystem with ordered data mode. Quota mode: disabled.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.411297] EXT4-fs (mmcblk0p7): mounted filesystem with ordered data mode. Quota mode: disabled.
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    6.420833] usb 1-1.2: config 1 interface 1 altsetting 0 bulk endpoint 0x1 has invalid maxpacket 64
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    6.420876] usb 1-1.2: config 1 interface 1 altsetting 0 bulk endpoint 0x82 has invalid maxpacket 64
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.484618] EXT4-fs (mmcblk0p5): re-mounted. Quota mode: disabled.
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    6.759065] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    6.776879] cfg80211: Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+Jan  1 08:00:01 rk3506-buildroot kern.notice kernel: [    6.778146] cfg80211: Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+Jan  1 08:00:01 rk3506-buildroot kern.warn kernel: [    6.778945] platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.779000] cfg80211: failed to load regulatory.db
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.820636] Bluetooth: Core ver 2.22
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.820741] NET: Registered PF_BLUETOOTH protocol family
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.820760] Bluetooth: HCI device and connection manager initialized
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.820785] Bluetooth: HCI socket layer initialized
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.820803] Bluetooth: L2CAP socket layer initialized
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.820839] Bluetooth: SCO socket layer initialized
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.845618] [BT_RFKILL]: Enter rfkill_rk_init
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.845655] [WLAN_RFKILL]: Enter rfkill_wlan_init
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.846053] [BT_RFKILL]: bluetooth_platdata_parse_dt: uart_rts_gpios is no-in-use.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.846116] [BT_RFKILL]: bluetooth_platdata_parse_dt: clk_get failed!!!.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.846318] [BT_RFKILL]: bt_default device registered.
+Jan  1 08:00:01 rk3506-buildroot kern.info kernel: [    6.846492] input: bt-powerkey as /devices/platform/wireless-bluetooth/input/input0
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.905516] rk_gmac-dwmac ff4c8000.ethernet: IRQ eth_lpi not found
+Jan  1 08:00:05 rk3506-buildroot kern.warn kernel: [   10.905832] rk_gmac-dwmac ff4c8000.ethernet: supply phy not found, using dummy regulator
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906069] rk_gmac-dwmac ff4c8000.ethernet: clock input or output? (input).
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   10.906109] rk_gmac-dwmac ff4c8000.ethernet: Can not read property: tx_delay.
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   10.906123] rk_gmac-dwmac ff4c8000.ethernet: set tx_delay to 0xffffffff
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   10.906138] rk_gmac-dwmac ff4c8000.ethernet: Can not read property: rx_delay.
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   10.906151] rk_gmac-dwmac ff4c8000.ethernet: set rx_delay to 0xffffffff
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906174] rk_gmac-dwmac ff4c8000.ethernet: integrated PHY? (no).
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   10.906195] rk_gmac-dwmac ff4c8000.ethernet: cannot get clock mac_clk_rx
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   10.906220] rk_gmac-dwmac ff4c8000.ethernet: cannot get clock mac_clk_tx
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   10.906254] rk_gmac-dwmac ff4c8000.ethernet: cannot get clock clk_mac_ref
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   10.906271] rk_gmac-dwmac ff4c8000.ethernet: cannot get clock clk_mac_speed
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906285] rk_gmac-dwmac ff4c8000.ethernet: clock input from PHY
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906524] rk_gmac-dwmac ff4c8000.ethernet: init for RMII
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906765] rk_gmac-dwmac ff4c8000.ethernet: User ID: 0x40, Synopsys ID: 0x51
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906804] rk_gmac-dwmac ff4c8000.ethernet: 	DWMAC4/5
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906882] rk_gmac-dwmac ff4c8000.ethernet: DMA HW capability register supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906902] rk_gmac-dwmac ff4c8000.ethernet: RX Checksum Offload Engine supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906917] rk_gmac-dwmac ff4c8000.ethernet: TX Checksum insertion supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.906929] rk_gmac-dwmac ff4c8000.ethernet: Wake-Up On Lan supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.907028] rk_gmac-dwmac ff4c8000.ethernet: TSO supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.907050] rk_gmac-dwmac ff4c8000.ethernet: Enable RX Mitigation via HW Watchdog Timer
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.907068] rk_gmac-dwmac ff4c8000.ethernet: Enabled RFS Flow TC (entries=10)
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.907095] rk_gmac-dwmac ff4c8000.ethernet: TSO feature enabled
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   10.907110] rk_gmac-dwmac ff4c8000.ethernet: Using 40/40 bits DMA host/device width
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.054147] rk_gmac-dwmac ff4d0000.ethernet: IRQ eth_lpi not found
+Jan  1 08:00:05 rk3506-buildroot kern.warn kernel: [   11.054397] rk_gmac-dwmac ff4d0000.ethernet: supply phy not found, using dummy regulator
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.054596] rk_gmac-dwmac ff4d0000.ethernet: clock input or output? (input).
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   11.054622] rk_gmac-dwmac ff4d0000.ethernet: Can not read property: tx_delay.
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   11.054635] rk_gmac-dwmac ff4d0000.ethernet: set tx_delay to 0xffffffff
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   11.054649] rk_gmac-dwmac ff4d0000.ethernet: Can not read property: rx_delay.
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   11.054661] rk_gmac-dwmac ff4d0000.ethernet: set rx_delay to 0xffffffff
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.054682] rk_gmac-dwmac ff4d0000.ethernet: integrated PHY? (no).
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   11.054707] rk_gmac-dwmac ff4d0000.ethernet: cannot get clock mac_clk_rx
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   11.054724] rk_gmac-dwmac ff4d0000.ethernet: cannot get clock mac_clk_tx
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   11.054765] rk_gmac-dwmac ff4d0000.ethernet: cannot get clock clk_mac_ref
+Jan  1 08:00:05 rk3506-buildroot kern.err kernel: [   11.054783] rk_gmac-dwmac ff4d0000.ethernet: cannot get clock clk_mac_speed
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.054796] rk_gmac-dwmac ff4d0000.ethernet: clock input from PHY
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055220] rk_gmac-dwmac ff4d0000.ethernet: init for RMII
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055462] rk_gmac-dwmac ff4d0000.ethernet: User ID: 0x40, Synopsys ID: 0x51
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055509] rk_gmac-dwmac ff4d0000.ethernet: 	DWMAC4/5
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055526] rk_gmac-dwmac ff4d0000.ethernet: DMA HW capability register supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055538] rk_gmac-dwmac ff4d0000.ethernet: RX Checksum Offload Engine supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055550] rk_gmac-dwmac ff4d0000.ethernet: TX Checksum insertion supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055563] rk_gmac-dwmac ff4d0000.ethernet: Wake-Up On Lan supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055667] rk_gmac-dwmac ff4d0000.ethernet: TSO supported
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055685] rk_gmac-dwmac ff4d0000.ethernet: Enable RX Mitigation via HW Watchdog Timer
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055711] rk_gmac-dwmac ff4d0000.ethernet: Enabled RFS Flow TC (entries=10)
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055727] rk_gmac-dwmac ff4d0000.ethernet: TSO feature enabled
+Jan  1 08:00:05 rk3506-buildroot kern.info kernel: [   11.055740] rk_gmac-dwmac ff4d0000.ethernet: Using 40/40 bits DMA host/device width
+Jan  1 08:00:06 rk3506-buildroot kern.info kernel: [   11.582107] usbcore: registered new interface driver rtl8723du
+Jan  1 08:00:06 rk3506-buildroot kern.info kernel: [   11.667427] usbcore: registered new interface driver btusb
+Jan  1 08:00:06 rk3506-buildroot kern.info kernel: [   11.669452] Bluetooth: hci0: RTL: examining hci_ver=08 hci_rev=000d lmp_ver=08 lmp_subver=8723
+Jan  1 08:00:06 rk3506-buildroot kern.info kernel: [   11.670459] Bluetooth: hci0: RTL: rom_version status=0 version=2
+Jan  1 08:00:06 rk3506-buildroot kern.info kernel: [   11.670514] Bluetooth: hci0: RTL: loading rtl_bt/rtl8723d_fw.bin
+Jan  1 08:00:06 rk3506-buildroot kern.info kernel: [   11.672638] Bluetooth: hci0: RTL: loading rtl_bt/rtl8723d_config.bin
+Jan  1 08:00:06 rk3506-buildroot kern.info kernel: [   11.673451] Bluetooth: hci0: RTL: cfg_sz 33, total sz 33289
+Jan  1 08:00:06 rk3506-buildroot kern.info kernel: [   11.936435] Bluetooth: hci0: RTL: fw version 0x828a96f1
+Jan  1 08:00:06 rk3506-buildroot daemon.info kernel: [   12.013796] udevd[614]: starting version 3.2.14
+Jan  1 08:00:06 rk3506-buildroot daemon.info kernel: [   12.080824] udevd[615]: starting eudev-3.2.14
+Jan  1 08:00:07 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 27: Override balance_level to core
+Jan  1 08:00:07 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 49: Override balance_level to core
+Jan  1 08:00:07 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 50: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 51: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 52: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 53: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 54: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 55: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 56: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 57: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 58: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 59: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 60: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 65: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 66: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 67: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 68: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 69: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 70: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 71: Override balance_level to core
+Jan  1 08:00:08 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 72: Override balance_level to core
+Jan  1 08:00:16 rk3506-buildroot kern.info kernel: [   21.817231] platform vdd-arm: deferred probe pending
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   22.468747] usb 1-1.2: USB disconnect, device number 4
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   22.930182] usb 1-1.2: new high-speed USB device number 5 using dwc2
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   23.023979] cdc_ether 1-1.2:1.0 usb0: register 'cdc_ether' at usb-ff780000.usb-1.2, CDC Ethernet Device, 28:ec:06:18:00:82
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   23.025648] option 1-1.2:1.3: GSM modem (1-port) converter detected
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   23.026098] usb 1-1.2: GSM modem (1-port) converter now attached to ttyUSB0
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   23.028119] option 1-1.2:1.5: GSM modem (1-port) converter detected
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   23.028572] usb 1-1.2: GSM modem (1-port) converter now attached to ttyUSB1
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   23.030546] option 1-1.2:1.7: GSM modem (1-port) converter detected
+Jan  1 08:00:17 rk3506-buildroot kern.info kernel: [   23.031012] usb 1-1.2: GSM modem (1-port) converter now attached to ttyUSB2
+Jan  1 08:00:30 rk3506-buildroot kern.info kernel: [   36.031579] rk_gmac-dwmac ff4c8000.ethernet eth0: Register MEM_TYPE_PAGE_POOL RxQ-0
+Jan  1 08:00:30 rk3506-buildroot kern.info kernel: [   36.033817] rk_gmac-dwmac ff4c8000.ethernet eth0: PHY [stmmac-0:00] driver [YT8512B Ethernet] (irq=POLL)
+Jan  1 08:00:30 rk3506-buildroot kern.info kernel: [   36.034396] dwmac4: Master AXI performs any burst length
+Jan  1 08:00:30 rk3506-buildroot kern.info kernel: [   36.034426] rk_gmac-dwmac ff4c8000.ethernet eth0: No Safety Features support found
+Jan  1 08:00:30 rk3506-buildroot kern.info kernel: [   36.034464] rk_gmac-dwmac ff4c8000.ethernet eth0: IEEE 1588-2008 Advanced Timestamp supported
+Jan  1 08:00:30 rk3506-buildroot kern.info kernel: [   36.036740] rk_gmac-dwmac ff4c8000.ethernet eth0: registered PTP clock
+Jan  1 08:00:30 rk3506-buildroot kern.info kernel: [   36.040733] rk_gmac-dwmac ff4c8000.ethernet eth0: configuring for phy/rmii link mode
+Jan  1 08:00:30 rk3506-buildroot kern.info kernel: [   36.044012] rk_gmac-dwmac ff4c8000.ethernet eth0: Link is Up - 100Mbps/Full - flow control off
+Jan  1 08:00:31 rk3506-buildroot daemon.info dhcpcd[845]: dhcpcd-10.0.8 starting
+Jan  1 08:00:31 rk3506-buildroot daemon.info dhcpcd[849]: dev: loaded udev
+Jan  1 08:00:31 rk3506-buildroot daemon.info dhcpcd[849]: DUID 00:01:00:01:c7:92:bc:a2:28:ec:06:18:00:82
+Jan  1 08:00:31 rk3506-buildroot daemon.warn dhcpcd[849]: no interfaces have a carrier
+Jan  1 08:00:31 rk3506-buildroot kern.info kernel: [   36.639182] rk_gmac-dwmac ff4d0000.ethernet eth1: Register MEM_TYPE_PAGE_POOL RxQ-0
+Jan  1 08:00:31 rk3506-buildroot kern.info kernel: [   36.644777] rk_gmac-dwmac ff4d0000.ethernet eth1: PHY [stmmac-1:00] driver [Generic PHY] (irq=POLL)
+Jan  1 08:00:31 rk3506-buildroot daemon.notice ntpd[864]: ntpd 4.2.8p17@1.4004-o Thu Jul 23 04:42:11 UTC 2026 (1): Starting
+Jan  1 08:00:31 rk3506-buildroot daemon.notice ntpd[864]: Command line: /usr/sbin/ntpd -u ntp:ntp -g -p /var/run/ntpd.pid
+Jan  1 08:00:31 rk3506-buildroot daemon.notice ntpd[864]: ----------------------------------------------------
+Jan  1 08:00:31 rk3506-buildroot daemon.notice ntpd[864]: ntp-4 is maintained by Network Time Foundation,
+Jan  1 08:00:31 rk3506-buildroot daemon.notice ntpd[864]: Inc. (NTF), a non-profit 501(c)(3) public-benefit
+Jan  1 08:00:31 rk3506-buildroot daemon.notice ntpd[864]: corporation.  Support and training for ntp-4 are
+Jan  1 08:00:31 rk3506-buildroot daemon.notice ntpd[864]: available at https://www.nwtime.org/support
+Jan  1 08:00:31 rk3506-buildroot daemon.notice ntpd[864]: ----------------------------------------------------
+Jan  1 08:00:31 rk3506-buildroot daemon.info ntpd[867]: proto: precision = 1.166 usec (-20)
+Jan  1 08:00:31 rk3506-buildroot daemon.info ntpd[867]: basedate set to 2026-07-11
+Jan  1 08:00:31 rk3506-buildroot daemon.info ntpd[867]: gps base set to 2026-07-12 (week 2427)
+Jan  1 08:00:31 rk3506-buildroot daemon.err ntpd[867]: restrict: ignoring line 16, address/host '[::1]' unusable.
+Jan  1 08:00:31 rk3506-buildroot daemon.info ntpd[867]: Listen and drop on 0 v4wildcard 0.0.0.0:123
+Jan  1 08:00:32 rk3506-buildroot kern.err kernel: [   37.645139] rk_gmac-dwmac ff4d0000.ethernet: Failed to reset the dma
+Jan  1 08:00:32 rk3506-buildroot kern.err kernel: [   37.645181] rk_gmac-dwmac ff4d0000.ethernet eth1: stmmac_hw_setup: DMA engine initialization failed
+Jan  1 08:00:32 rk3506-buildroot kern.err kernel: [   37.645206] rk_gmac-dwmac ff4d0000.ethernet eth1: __stmmac_open: Hw setup failed
+Jan  1 08:00:32 rk3506-buildroot daemon.err dhcpcd[849]: dhcpcd_prestartinterface: Connection timed out
+Jan  1 08:00:32 rk3506-buildroot daemon.info ntpd[867]: Listen normally on 1 lo 127.0.0.1:123
+Jan  1 08:00:32 rk3506-buildroot daemon.info ntpd[867]: Listen normally on 2 eth0 192.168.100.208:123
+Jan  1 08:00:32 rk3506-buildroot daemon.info ntpd[867]: Listen normally on 3 eth0:0 12.13.14.16:123
+Jan  1 08:00:32 rk3506-buildroot daemon.info ntpd[867]: Listening on routing socket on fd #20 for interface updates
+Jan  1 08:00:32 rk3506-buildroot daemon.info ntpd[867]: kernel reports TIME_ERROR: 0x41: Clock Unsynchronized
+Jan  1 08:00:32 rk3506-buildroot daemon.info ntpd[867]: kernel reports TIME_ERROR: 0x41: Clock Unsynchronized
+Jan  1 08:00:33 rk3506-buildroot daemon.info dhcpcd[849]: eth1: waiting for carrier
+Jan  1 08:00:33 rk3506-buildroot daemon.info dhcpcd[849]: wlan0: waiting for carrier
+Jan  1 08:00:33 rk3506-buildroot daemon.info dhcpcd[849]: usb0: waiting for carrier
+Jan  1 08:00:33 rk3506-buildroot daemon.info dhcpcd[849]: usb0: carrier acquired
+Jan  1 08:00:33 rk3506-buildroot daemon.info dhcpcd[849]: usb0: IAID 06:18:00:82
+Jan  1 08:00:33 rk3506-buildroot auth.info sshd[886]: Server listening on 0.0.0.0 port 22.
+Jan  1 08:00:33 rk3506-buildroot user.notice usbdevice: [899]: Starting /usr/bin/usbdevice start, log saved to /var/log//usbdevice.log
+Jan  1 08:00:33 rk3506-buildroot user.notice usbdevice: [899]: Handling start request
+Jan  1 08:00:33 rk3506-buildroot user.notice usbdevice: [899]: Run stage: usb_prepare
+Jan  1 08:00:33 rk3506-buildroot user.notice usbdevice: [899]: Run stage: usb_init
+Jan  1 08:00:33 rk3506-buildroot user.notice usbdevice: [899]: Initializing
+Jan  1 08:00:33 rk3506-buildroot user.notice usbdevice: [899]: USB state: DISCONNECTED
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [899]: Using USB UDC device: ff740000.usb
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [899]: Run stage: usb_start
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [899]: Starting functions: adb
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [899]: Preparing instance: ffs.adb
+Jan  1 08:00:34 rk3506-buildroot kern.info kernel: [   39.339830] file system registered
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [899]: Run stage: adb_prepare
+Jan  1 08:00:34 rk3506-buildroot daemon.info dhcpcd[849]: usb0: soliciting a DHCP lease
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [899]: Starting daemon: /usr/bin/adbd
+Jan  1 08:00:34 rk3506-buildroot kern.info kernel: [   39.574271] read descriptors
+Jan  1 08:00:34 rk3506-buildroot kern.info kernel: [   39.574326] read strings
+Jan  1 08:00:34 rk3506-buildroot kern.info kernel: [   39.652277] dwc2 ff740000.usb: bound driver configfs-gadget.rockchip
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [899]: Starting instance: ffs.adb
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [899]: Done start request
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [1121]: Starting /usr/bin/usbdevice update, log saved to /var/log//usbdevice.log
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [1121]: Handling update request
+Jan  1 08:00:34 rk3506-buildroot user.notice usbdevice: [1121]: Run stage: usb_prepare
+Jan  1 08:00:35 rk3506-buildroot user.notice usbdevice: [1121]: USB state: DISCONNECTED
+Jan  1 08:00:35 rk3506-buildroot user.notice usbdevice: [1121]: Using USB UDC device: ff740000.usb
+Jan  1 08:00:35 rk3506-buildroot user.notice usbdevice: [1121]: Run stage: usb_start
+Jan  1 08:00:35 rk3506-buildroot user.notice usbdevice: [1121]: Starting functions: adb
+Jan  1 08:00:35 rk3506-buildroot user.notice usbdevice: [1121]: Preparing instance: ffs.adb
+Jan  1 08:00:35 rk3506-buildroot user.notice usbdevice: [1121]: Run stage: adb_prepare
+Jan  1 08:00:35 rk3506-buildroot user.notice usbdevice: [1121]: Starting instance: ffs.adb
+Jan  1 08:00:35 rk3506-buildroot user.notice usbdevice: [1121]: Done update request
+Jan  1 08:00:39 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 73: Override balance_level to core
+Jan  1 08:00:39 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 74: Override balance_level to core
+Jan  1 08:02:43 rk3506-buildroot user.notice fstrim: Starting fstrim process (1697)...
+Jan  1 08:02:43 rk3506-buildroot user.notice power-key.sh: [1709]: Received power key event: release...
+Jan  1 08:02:43 rk3506-buildroot daemon.info : starting pid 1732, tty '': '/usr/bin/lan_discoveryd'
+Jan  1 08:02:43 rk3506-buildroot daemon.info : starting pid 1736, tty '/dev/ttyFIQ0': '/sbin/getty -L ttyFIQ0 115200 vt100 '
+Jan  1 08:02:46 rk3506-buildroot user.notice fstrim: /: 5899997184 bytes trimmed
+Jan  1 08:02:46 rk3506-buildroot user.notice fstrim: /oem: 129429504 bytes trimmed
+Jan  1 08:02:46 rk3506-buildroot user.notice fstrim: /userdata: 900935680 bytes trimmed
+Jan  1 08:02:53 rk3506-buildroot local0.info udhcpd[3749]: udhcpd (v0.9.9-pre) started
+Jan  1 08:02:53 rk3506-buildroot local0.err udhcpd[3749]: max_leases value (254) not sane, setting to 41 instead
+Jan  1 08:02:53 rk3506-buildroot local0.err udhcpd[3749]: Unable to open /var/lib/misc/udhcpd.leases for reading
+Jan  1 08:02:57 rk3506-buildroot daemon.info dhcpcd[849]: wlan0: carrier acquired
+Jan  1 08:02:57 rk3506-buildroot daemon.info dhcpcd[849]: wlan0: IAID a9:4f:21:7c
+Jan  1 08:02:58 rk3506-buildroot daemon.info dhcpcd[849]: wlan0: soliciting a DHCP lease
+Jan  1 08:02:59 rk3506-buildroot daemon.info ntpd[867]: Listen normally on 4 wlan0 192.168.4.1:123
+Oct 28 11:06:36 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 77: Override balance_level to core
+Oct 28 11:06:41 rk3506-buildroot kern.err kernel: [  209.568163] of_dma_request_slave_channel: dma-names property of node '/serial@ff0e0000' missing or empty
+Oct 28 11:06:41 rk3506-buildroot kern.warn kernel: [  209.568223] dw-apb-uart ff0e0000.serial: failed to request DMA, use interrupt mode
+Oct 28 11:06:46 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 64: Override balance_level to core
+Oct 28 11:06:46 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 78: Override balance_level to core
+Oct 28 11:06:56 rk3506-buildroot daemon.info /usr/sbin/irqbalance: IRQ 79: Override balance_level to core
+Oct 28 11:08:11 rk3506-buildroot local0.info udhcpd[3750]: Received a SIGTERM
+Oct 28 11:08:11 rk3506-buildroot daemon.info dhcpcd[849]: wlan0: carrier lost
+Oct 28 11:08:11 rk3506-buildroot daemon.err dhcpcd[849]: ps_bpf_recvbpf: unexpected event 0x0100
+Oct 28 11:08:14 rk3506-buildroot daemon.info ntpd[867]: Deleting interface #4 wlan0, 192.168.4.1#123, interface stats: received=0, sent=0, dropped=0, active_time=117 secs
+Oct 28 11:09:15 rk3506-buildroot auth.info sshd[1235]: Accepted password for root from 192.168.110.36 port 60424 ssh2
+Oct 28 11:09:15 rk3506-buildroot auth.info sshd[1241]: Accepted password for root from 192.168.110.36 port 60425 ssh2
+Oct 28 11:12:08 rk3506-buildroot daemon.info ntpd[867]: kernel reports TIME_ERROR: 0x41: Clock Unsynchronized
+Oct 28 11:15:04 rk3506-buildroot auth.info sshd[3560]: Accepted password for root from 192.168.110.36 port 60688 ssh2
+Oct 28 11:28:26 rk3506-buildroot auth.info sshd[4024]: Accepted password for root from 192.168.110.36 port 61674 ssh2
+Oct 28 11:29:51 rk3506-buildroot auth.info sshd[678]: Accepted password for root from 192.168.110.36 port 61788 ssh2

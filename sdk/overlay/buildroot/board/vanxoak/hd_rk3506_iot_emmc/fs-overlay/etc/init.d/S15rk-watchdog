@@ -1,0 +1,41 @@
+#!/bin/sh
+# Independent of tdaemon and its process list. No respawn/restart loop.
+DAEMON=/usr/sbin/rk_wdt
+launch_failed() {
+    mkdir -p /run/rk-watchdog /var/log
+    boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)
+    printf '{"state":"failed","reason":"%s","armed":false,"boot_id":"%s"}\n' \
+        "$1" "$boot_id" > /run/rk-watchdog/status.init.tmp &&
+        mv /run/rk-watchdog/status.init.tmp /run/rk-watchdog/status.json
+    echo "RK watchdog: $1; business startup continues" >> /var/log/rk_watchdog.log
+    echo "RK watchdog: $1; business startup continues" >&2
+}
+case "${1:-}" in
+    start)
+        if [ ! -x "$DAEMON" ]; then
+            launch_failed executable_missing
+            exit 0
+        fi
+        if ! start-stop-daemon -S -q -b -x "$DAEMON"; then
+            # Repeated start must not overwrite an existing feeder's status.
+            if pidof rk_wdt >/dev/null 2>&1; then
+                echo 'RK watchdog: process already present; inspect status file'
+            else
+                launch_failed launch_failed
+            fi
+        else
+            echo 'RK watchdog: launched asynchronously; protection is reported in /run/rk-watchdog/status.json'
+        fi
+        ;;
+    stop)
+        # Keep feeding while rcK stops apps/unmounts. Final init/reboot handles exit.
+        echo 'RK watchdog: retain feeding until system shutdown'
+        ;;
+    status) cat /run/rk-watchdog/status.json ;;
+    restart|reload)
+        echo 'RK watchdog: live restart is unsupported; use a controlled system reboot' >&2
+        exit 1
+        ;;
+    *) echo "Usage: $0 {start|stop|status}" >&2; exit 1 ;;
+esac
+exit 0

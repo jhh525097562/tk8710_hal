@@ -1,0 +1,11 @@
+#!/bin/sh
+# LED-only supervision is independent of network readiness and the hardware WDT.
+SUPERVISOR=/usr/bin/led_supervisor.sh
+case "${1:-}" in
+    start|stop|status) exec "$SUPERVISOR" "$1" ;;
+    restart|reload)
+        "$SUPERVISOR" stop || exit $?
+        exec "$SUPERVISOR" start
+        ;;
+    *) echo "Usage: $0 {start|stop|status|restart}" >&2; exit 2 ;;
+esac

@@ -1,0 +1,9 @@
+#!/bin/sh
+# The SDK SWUpdate binary uses fixed IPC sockets. One owner is mandatory.
+# Gateway Web runs the CLI on demand and handles progress/reboot itself.
+# Do not launch the vendor 8080 server or swupdate-progress -r at boot.
+case "${1:-}" in
+    start|restart|reload) echo 'SWUpdate: managed on demand by gateway Web (8090)' ;;
+    stop) : ;;
+    *) echo "Usage: $0 {start|stop|restart|reload}" >&2; exit 1 ;;
+esac

@@ -1,0 +1,8 @@
+{
+  "run_id": "ns-scan-20260910-122807",
+  "mqtt_bridge_sha256": "8690751a4593dc45ebbc1bb06868516a2860da4b2398bce468fea8851823ce30",
+  "tk8710_gw_sha256": "a7ce7927ef3ad3b34a90d80d2977110490cf9692d2b303af7c489aac9b7c563b",
+  "passed": false,
+  "error": "No MQTT sweep result within 180 seconds",
+  "config_restored": true
+}

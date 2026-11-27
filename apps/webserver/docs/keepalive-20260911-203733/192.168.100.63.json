@@ -1,0 +1,209 @@
+{
+  "host": "192.168.100.63",
+  "passed": true,
+  "requests": [
+    {
+      "path": "/status",
+      "seconds": 0.032,
+      "bytes": 94283
+    },
+    {
+      "path": "/api/system_info",
+      "seconds": 0.0,
+      "bytes": 482
+    },
+    {
+      "path": "/config",
+      "seconds": 0.015,
+      "bytes": 69611
+    },
+    {
+      "path": "/status",
+      "seconds": 0.016,
+      "bytes": 94283
+    },
+    {
+      "path": "/network",
+      "seconds": 0.031,
+      "bytes": 72636
+    },
+    {
+      "path": "/status",
+      "seconds": 0.031,
+      "bytes": 94283
+    },
+    {
+      "path": "/rf",
+      "seconds": 0.016,
+      "bytes": 91120
+    },
+    {
+      "path": "/status",
+      "seconds": 0.016,
+      "bytes": 94283
+    },
+    {
+      "path": "/status",
+      "seconds": 0.015,
+      "bytes": 94283
+    },
+    {
+      "path": "/api/system_info",
+      "seconds": 0.016,
+      "bytes": 482
+    },
+    {
+      "path": "/config",
+      "seconds": 0.0,
+      "bytes": 69611
+    },
+    {
+      "path": "/status",
+      "seconds": 0.031,
+      "bytes": 94283
+    },
+    {
+      "path": "/network",
+      "seconds": 0.016,
+      "bytes": 72636
+    },
+    {
+      "path": "/status",
+      "seconds": 0.031,
+      "bytes": 94283
+    },
+    {
+      "path": "/rf",
+      "seconds": 0.016,
+      "bytes": 91120
+    },
+    {
+      "path": "/status",
+      "seconds": 0.015,
+      "bytes": 94283
+    },
+    {
+      "path": "/status",
+      "seconds": 0.031,
+      "bytes": 94283
+    },
+    {
+      "path": "/api/system_info",
+      "seconds": 0.0,
+      "bytes": 482
+    },
+    {
+      "path": "/config",
+      "seconds": 0.016,
+      "bytes": 69611
+    },
+    {
+      "path": "/status",
+      "seconds": 0.016,
+      "bytes": 94283
+    },
+    {
+      "path": "/network",
+      "seconds": 0.031,
+      "bytes": 72636
+    },
+    {
+      "path": "/status",
+      "seconds": 0.031,
+      "bytes": 94283
+    },
+    {
+      "path": "/rf",
+      "seconds": 0.016,
+      "bytes": 91120
+    },
+    {
+      "path": "/status",
+      "seconds": 0.031,
+      "bytes": 94283
+    },
+    {
+      "path": "/status",
+      "seconds": 0.016,
+      "bytes": 94283
+    },
+    {
+      "path": "/api/system_info",
+      "seconds": 0.015,
+      "bytes": 482
+    },
+    {
+      "path": "/config",
+      "seconds": 0.016,
+      "bytes": 69611
+    },
+    {
+      "path": "/status",
+      "seconds": 0.016,
+      "bytes": 94283
+    },
+    {
+      "path": "/network",
+      "seconds": 0.031,
+      "bytes": 72636
+    },
+    {
+      "path": "/status",
+      "seconds": 0.031,
+      "bytes": 94283
+    },
+    {
+      "path": "/rf",
+      "seconds": 0.031,
+      "bytes": 91120
+    },
+    {
+      "path": "/status",
+      "seconds": 0.032,
+      "bytes": 94283
+    },
+    {
+      "path": "/status",
+      "seconds": 0.015,
+      "bytes": 94283
+    },
+    {
+      "path": "/api/system_info",
+      "seconds": 0.016,
+      "bytes": 482
+    },
+    {
+      "path": "/config",
+      "seconds": 0.015,
+      "bytes": 69611
+    },
+    {
+      "path": "/status",
+      "seconds": 0.032,
+      "bytes": 94283
+    },
+    {
+      "path": "/network",
+      "seconds": 0.031,
+      "bytes": 72636
+    },
+    {
+      "path": "/status",
+      "seconds": 0.016,
+      "bytes": 94283
+    },
+    {
+      "path": "/rf",
+      "seconds": 0.015,
+      "bytes": 91120
+    },
+    {
+      "path": "/status",
+      "seconds": 0.016,
+      "bytes": 94283
+    }
+  ],
+  "max_seconds": 0.032,
+  "backup": "/userdata/keepalive-20260911-203733",
+  "sha256": "fac7647ec61e455bd36614fb6fca5aa81ade31bb57c15537060f1bf045fae052"
+}

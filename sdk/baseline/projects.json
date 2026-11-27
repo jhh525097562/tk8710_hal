@@ -1,0 +1,182 @@
+[
+  {
+    "path": "app/lvgl_demo",
+    "commit": "9d0e765aae7af768c62ed78cb96e8990fe16ce35"
+  },
+  {
+    "path": "app/rkadk",
+    "commit": "f9d84ca40ade1e7d72eb1a6d37a10d03c6e805ae"
+  },
+  {
+    "path": "buildroot",
+    "commit": "4e2c2b8a909a0ea3bdabde156d2632115a6cbc9e"
+  },
+  {
+    "path": "device/rockchip",
+    "commit": "b7f7753fe7d948bf409c15327d4caebfd083c57c"
+  },
+  {
+    "path": "docs",
+    "commit": "2085ecc7d7c6c0a3f8ab8ca8f66d246ae4101309"
+  },
+  {
+    "path": "docs/cn",
+    "commit": "088e3c6145216a8fe260ea1851031cb241274daa"
+  },
+  {
+    "path": "docs/cn/Socs",
+    "commit": "50ef5021fb8f82299a4a8c66d9848a78c7243360"
+  },
+  {
+    "path": "docs/en",
+    "commit": "4287106b6aad18839604708723f0d4ea275fc88c"
+  },
+  {
+    "path": "docs/en/Socs",
+    "commit": "0d14f55fb55dabb9262b83356122c615ea70f2dd"
+  },
+  {
+    "path": "docs/rtt-docs",
+    "commit": "bb36bf7c50cbe75b57b15affaa279855535f17b3"
+  },
+  {
+    "path": "external/alsa-config",
+    "commit": "5529257039c41955724c1069796f5cb7b2015c77"
+  },
+  {
+    "path": "external/common_algorithm",
+    "commit": "2bd718568341187a4b78ff937a8c1c4bb4bce60b"
+  },
+  {
+    "path": "external/linux-rga",
+    "commit": "dd95fc46431a278b6fb0bd96437095db258f37a7"
+  },
+  {
+    "path": "external/recovery",
+    "commit": "7edb5d5a73d8e9dacbb52ba0b547175c222f4f8a"
+  },
+  {
+    "path": "external/rk_ethercat_release",
+    "commit": "8dc1525e2fc927c496cd924849389861419a295b"
+  },
+  {
+    "path": "external/rk_pcba_test",
+    "commit": "9ca36b2bf70f2f164b1891f1ac1ce2bf8eb9325c"
+  },
+  {
+    "path": "external/rkscript",
+    "commit": "f7632db2f1f54a3ed1e46ae855304b8c103d60bc"
+  },
+  {
+    "path": "external/rktoolkit",
+    "commit": "bc1d85d6d2a39c67ed2d619f6faf1a996d542722"
+  },
+  {
+    "path": "external/rkupdate",
+    "commit": "e9cd4fe07733f807057fd7a6bd5e8d42a59624a7"
+  },
+  {
+    "path": "external/rkwifibt",
+    "commit": "8b399bffe48b834ec768a6bd9c182e76f86ff156"
+  },
+  {
+    "path": "external/rkwifibt-app",
+    "commit": "0673a0b73af5b2027ea7e3631fcd610f45941cee"
+  },
+  {
+    "path": "external/rockchip-test",
+    "commit": "eb2093cb6f891cf073ab0b4af08b4189f6a12b8a"
+  },
+  {
+    "path": "external/rockit",
+    "commit": "e93c6bbb286b181436ba2125d7a660436714f021"
+  },
+  {
+    "path": "external/security/bin",
+    "commit": "418c55997bc2db3b251ac5dd6e012f69559f021f"
+  },
+  {
+    "path": "external/security/librkcrypto",
+    "commit": "5a42a784f52f1cabf6c12e3bfd1818dcf7dab592"
+  },
+  {
+    "path": "external/security/rk_tee_user",
+    "commit": "e01afe5c877d9a86e9f83aae846f5cf04365989d"
+  },
+  {
+    "path": "hal",
+    "commit": "5b49120e0c5d9fcd9e0f28f7daa30bb2afbf4f6d"
+  },
+  {
+    "path": "hal/applications",
+    "commit": "c5927d3070ebc810b2920f9162bbdada74e63acb"
+  },
+  {
+    "path": "hal/board",
+    "commit": "280329613bb62f83b064f446fc9c8c205991e111"
+  },
+  {
+    "path": "hal/middleware",
+    "commit": "6194c06052347d92f3c57064a2e5e9b919b2d5f6"
+  },
+  {
+    "path": "hal/test",
+    "commit": "7be2d772743e35ce5f044a5a17bfee9af0baad3a"
+  },
+  {
+    "path": "kernel-6.1",
+    "commit": "1a4a02419b048b8b09db1b81f408fbcd8995fcf3"
+  },
+  {
+    "path": "prebuilts/gcc/linux-x86/arm/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf",
+    "commit": "2e89382ca3f8c34086272509ae4d7a5c340ffafc"
+  },
+  {
+    "path": "prebuilts/gcc/linux-x86/arm/gcc-arm-none-eabi-10-2020-q4-major-x86_64-linux",
+    "commit": "9bbfea5b9d8650964f2c1f5874f575f44ab0cea5"
+  },
+  {
+    "path": "rkbin",
+    "commit": "e2d3f1936cebafa053032fa03ee65e009d59e3d6"
+  },
+  {
+    "path": "rtos",
+    "commit": "a346505f17c8988f7e578d685c6ae178129c2f03"
+  },
+  {
+    "path": "rtos/applications/rtthread-apps",
+    "commit": "525c38360aa48b77535294d6e58d6b0cdf776539"
+  },
+  {
+    "path": "tools",
+    "commit": "f69c27324d9c37822fb345d8104ab3c4a6d6bb33"
+  },
+  {
+    "path": "u-boot",
+    "commit": "cb164be2efa6b831eea0ef7d16df57e42a262196"
+  },
+  {
+    "path": "yocto/build/conf",
+    "commit": "680abdfc787ee8af8029f460f884f37c563e42bf"
+  },
+  {
+    "path": "yocto/meta-browser",
+    "commit": "83cb90c618e24af9bc40fb25baab2a0acd47a560"
+  },
+  {
+    "path": "yocto/meta-clang",
+    "commit": "52c61cd5d447f871a1666e64fcfdf5f27a47f44c"
+  },
+  {
+    "path": "yocto/meta-openembedded",
+    "commit": "2338409efc51cf2022ff5610a9fb689251706e2b"
+  },
+  {
+    "path": "yocto/meta-rockchip",
+    "commit": "f250fd15069a9946a9a2a327d12f72c2a260d8cf"
+  },
+  {
+    "path": "yocto/poky",
+    "commit": "0b37512fb4b231cc106768e2a7328431009b3b70"
+  }
+]

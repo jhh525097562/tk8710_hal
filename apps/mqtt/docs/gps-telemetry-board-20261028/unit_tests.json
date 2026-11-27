@@ -1,0 +1,27 @@
+{
+  "test_ns_gps_config": {
+    "stdout": "PASS NS gps_enable: 0/1 accepted, missing and invalid types rejected\n",
+    "stderr": "",
+    "rc": 0
+  },
+  "test_gateway_telemetry": {
+    "stdout": "PASS RF status: 12 cases including leading zero, antenna order, missing and malformed data\n{\"system\":{\"uptime_s\":1639,\"ram_total_bytes\":501223424,\"ram_used_bytes\":117944320,\"ram_used_percent\":23.531286518644428,\"disk_total_bytes\":1002381312,\"disk_used_bytes\":35520512,\"disk_used_percent\":3.5436127524292873,\"load_avg\":[0.0419921875,0.1318359375,0.1044921875]},\"tk8710_gw\":{\"running\":false,\"uptime_s\":null}}\nPASS telemetry parser, missing/unknown process, system collection\n",
+    "stderr": "",
+    "rc": 0
+  },
+  "test_ns_scan_protocol": {
+    "stdout": "{ \"scan_result\": { \"request_id\": \"scan-1\", \"state\": \"completed\", \"start_freq_hz\": 470000000, \"end_freq_hz\": 470000000, \"mode\": \"500k\", \"point_count\": 1, \"antenna_count\": 8, \"points\": [ { \"freq_hz\": 470000000, \"noise_dbm\": [ -120.0, -121.0, -122.0, -123.0, -124.0, -125.0, -126.0, -127.0 ] } ] } }\nPASS scan protocol: unrelated/invalid IDs, four modes, duplicate comparison, complete/partial/wrong-frequency/NaN/extra-record results\n",
+    "stderr": "",
+    "rc": 0
+  },
+  "test_ns_scan_manager": {
+    "stdout": "PASS manager: IPC start, duplicate/conflict, wrong-task isolation, 8-antenna result, restart resend, durable ACK; fixture=/tmp/mqtt_scan_manager_97OTBQ publications=11\n",
+    "stderr": "",
+    "rc": 0
+  },
+  "test_gps_heartbeat": {
+    "stdout": "PASS GPS file -> heartbeat: new/legacy/zero/CRLF/missing/invalid/overflow\n",
+    "stderr": "",
+    "rc": 0
+  }
+}

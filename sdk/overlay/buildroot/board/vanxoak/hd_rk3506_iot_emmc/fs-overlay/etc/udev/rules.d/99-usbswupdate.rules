@@ -1,0 +1,3 @@
+# 兼容：USB 磁盘 + 分区 都触发（只触发一次，最稳定）
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", \
+    RUN+="/bin/bash /usr/bin/usb_trigger.sh $env{DEVNAME}"
