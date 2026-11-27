@@ -1,0 +1,177 @@
+{
+  "explanation": "Diagnostic only: MATLAB per-user waves multiplied by C++ weights; not substituted for the main comparison",
+  "cmodel_vs_matlab_userwaves_with_cmodel_weights": {
+    "reference_shape": [
+      26497,
+      8
+    ],
+    "actual_shape": [
+      26497,
+      8
+    ],
+    "same_shape": true,
+    "exact_equal": false,
+    "comparison": "same sample indices, no fitted gain, phase rotation, resampling or delay search",
+    "per_antenna": [
+      {
+        "antenna": 1,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.1850141750289099,
+        "complex_rmse": 0.041621430260477425,
+        "relative_l2_error": 0.00952128380308693
+      },
+      {
+        "antenna": 2,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.18364772456021364,
+        "complex_rmse": 0.03925973516870815,
+        "relative_l2_error": 0.009059268365276525
+      },
+      {
+        "antenna": 3,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26496,
+        "first_mismatch_sample_zero_based": 1,
+        "max_complex_absolute_error": 0.1951529167062025,
+        "complex_rmse": 0.04334205847344334,
+        "relative_l2_error": 0.009597288812603829
+      },
+      {
+        "antenna": 4,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.1542949151242067,
+        "complex_rmse": 0.03628356571360552,
+        "relative_l2_error": 0.009912389600839091
+      },
+      {
+        "antenna": 5,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.17729792209720333,
+        "complex_rmse": 0.03668855694635176,
+        "relative_l2_error": 0.009124209657120689
+      },
+      {
+        "antenna": 6,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.22772603524923363,
+        "complex_rmse": 0.04852059796177566,
+        "relative_l2_error": 0.00999836069469877
+      },
+      {
+        "antenna": 7,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.17833114629511898,
+        "complex_rmse": 0.04144565634974372,
+        "relative_l2_error": 0.00952863763944982
+      },
+      {
+        "antenna": 8,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.19301121570958996,
+        "complex_rmse": 0.04183006479840909,
+        "relative_l2_error": 0.009339541358181777
+      }
+    ]
+  },
+  "matlab_vs_matlab_userwaves_with_cmodel_weights": {
+    "reference_shape": [
+      26497,
+      8
+    ],
+    "actual_shape": [
+      26497,
+      8
+    ],
+    "same_shape": true,
+    "exact_equal": false,
+    "comparison": "same sample indices, no fitted gain, phase rotation, resampling or delay search",
+    "per_antenna": [
+      {
+        "antenna": 1,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 9.152199921175994,
+        "complex_rmse": 2.696643497728893,
+        "relative_l2_error": 0.6047044596174448
+      },
+      {
+        "antenna": 2,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 8.737318029039319,
+        "complex_rmse": 2.565916891354303,
+        "relative_l2_error": 0.5686958265652773
+      },
+      {
+        "antenna": 3,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 6.270232943740809,
+        "complex_rmse": 2.232745053873345,
+        "relative_l2_error": 0.5316405106095277
+      },
+      {
+        "antenna": 4,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 6.190814322716396,
+        "complex_rmse": 2.0822133955693527,
+        "relative_l2_error": 0.5972816671758069
+      },
+      {
+        "antenna": 5,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 5.392813548355273,
+        "complex_rmse": 1.7752324484035864,
+        "relative_l2_error": 0.4262967651592246
+      },
+      {
+        "antenna": 6,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 7.3761966079512025,
+        "complex_rmse": 2.621324536428898,
+        "relative_l2_error": 0.5362131809009287
+      },
+      {
+        "antenna": 7,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 7.53112880264988,
+        "complex_rmse": 2.4150888793227034,
+        "relative_l2_error": 0.5796921073953271
+      },
+      {
+        "antenna": 8,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 9.094422693410051,
+        "complex_rmse": 2.734083469762026,
+        "relative_l2_error": 0.5781543892914225
+      }
+    ]
+  }
+}

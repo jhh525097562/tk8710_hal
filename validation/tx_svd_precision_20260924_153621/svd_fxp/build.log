@@ -1,0 +1,15 @@
+In file included from D:\CodexWorkSpace\K2301Cmodel\c_model\validation\tx_svd_precision_20260924_153621\svd_fxp\source\testbench_GWRX_TX\GWRXTX_testbench.cpp:26:
+D:/CodexWorkSpace/K2301Cmodel/c_model/validation/tx_svd_precision_20260924_153621/svd_fxp/source/Cls_tx_beamforming.h:832:95: warning: missing terminating ' character
+                   << m_S_est[row][col] << ' ' << out[row][col].I << ' ' << out[row][col].Q << '
+                                                                                               ^
+D:/CodexWorkSpace/K2301Cmodel/c_model/validation/tx_svd_precision_20260924_153621/svd_fxp/source/Cls_tx_beamforming.h:832:95: error: missing terminating ' character
+D:/CodexWorkSpace/K2301Cmodel/c_model/validation/tx_svd_precision_20260924_153621/svd_fxp/source/Cls_tx_beamforming.h:833:1: warning: missing terminating ' character
+ ';
+ ^
+D:/CodexWorkSpace/K2301Cmodel/c_model/validation/tx_svd_precision_20260924_153621/svd_fxp/source/Cls_tx_beamforming.h:833:1: error: missing terminating ' character
+ ';
+ ^~
+D:/CodexWorkSpace/K2301Cmodel/c_model/validation/tx_svd_precision_20260924_153621/svd_fxp/source/Cls_tx_beamforming.h: In member function 'void Cls_tx_beamforming<T>::pinvFunction(Complex<double>**, Complex<double>**)':
+D:/CodexWorkSpace/K2301Cmodel/c_model/validation/tx_svd_precision_20260924_153621/svd_fxp/source/Cls_tx_beamforming.h:834:5: error: expected primary-expression before '}' token
+     }
+     ^

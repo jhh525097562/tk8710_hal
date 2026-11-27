@@ -1,0 +1,470 @@
+NUMERIC_MODE=float (double)
+CaseNum:95 Mode:4
+RX_DECODE frame=0 candidate=0 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=1 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=2 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=3 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=4 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=5 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=7 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=8 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=10 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=11 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=12 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=14 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=15 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=16 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=17 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=18 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=22 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=24 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=25 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=26 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=27 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=28 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=29 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=31 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=32 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=33 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=34 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=36 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=37 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=38 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=39 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=40 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=41 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=42 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=44 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=45 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=46 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=47 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=48 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=49 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=51 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=52 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=53 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=54 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=55 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=56 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=57 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=58 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=59 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=60 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=61 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=64 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=65 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=66 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=67 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=68 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=69 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=70 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=71 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=72 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=73 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=74 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=75 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=76 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=77 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=78 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=79 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=80 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=81 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=82 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=83 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=84 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=86 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=87 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=88 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=89 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=90 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=91 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=92 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=94 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=95 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=96 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=97 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=98 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=99 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=100 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=101 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=102 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=103 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=104 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=106 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=108 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=109 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=110 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=111 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=112 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=113 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=114 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=115 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=117 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=120 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=121 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=122 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=123 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=124 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=125 segments=1 crc_errors=0 bytes=28
+RX_DECODE frame=0 candidate=127 segments=1 crc_errors=0 bytes=28
+FreamIndex:0 RxUserNum:105
+TX_INPUT_SOURCE=MATLAB users=104
+TX_PAYLOAD_MAP rx_index=0 user_id=1 bank_row=0
+TX_PAYLOAD_MAP rx_index=1 user_id=2 bank_row=1
+TX_PAYLOAD_MAP rx_index=2 user_id=3 bank_row=2
+TX_PAYLOAD_MAP rx_index=3 user_id=4 bank_row=3
+TX_PAYLOAD_MAP rx_index=4 user_id=5 bank_row=4
+TX_PAYLOAD_MAP rx_index=5 user_id=6 bank_row=5
+TX_PAYLOAD_MAP rx_index=6 user_id=7 bank_row=6
+TX_PAYLOAD_MAP rx_index=7 user_id=8 bank_row=7
+TX_PAYLOAD_MAP rx_index=8 user_id=9 bank_row=8
+TX_PAYLOAD_MAP rx_index=9 user_id=12 bank_row=9
+TX_PAYLOAD_MAP rx_index=10 user_id=14 bank_row=10
+TX_PAYLOAD_MAP rx_index=11 user_id=15 bank_row=11
+TX_PAYLOAD_MAP rx_index=12 user_id=16 bank_row=12
+TX_PAYLOAD_MAP rx_index=13 user_id=17 bank_row=13
+TX_PAYLOAD_MAP rx_index=14 user_id=19 bank_row=14
+TX_PAYLOAD_MAP rx_index=15 user_id=20 bank_row=15
+TX_PAYLOAD_MAP rx_index=16 user_id=21 bank_row=16
+TX_PAYLOAD_MAP rx_index=17 user_id=22 bank_row=17
+TX_PAYLOAD_MAP rx_index=18 user_id=23 bank_row=18
+TX_PAYLOAD_MAP rx_index=19 user_id=24 bank_row=19
+TX_PAYLOAD_MAP rx_index=20 user_id=25 bank_row=20
+TX_PAYLOAD_MAP rx_index=21 user_id=26 bank_row=21
+TX_PAYLOAD_MAP rx_index=22 user_id=27 bank_row=22
+TX_PAYLOAD_MAP rx_index=23 user_id=28 bank_row=23
+TX_PAYLOAD_MAP rx_index=24 user_id=29 bank_row=24
+TX_PAYLOAD_MAP rx_index=25 user_id=31 bank_row=25
+TX_PAYLOAD_MAP rx_index=26 user_id=32 bank_row=26
+TX_PAYLOAD_MAP rx_index=27 user_id=33 bank_row=27
+TX_PAYLOAD_MAP rx_index=28 user_id=34 bank_row=28
+TX_PAYLOAD_MAP rx_index=29 user_id=35 bank_row=29
+TX_PAYLOAD_MAP rx_index=30 user_id=37 bank_row=30
+TX_PAYLOAD_MAP rx_index=31 user_id=38 bank_row=31
+TX_PAYLOAD_MAP rx_index=32 user_id=39 bank_row=32
+TX_PAYLOAD_MAP rx_index=33 user_id=40 bank_row=33
+TX_PAYLOAD_MAP rx_index=34 user_id=42 bank_row=34
+TX_PAYLOAD_MAP rx_index=35 user_id=43 bank_row=35
+TX_PAYLOAD_MAP rx_index=36 user_id=44 bank_row=36
+TX_PAYLOAD_MAP rx_index=37 user_id=45 bank_row=37
+TX_PAYLOAD_MAP rx_index=38 user_id=46 bank_row=38
+TX_PAYLOAD_MAP rx_index=39 user_id=48 bank_row=39
+TX_PAYLOAD_MAP rx_index=40 user_id=49 bank_row=40
+TX_PAYLOAD_MAP rx_index=41 user_id=52 bank_row=41
+TX_PAYLOAD_MAP rx_index=42 user_id=53 bank_row=42
+TX_PAYLOAD_MAP rx_index=43 user_id=54 bank_row=43
+TX_PAYLOAD_MAP rx_index=44 user_id=55 bank_row=44
+TX_PAYLOAD_MAP rx_index=45 user_id=57 bank_row=45
+TX_PAYLOAD_MAP rx_index=46 user_id=58 bank_row=46
+TX_PAYLOAD_MAP rx_index=47 user_id=60 bank_row=47
+TX_PAYLOAD_MAP rx_index=48 user_id=62 bank_row=48
+TX_PAYLOAD_MAP rx_index=49 user_id=64 bank_row=49
+TX_PAYLOAD_MAP rx_index=50 user_id=65 bank_row=50
+TX_PAYLOAD_MAP rx_index=51 user_id=66 bank_row=51
+TX_PAYLOAD_MAP rx_index=52 user_id=67 bank_row=52
+TX_PAYLOAD_MAP rx_index=53 user_id=68 bank_row=53
+TX_PAYLOAD_MAP rx_index=54 user_id=69 bank_row=54
+TX_PAYLOAD_MAP rx_index=55 user_id=70 bank_row=55
+TX_PAYLOAD_MAP rx_index=56 user_id=72 bank_row=56
+TX_PAYLOAD_MAP rx_index=57 user_id=73 bank_row=57
+TX_PAYLOAD_MAP rx_index=58 user_id=74 bank_row=58
+TX_PAYLOAD_MAP rx_index=59 user_id=75 bank_row=59
+TX_PAYLOAD_MAP rx_index=60 user_id=76 bank_row=60
+TX_PAYLOAD_MAP rx_index=61 user_id=77 bank_row=61
+TX_PAYLOAD_MAP rx_index=62 user_id=78 bank_row=62
+TX_PAYLOAD_MAP rx_index=63 user_id=79 bank_row=63
+TX_PAYLOAD_MAP rx_index=64 user_id=81 bank_row=64
+TX_PAYLOAD_MAP rx_index=65 user_id=82 bank_row=65
+TX_PAYLOAD_MAP rx_index=66 user_id=84 bank_row=66
+TX_PAYLOAD_MAP rx_index=67 user_id=86 bank_row=67
+TX_PAYLOAD_MAP rx_index=68 user_id=88 bank_row=68
+TX_PAYLOAD_MAP rx_index=69 user_id=89 bank_row=69
+TX_PAYLOAD_MAP rx_index=70 user_id=90 bank_row=70
+TX_PAYLOAD_MAP rx_index=71 user_id=91 bank_row=71
+TX_PAYLOAD_MAP rx_index=72 user_id=92 bank_row=72
+TX_PAYLOAD_MAP rx_index=73 user_id=93 bank_row=73
+TX_PAYLOAD_MAP rx_index=74 user_id=94 bank_row=74
+TX_PAYLOAD_MAP rx_index=75 user_id=95 bank_row=75
+TX_PAYLOAD_MAP rx_index=76 user_id=96 bank_row=76
+TX_PAYLOAD_MAP rx_index=77 user_id=97 bank_row=77
+TX_PAYLOAD_MAP rx_index=78 user_id=99 bank_row=78
+TX_PAYLOAD_MAP rx_index=79 user_id=100 bank_row=79
+TX_PAYLOAD_MAP rx_index=80 user_id=101 bank_row=80
+TX_PAYLOAD_MAP rx_index=81 user_id=102 bank_row=81
+TX_PAYLOAD_MAP rx_index=82 user_id=103 bank_row=82
+TX_PAYLOAD_MAP rx_index=83 user_id=104 bank_row=83
+TX_PAYLOAD_MAP rx_index=84 user_id=105 bank_row=84
+TX_PAYLOAD_MAP rx_index=85 user_id=106 bank_row=85
+TX_PAYLOAD_MAP rx_index=86 user_id=109 bank_row=86
+TX_PAYLOAD_MAP rx_index=87 user_id=110 bank_row=87
+TX_PAYLOAD_MAP rx_index=88 user_id=111 bank_row=88
+TX_PAYLOAD_MAP rx_index=89 user_id=112 bank_row=89
+TX_PAYLOAD_MAP rx_index=90 user_id=113 bank_row=90
+TX_PAYLOAD_MAP rx_index=91 user_id=114 bank_row=91
+TX_PAYLOAD_MAP rx_index=92 user_id=115 bank_row=92
+TX_PAYLOAD_MAP rx_index=93 user_id=116 bank_row=93
+TX_PAYLOAD_MAP rx_index=94 user_id=117 bank_row=94
+TX_PAYLOAD_MAP rx_index=95 user_id=118 bank_row=95
+TX_PAYLOAD_MAP rx_index=96 user_id=119 bank_row=96
+TX_PAYLOAD_MAP rx_index=97 user_id=120 bank_row=97
+TX_PAYLOAD_MAP rx_index=98 user_id=121 bank_row=98
+TX_PAYLOAD_MAP rx_index=99 user_id=123 bank_row=99
+TX_PAYLOAD_MAP rx_index=100 user_id=124 bank_row=100
+TX_PAYLOAD_MAP rx_index=101 user_id=125 bank_row=101
+TX_PAYLOAD_MAP rx_index=102 user_id=126 bank_row=102
+TX_PAYLOAD_MAP rx_index=103 user_id=127 bank_row=103
+6	1	0
+SVD_NOT_CONVERGED sweeps=10 rotations=126 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=126 skipped=154 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,22,16,9,5,5,5,4,4
+8	1	1
+SVD_NOT_CONVERGED sweeps=10 rotations=109 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=109 skipped=171 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,25,14,4,2,2,2,2,2
+6	1	2
+SVD_NOT_CONVERGED sweeps=10 rotations=149 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=149 skipped=131 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,26,19,11,9,7,6,8,7
+8	1	3
+TX_SVD sweeps=5 rotations=100 skipped=40 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,18,0
+8	1	4
+SVD_NOT_CONVERGED sweeps=10 rotations=109 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=109 skipped=171 converged=0 hit_max=1 precision_limited=0 per_sweep=28,27,24,17,3,2,2,2,2,2
+10	1	5
+TX_SVD sweeps=5 rotations=89 skipped=51 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,9,0
+11	1	6
+TX_SVD sweeps=5 rotations=94 skipped=46 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,25,13,0
+9	2	7
+TX_SVD sweeps=6 rotations=104 skipped=64 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,17,4,0
+7	2	8
+SVD_NOT_CONVERGED sweeps=10 rotations=121 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=121 skipped=159 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,26,17,6,4,3,3,3,3
+3	1	9
+SVD_NOT_CONVERGED sweeps=10 rotations=155 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=155 skipped=125 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,22,16,9,8,7,5,5
+7	1	10
+TX_SVD sweeps=5 rotations=97 skipped=43 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,15,0
+7	1	11
+TX_SVD sweeps=6 rotations=99 skipped=69 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,25,17,1,0
+9	1	12
+TX_SVD sweeps=6 rotations=111 skipped=57 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,28,19,8,0
+7	2	13
+SVD_NOT_CONVERGED sweeps=10 rotations=122 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=122 skipped=158 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,15,4,4,4,4,4,4
+9	1	14
+SVD_NOT_CONVERGED sweeps=10 rotations=123 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=123 skipped=157 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,24,12,6,5,5,5,5,5
+7	1	15
+SVD_NOT_CONVERGED sweeps=10 rotations=102 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=102 skipped=178 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,23,11,2,2,2,2,2,2
+10	2	16
+SVD_NOT_CONVERGED sweeps=10 rotations=113 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=113 skipped=167 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,26,18,8,1,1,1,1,1
+11	3	17
+TX_SVD sweeps=5 rotations=94 skipped=46 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,25,13,0
+9	2	18
+SVD_NOT_CONVERGED sweeps=10 rotations=123 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=123 skipped=157 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,24,12,6,5,5,5,5,5
+8	2	19
+TX_SVD sweeps=5 rotations=85 skipped=55 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,5,0
+8	1	20
+TX_SVD sweeps=6 rotations=95 skipped=73 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,14,1,0
+8	2	21
+SVD_NOT_CONVERGED sweeps=10 rotations=109 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=109 skipped=171 converged=0 hit_max=1 precision_limited=0 per_sweep=28,27,24,17,3,2,2,2,2,2
+10	3	22
+TX_SVD sweeps=5 rotations=88 skipped=52 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,8,0
+11	4	23
+TX_SVD sweeps=6 rotations=104 skipped=64 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,16,5,0
+7	3	24
+SVD_NOT_CONVERGED sweeps=10 rotations=125 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=125 skipped=155 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,17,9,4,3,3,3,3
+10	3	25
+TX_SVD sweeps=6 rotations=96 skipped=72 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,15,1,0
+5	1	26
+SVD_NOT_CONVERGED sweeps=10 rotations=132 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=132 skipped=148 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,25,14,7,6,6,6,6,6
+10	5	27
+TX_SVD sweeps=6 rotations=102 skipped=66 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,19,1,0
+8	2	28
+TX_SVD sweeps=6 rotations=95 skipped=73 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,10,2,0
+8	1	29
+SVD_NOT_CONVERGED sweeps=10 rotations=123 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=123 skipped=157 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,26,18,8,3,3,3,3,3
+4	1	30
+SVD_NOT_CONVERGED sweeps=10 rotations=130 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=130 skipped=150 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,21,6,4,4,4,4,4
+6	3	31
+SVD_NOT_CONVERGED sweeps=10 rotations=159 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=159 skipped=121 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,26,20,14,14,10,6,7,6
+8	3	32
+TX_SVD sweeps=6 rotations=95 skipped=73 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,10,2,0
+8	3	33
+TX_SVD sweeps=5 rotations=99 skipped=41 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,16,0
+8	1	34
+TX_SVD sweeps=5 rotations=90 skipped=50 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,10,0
+8	3	35
+SVD_NOT_CONVERGED sweeps=10 rotations=109 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=109 skipped=171 converged=0 hit_max=1 precision_limited=0 per_sweep=28,27,24,17,3,2,2,2,2,2
+8	2	36
+TX_SVD sweeps=5 rotations=95 skipped=45 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,13,0
+9	4	37
+TX_SVD sweeps=5 rotations=79 skipped=61 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,20,3,0
+8	3	38
+SVD_NOT_CONVERGED sweeps=10 rotations=113 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=113 skipped=167 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,23,15,4,3,3,3,3,3
+6	2	39
+SVD_NOT_CONVERGED sweeps=10 rotations=133 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=133 skipped=147 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,24,19,11,5,5,5,4,4
+7	3	40
+SVD_NOT_CONVERGED sweeps=10 rotations=122 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=122 skipped=158 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,15,4,4,4,4,4,4
+10	6	41
+TX_SVD sweeps=6 rotations=102 skipped=66 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,19,1,0
+7	3	42
+SVD_NOT_CONVERGED sweeps=10 rotations=114 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=114 skipped=166 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,24,19,5,2,2,2,2,2
+9	3	43
+TX_SVD sweeps=5 rotations=95 skipped=45 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,15,0
+9	3	44
+TX_SVD sweeps=6 rotations=102 skipped=66 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,16,3,0
+8	3	45
+TX_SVD sweeps=6 rotations=112 skipped=56 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,21,8,0
+11	7	46
+TX_SVD sweeps=5 rotations=94 skipped=46 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,25,13,0
+9	4	47
+TX_SVD sweeps=6 rotations=104 skipped=64 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,17,4,0
+11	8	48
+TX_SVD sweeps=6 rotations=104 skipped=64 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,16,5,0
+7	4	49
+SVD_NOT_CONVERGED sweeps=10 rotations=122 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=122 skipped=158 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,15,4,4,4,4,4,4
+8	3	50
+TX_SVD sweeps=5 rotations=90 skipped=50 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,10,0
+8	6	51
+TX_SVD sweeps=6 rotations=94 skipped=74 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,25,11,2,0
+7	3	52
+SVD_NOT_CONVERGED sweeps=10 rotations=140 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=140 skipped=140 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,28,21,10,5,5,5,5,5
+6	2	53
+SVD_NOT_CONVERGED sweeps=10 rotations=131 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=131 skipped=149 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,23,17,10,5,5,5,5,5
+11	8	54
+TX_SVD sweeps=5 rotations=87 skipped=53 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,5,0
+9	7	55
+TX_SVD sweeps=6 rotations=102 skipped=66 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,16,3,0
+8	5	56
+TX_SVD sweeps=6 rotations=97 skipped=71 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,25,15,1,0
+5	3	57
+SVD_NOT_CONVERGED sweeps=10 rotations=132 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=132 skipped=148 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,25,14,7,6,6,6,6,6
+9	4	58
+TX_SVD sweeps=5 rotations=95 skipped=45 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,15,0
+8	7	59
+TX_SVD sweeps=6 rotations=112 skipped=56 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,21,8,0
+8	4	60
+SVD_NOT_CONVERGED sweeps=10 rotations=109 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=109 skipped=171 converged=0 hit_max=1 precision_limited=0 per_sweep=28,27,24,17,3,2,2,2,2,2
+8	6	61
+TX_SVD sweeps=6 rotations=105 skipped=63 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,18,4,0
+6	3	62
+SVD_NOT_CONVERGED sweeps=10 rotations=136 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=136 skipped=144 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,26,16,12,5,6,6,5,4
+8	3	63
+TX_SVD sweeps=6 rotations=99 skipped=69 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,25,14,4,0
+7	3	64
+SVD_NOT_CONVERGED sweeps=10 rotations=113 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=113 skipped=167 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,25,13,4,3,3,3,3,3
+8	5	65
+TX_SVD sweeps=6 rotations=101 skipped=67 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,17,2,0
+8	5	66
+SVD_NOT_CONVERGED sweeps=10 rotations=109 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=109 skipped=171 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,25,14,4,2,2,2,2,2
+9	6	67
+TX_SVD sweeps=5 rotations=95 skipped=45 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,15,0
+8	3	68
+TX_SVD sweeps=5 rotations=93 skipped=47 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,11,0
+9	4	69
+TX_SVD sweeps=5 rotations=84 skipped=56 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,22,6,0
+4	3	70
+SVD_NOT_CONVERGED sweeps=10 rotations=130 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=130 skipped=150 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,21,6,4,4,4,4,4
+7	4	71
+TX_SVD sweeps=7 rotations=104 skipped=92 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,15,6,3,0
+7	5	72
+SVD_NOT_CONVERGED sweeps=10 rotations=110 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=110 skipped=170 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,23,13,3,3,3,3,3,3
+8	5	73
+TX_SVD sweeps=5 rotations=92 skipped=48 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,10,0
+6	3	74
+SVD_NOT_CONVERGED sweeps=10 rotations=126 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=126 skipped=154 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,22,16,9,5,5,5,4,4
+9	6	75
+TX_SVD sweeps=5 rotations=91 skipped=49 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,9,0
+9	6	76
+SVD_NOT_CONVERGED sweeps=10 rotations=123 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=123 skipped=157 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,24,12,6,5,5,5,5,5
+8	5	77
+TX_SVD sweeps=6 rotations=95 skipped=73 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,10,2,0
+9	5	78
+TX_SVD sweeps=5 rotations=84 skipped=56 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,22,6,0
+7	3	79
+SVD_NOT_CONVERGED sweeps=10 rotations=129 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=129 skipped=151 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,25,15,8,5,5,5,5,5
+5	4	80
+SVD_NOT_CONVERGED sweeps=10 rotations=156 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=156 skipped=124 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,25,20,12,10,9,8,8,8
+12	10	81
+TX_SVD sweeps=5 rotations=84 skipped=56 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,22,6,0
+7	5	82
+SVD_NOT_CONVERGED sweeps=10 rotations=125 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=125 skipped=155 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,17,9,4,3,3,3,3
+9	6	83
+TX_SVD sweeps=5 rotations=93 skipped=47 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,11,0
+6	4	84
+SVD_NOT_CONVERGED sweeps=10 rotations=133 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=133 skipped=147 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,24,19,11,5,5,5,4,4
+9	7	85
+TX_SVD sweeps=5 rotations=95 skipped=45 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,15,0
+8	6	86
+SVD_NOT_CONVERGED sweeps=10 rotations=120 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=120 skipped=160 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,26,14,4,4,4,4,4,4
+9	6	87
+TX_SVD sweeps=5 rotations=89 skipped=51 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,6,0
+9	7	88
+TX_SVD sweeps=5 rotations=84 skipped=56 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,22,6,0
+7	5	89
+SVD_NOT_CONVERGED sweeps=10 rotations=114 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=114 skipped=166 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,24,19,5,2,2,2,2,2
+11	10	90
+TX_SVD sweeps=5 rotations=88 skipped=52 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,8,0
+9	8	91
+TX_SVD sweeps=6 rotations=106 skipped=62 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,19,4,0
+8	5	92
+TX_SVD sweeps=5 rotations=90 skipped=50 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,10,0
+9	7	93
+SVD_NOT_CONVERGED sweeps=10 rotations=103 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=103 skipped=177 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,21,7,4,3,3,3,3,3
+8	7	94
+TX_SVD sweeps=6 rotations=105 skipped=63 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,18,4,0
+8	7	95
+TX_SVD sweeps=6 rotations=95 skipped=73 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,24,14,1,0
+8	6	96
+SVD_NOT_CONVERGED sweeps=10 rotations=118 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=118 skipped=162 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,27,13,7,3,3,3,3,3
+8	7	97
+TX_SVD sweeps=6 rotations=106 skipped=62 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,18,5,0
+8	7	98
+TX_SVD sweeps=6 rotations=111 skipped=57 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,18,10,0
+10	9	99
+TX_SVD sweeps=6 rotations=100 skipped=68 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,26,15,3,0
+8	7	100
+SVD_NOT_CONVERGED sweeps=10 rotations=120 hit_max=1 precision_limited=0
+TX_SVD sweeps=10 rotations=120 skipped=160 converged=0 hit_max=1 precision_limited=0 per_sweep=28,28,26,14,4,4,4,4,4,4
+9	8	101
+TX_SVD sweeps=5 rotations=99 skipped=41 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,28,15,0
+9	8	102
+TX_SVD sweeps=5 rotations=90 skipped=50 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,23,11,0
+8	7	103
+TX_SVD sweeps=6 rotations=95 skipped=73 converged=1 hit_max=0 precision_limited=0 per_sweep=28,28,27,10,2,0
+TX_FRAME frame=0 users=104 samples=26497 energy=5.69261e-08
+-0.09375
+[Float_Sim]Case:95TotalRxNum105 SimNum:1  LostRate:-0.0937500000	
+RxFinished

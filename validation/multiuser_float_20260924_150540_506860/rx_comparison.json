@@ -1,0 +1,1003 @@
+{
+  "matlab_users": 104,
+  "cmodel_users": 105,
+  "common_users": 104,
+  "only_matlab": [],
+  "only_cmodel": [
+    83
+  ],
+  "missing_matlab": [
+    10,
+    11,
+    13,
+    18,
+    30,
+    36,
+    41,
+    47,
+    50,
+    51,
+    56,
+    59,
+    61,
+    63,
+    71,
+    80,
+    83,
+    85,
+    87,
+    98,
+    107,
+    108,
+    122,
+    128
+  ],
+  "missing_cmodel": [
+    10,
+    11,
+    13,
+    18,
+    30,
+    36,
+    41,
+    47,
+    50,
+    51,
+    56,
+    59,
+    61,
+    63,
+    71,
+    80,
+    85,
+    87,
+    98,
+    107,
+    108,
+    122,
+    128
+  ],
+  "payload_equal_common_users": 104,
+  "matlab_payload_errors": [],
+  "cmodel_payload_errors": [],
+  "details": [
+    {
+      "user_id": 1,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00044074781708658406,
+      "pilot_power_error": 0.5340526821146341
+    },
+    {
+      "user_id": 2,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004822450227809533,
+      "pilot_power_error": -11.62517899525119
+    },
+    {
+      "user_id": 3,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00045651913367071595,
+      "pilot_power_error": 0.10636880139782079
+    },
+    {
+      "user_id": 4,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004536282900948467,
+      "pilot_power_error": 0.2988039851989015
+    },
+    {
+      "user_id": 5,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005735420180010833,
+      "pilot_power_error": -0.43475972082251246
+    },
+    {
+      "user_id": 6,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004499071804755451,
+      "pilot_power_error": 2.4211979622959916
+    },
+    {
+      "user_id": 7,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00033597590129488147,
+      "pilot_power_error": 139.80588186555542
+    },
+    {
+      "user_id": 8,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005723553894891866,
+      "pilot_power_error": -1.321992569410213
+    },
+    {
+      "user_id": 9,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005191216914035324,
+      "pilot_power_error": 2.076325357444148
+    },
+    {
+      "user_id": 12,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0007074402250557458,
+      "pilot_power_error": -12.762453229479434
+    },
+    {
+      "user_id": 14,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004265019264082982,
+      "pilot_power_error": 0.629660505810989
+    },
+    {
+      "user_id": 15,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004947146632640054,
+      "pilot_power_error": 3.266910208069021
+    },
+    {
+      "user_id": 16,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006561253745380259,
+      "pilot_power_error": -72.52740791099495
+    },
+    {
+      "user_id": 17,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005812335352536224,
+      "pilot_power_error": -2.006590314440473
+    },
+    {
+      "user_id": 19,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0003646389823372744,
+      "pilot_power_error": 4.073273934027384
+    },
+    {
+      "user_id": 20,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004816075853745126,
+      "pilot_power_error": 22.371854074968724
+    },
+    {
+      "user_id": 21,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004679836536332247,
+      "pilot_power_error": 10.842880326294107
+    },
+    {
+      "user_id": 22,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004929465018175725,
+      "pilot_power_error": 19.80854283311055
+    },
+    {
+      "user_id": 23,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005292889494393915,
+      "pilot_power_error": 104.03656267584302
+    },
+    {
+      "user_id": 24,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005482404851728398,
+      "pilot_power_error": -1.7765496803331189
+    },
+    {
+      "user_id": 25,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004751357870049431,
+      "pilot_power_error": 2.2618205315284285
+    },
+    {
+      "user_id": 26,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005581086940896978,
+      "pilot_power_error": -102.95983545982745
+    },
+    {
+      "user_id": 27,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006368163691305335,
+      "pilot_power_error": -7.868999863829231
+    },
+    {
+      "user_id": 28,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005498518160403082,
+      "pilot_power_error": -4.149937077781942
+    },
+    {
+      "user_id": 29,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0003151267135398968,
+      "pilot_power_error": 12.348374728404451
+    },
+    {
+      "user_id": 31,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006160858888136917,
+      "pilot_power_error": -2.061398673493386
+    },
+    {
+      "user_id": 32,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004865436877010511,
+      "pilot_power_error": -43.86030874404241
+    },
+    {
+      "user_id": 33,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005141219407873851,
+      "pilot_power_error": 9.4294320641784
+    },
+    {
+      "user_id": 34,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00048318456003598276,
+      "pilot_power_error": -58.1163797917543
+    },
+    {
+      "user_id": 35,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0003870086629872799,
+      "pilot_power_error": -112.6425310219638
+    },
+    {
+      "user_id": 37,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0007074651835915051,
+      "pilot_power_error": -44.0179518891091
+    },
+    {
+      "user_id": 38,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005595196315343488,
+      "pilot_power_error": -85.07936436240561
+    },
+    {
+      "user_id": 39,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005048420816079672,
+      "pilot_power_error": -2.253839557259198
+    },
+    {
+      "user_id": 40,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004658317757000155,
+      "pilot_power_error": 11.573512741953891
+    },
+    {
+      "user_id": 42,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005272598553829455,
+      "pilot_power_error": 26.470612161210738
+    },
+    {
+      "user_id": 43,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006198307211367523,
+      "pilot_power_error": -10.279272646781465
+    },
+    {
+      "user_id": 44,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004899202864869861,
+      "pilot_power_error": -57.42498543084366
+    },
+    {
+      "user_id": 45,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00039190206140232633,
+      "pilot_power_error": 51.585616355761886
+    },
+    {
+      "user_id": 46,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004883848729356173,
+      "pilot_power_error": -5.449340492108604
+    },
+    {
+      "user_id": 48,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004313363738623142,
+      "pilot_power_error": 4.0559292681391526
+    },
+    {
+      "user_id": 49,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006001386625601124,
+      "pilot_power_error": -35.04267058282858
+    },
+    {
+      "user_id": 52,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005521640750671149,
+      "pilot_power_error": 7.729679898387985
+    },
+    {
+      "user_id": 53,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005621057784022258,
+      "pilot_power_error": -52.83577324269572
+    },
+    {
+      "user_id": 54,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0003354920649233383,
+      "pilot_power_error": 11.178999323725293
+    },
+    {
+      "user_id": 55,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0003933965321654425,
+      "pilot_power_error": 27.790126832696842
+    },
+    {
+      "user_id": 57,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0003765499275356676,
+      "pilot_power_error": 41.96239209850319
+    },
+    {
+      "user_id": 58,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.000510655419351373,
+      "pilot_power_error": -73.8435103863012
+    },
+    {
+      "user_id": 60,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005537895887837012,
+      "pilot_power_error": -115.97167074866593
+    },
+    {
+      "user_id": 62,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004709211915359394,
+      "pilot_power_error": -7.843045989888196
+    },
+    {
+      "user_id": 64,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004010515985919576,
+      "pilot_power_error": 116.17753124202136
+    },
+    {
+      "user_id": 65,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005236104102912775,
+      "pilot_power_error": 0.7758578542270698
+    },
+    {
+      "user_id": 66,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004998835176263931,
+      "pilot_power_error": 121.81832092895638
+    },
+    {
+      "user_id": 67,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005745906677308208,
+      "pilot_power_error": -1.424516894192493
+    },
+    {
+      "user_id": 68,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004570452776018137,
+      "pilot_power_error": 1.3599243858698173
+    },
+    {
+      "user_id": 69,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.000435988140410053,
+      "pilot_power_error": 3.5636086165104643
+    },
+    {
+      "user_id": 70,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00054291908236281,
+      "pilot_power_error": 0.8649335757727385
+    },
+    {
+      "user_id": 72,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005195371377066336,
+      "pilot_power_error": 0.18765122216700547
+    },
+    {
+      "user_id": 73,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004821943314690158,
+      "pilot_power_error": 109.83065035473555
+    },
+    {
+      "user_id": 74,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006173395428808056,
+      "pilot_power_error": -3.7268382322326943
+    },
+    {
+      "user_id": 75,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005750369074713218,
+      "pilot_power_error": -5.547164765259367
+    },
+    {
+      "user_id": 76,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00046768263253178663,
+      "pilot_power_error": 8.553217408451019
+    },
+    {
+      "user_id": 77,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004254304119689324,
+      "pilot_power_error": 0.942854012022508
+    },
+    {
+      "user_id": 78,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005717414522289933,
+      "pilot_power_error": -3.4111087574710837
+    },
+    {
+      "user_id": 79,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00043418513474498374,
+      "pilot_power_error": 252.9906472779112
+    },
+    {
+      "user_id": 81,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004059611290310727,
+      "pilot_power_error": 93.21470001107082
+    },
+    {
+      "user_id": 82,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005170949675884629,
+      "pilot_power_error": -0.4245247623457544
+    },
+    {
+      "user_id": 84,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004306132667871726,
+      "pilot_power_error": -25.871774499712046
+    },
+    {
+      "user_id": 86,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005047632456792303,
+      "pilot_power_error": -26.09998590098985
+    },
+    {
+      "user_id": 88,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005945589836983719,
+      "pilot_power_error": -154.3578207658138
+    },
+    {
+      "user_id": 89,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.000597134997622536,
+      "pilot_power_error": -18.69828068627976
+    },
+    {
+      "user_id": 90,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00040032439047143917,
+      "pilot_power_error": 4.302995195044787
+    },
+    {
+      "user_id": 91,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006116282007536255,
+      "pilot_power_error": -297.9516854082467
+    },
+    {
+      "user_id": 92,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005430633598625771,
+      "pilot_power_error": -2.3473876799507707
+    },
+    {
+      "user_id": 93,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006629042869023351,
+      "pilot_power_error": -23.07446729572257
+    },
+    {
+      "user_id": 94,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004902544509346651,
+      "pilot_power_error": -14.546799288480543
+    },
+    {
+      "user_id": 95,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004325436985488968,
+      "pilot_power_error": 5.083367436196568
+    },
+    {
+      "user_id": 96,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005292331197876992,
+      "pilot_power_error": -393.24156064377166
+    },
+    {
+      "user_id": 97,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.000395133176277754,
+      "pilot_power_error": -40.231901899765944
+    },
+    {
+      "user_id": 99,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005440989366810135,
+      "pilot_power_error": -43.22850517579354
+    },
+    {
+      "user_id": 100,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004702919487574235,
+      "pilot_power_error": -42.1196444396046
+    },
+    {
+      "user_id": 101,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0003839246245447316,
+      "pilot_power_error": 23.199187529622577
+    },
+    {
+      "user_id": 102,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00045334463111991723,
+      "pilot_power_error": 46.39528819476254
+    },
+    {
+      "user_id": 103,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005269280865062116,
+      "pilot_power_error": 9.283329258556478
+    },
+    {
+      "user_id": 104,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005767921724760804,
+      "pilot_power_error": -11.810500001716719
+    },
+    {
+      "user_id": 105,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005176126796500067,
+      "pilot_power_error": -34.98011350458546
+    },
+    {
+      "user_id": 106,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004147570844979832,
+      "pilot_power_error": 0.12290910954379797
+    },
+    {
+      "user_id": 109,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006808345091707737,
+      "pilot_power_error": -79.67455658776453
+    },
+    {
+      "user_id": 110,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006844473879965108,
+      "pilot_power_error": -14.478864546137629
+    },
+    {
+      "user_id": 111,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004721881256259705,
+      "pilot_power_error": 4.910629747741041
+    },
+    {
+      "user_id": 112,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006634858551296441,
+      "pilot_power_error": -15.281991565148928
+    },
+    {
+      "user_id": 113,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006265304181492606,
+      "pilot_power_error": -58.66053909360198
+    },
+    {
+      "user_id": 114,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004651565279711953,
+      "pilot_power_error": -61.26988250773866
+    },
+    {
+      "user_id": 115,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00039638497144327815,
+      "pilot_power_error": 5.250173375374288
+    },
+    {
+      "user_id": 116,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005476447678030637,
+      "pilot_power_error": -2.393513458817324
+    },
+    {
+      "user_id": 117,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004914323615402017,
+      "pilot_power_error": 0.08835547619673889
+    },
+    {
+      "user_id": 118,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0004547994544377148,
+      "pilot_power_error": -22.902522523654625
+    },
+    {
+      "user_id": 119,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.000308210567452275,
+      "pilot_power_error": 6.686089117400115
+    },
+    {
+      "user_id": 120,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00038919992293378567,
+      "pilot_power_error": 61.672532098484226
+    },
+    {
+      "user_id": 121,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.000636351142258266,
+      "pilot_power_error": -3.713110260447138
+    },
+    {
+      "user_id": 123,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00044844869828829345,
+      "pilot_power_error": -29.52090716625389
+    },
+    {
+      "user_id": 124,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005125972734383208,
+      "pilot_power_error": -7.838106152768887
+    },
+    {
+      "user_id": 125,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.00043078896182685014,
+      "pilot_power_error": -0.07168226745852735
+    },
+    {
+      "user_id": 126,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0006301044494485126,
+      "pilot_power_error": -56.4090009079664
+    },
+    {
+      "user_id": 127,
+      "payload_equal": true,
+      "matlab_payload_matches_transmitted": true,
+      "cmodel_payload_matches_transmitted": true,
+      "frequency_error_hz": 0.0,
+      "ah_relative_l2": 0.0005548915721570477,
+      "pilot_power_error": -3.7874754555650725
+    }
+  ],
+  "duplicate_cmodel_ids": [],
+  "crc_clean_decode_events": 107
+}

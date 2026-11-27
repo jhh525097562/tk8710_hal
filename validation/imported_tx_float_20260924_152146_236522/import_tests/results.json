@@ -1,0 +1,37 @@
+{
+  "valid": {
+    "exit": 0,
+    "expected": 0,
+    "passed": true
+  },
+  "truncated": {
+    "exit": 3,
+    "expected": 3,
+    "passed": true
+  },
+  "extra": {
+    "exit": 3,
+    "expected": 3,
+    "passed": true
+  },
+  "nonfinite_noise": {
+    "exit": 3,
+    "expected": 3,
+    "passed": true
+  },
+  "negative_noise": {
+    "exit": 3,
+    "expected": 3,
+    "passed": true
+  },
+  "wrong_mode": {
+    "exit": 3,
+    "expected": 3,
+    "passed": true
+  },
+  "duplicate_id": {
+    "exit": 3,
+    "expected": 3,
+    "passed": true
+  }
+}

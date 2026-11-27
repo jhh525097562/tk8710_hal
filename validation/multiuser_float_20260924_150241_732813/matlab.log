@@ -1,0 +1,29 @@
+[警告: 为文件或文件夹指定的位置 perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+D:\Matlab2021a\toolbox\matlab\addons_common\matlab 无效。] 
+[> 位置：restoredefaultpath (第 57 行)
+位置: matlab_one_frame (第 4 行)] 
+MATLAB_TERMINAL_TX 16/128
+MATLAB_TERMINAL_TX 32/128
+MATLAB_TERMINAL_TX 48/128
+MATLAB_TERMINAL_TX 64/128
+MATLAB_TERMINAL_TX 80/128
+MATLAB_TERMINAL_TX 96/128
+MATLAB_TERMINAL_TX 112/128
+MATLAB_TERMINAL_TX 128/128
+
+GWRxUserNum =
+
+   104
+
+{在不同结构体之间进行下标赋值。
+
+出错 matlab_one_frame (第 64 行)
+    rxRecords(k)=struct('user_id',rxIds(k),'payload',rxPayload(k,:),'crc',users(k).CRC,...
+} 
+ERROR: MATLAB error Exit Status: 0x00000001

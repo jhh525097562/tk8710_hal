@@ -1,0 +1,276 @@
+# depslib dependency file v1.0
+1514140574 source:e:\k2301cmodel\c_model\codeblockworkspace\k2301gwrxtestbench\k2301gwrxtestbench\main.cpp
+	<iostream>
+
+1728701238 source:e:\k2301cmodel\c_model\testbench_gwrx\gwrx_testbench.cpp
+	<stdint.h>
+	"../Cls_ud.h"
+	"../Cls_GWRxBFModule.h"
+	"../Cls_BFSelect.h"
+	"../Cls_rx_data_phy2_1.h"
+	"../Cls_Rx_Sync_2_1.h"
+	<direct.h>
+	<sys/stat.h>
+
+1728637893 e:\k2301cmodel\c_model\cls_ud.h
+	"common_type.h"
+	"Lib_dump.h"
+	"Cls_fft.h"
+	"Cls_GWRxBFModule.h"
+	"Cls_sqrt.h"
+
+1728554457 e:\k2301cmodel\c_model\common_type.h
+	<cmath>
+	<string.h>
+	<iostream>
+	<fstream>
+	"sys/stat.h"
+	"Lib_complex.h"
+	"Lib_utility.h"
+	"Lib_dump.h"
+
+1728554457 e:\k2301cmodel\c_model\lib_complex.h
+	<iostream>
+	<fstream>
+	<cmath>
+	<cassert>
+	"Lib_fixpoint.h"
+
+1728554472 e:\k2301cmodel\c_model\lib_fixpoint.h
+	<string>
+	<iostream>
+	<fstream>
+	<cstring>
+	<cmath>
+	<stdint.h>
+
+1728554457 e:\k2301cmodel\c_model\lib_utility.h
+	<iostream>
+	<fstream>
+	"stdlib.h"
+	"Lib_complex.h"
+	"Lib_fixpoint.h"
+	"Lib_random.h"
+	<ios>
+
+1728554457 e:\k2301cmodel\c_model\lib_random.h
+	<cstdlib>
+	<iostream>
+	<cmath>
+
+1728554471 e:\k2301cmodel\c_model\lib_dump.h
+	<iostream>
+	<fstream>
+	<iomanip>
+	"stdlib.h"
+	"Lib_complex.h"
+	"Lib_fixpoint.h"
+
+1728554471 e:\k2301cmodel\c_model\cls_fft.h
+	<iostream>
+	<fstream>
+	"Lib_complex.h"
+	"common_type.h"
+	"Lib_io.h"
+
+1728554471 e:\k2301cmodel\c_model\lib_io.h
+	"Lib_fixpoint.h"
+	"Lib_utility.h"
+	"Lib_complex.h"
+	"Lib_dump.h"
+	"common_type.h"
+	<iostream>
+	<fstream>
+
+1728554457 e:\k2301cmodel\c_model\cls_gwrxbfmodule.h
+	"common_type.h"
+	"Cls_fft.h"
+	"Cls_svd.h"
+
+1728625958 e:\k2301cmodel\c_model\cls_svd.h
+	"common_type.h"
+	<stdint.h>
+	"iomanip"
+	"Cls_sqrt.h"
+
+1728554457 e:\k2301cmodel\c_model\cls_sqrt.h
+	"common_type.h"
+	<stdint.h>
+	"iomanip"
+
+1728554457 e:\k2301cmodel\c_model\cls_bfselect.h
+	<cmath>
+	"Lib_complex.h"
+	"Lib_fixpoint.h"
+	"Lib_random.h"
+	"Lib_utility.h"
+	"common_type.h"
+	"Lib_dump.h"
+	<iomanip>
+	"Cls_log10.h"
+
+1728554457 e:\k2301cmodel\c_model\cls_log10.h
+
+1728637544 e:\k2301cmodel\c_model\cls_rx_data_phy2_1.h
+	"common_type.h"
+	<cmath>
+	"Lib_utility.h"
+	"Cls_log10.h"
+	"Cls_Fix_Polar_decoder.h"
+	<iomanip>
+	"Lib_dump.h"
+
+1728554457 e:\k2301cmodel\c_model\cls_fix_polar_decoder.h
+
+1728554472 e:\k2301cmodel\c_model\cls_rx_sync_2_1.h
+	"Lib_complex.h"
+	"Lib_utility.h"
+	"common_type.h"
+	"Lib_dump.h"
+	"Cls_sync_DDC.h"
+	"Cls_cordic.h"
+
+1728554471 e:\k2301cmodel\c_model\cls_sync_ddc.h
+	"Lib_io.h"
+	"common_type.h"
+
+1728554472 e:\k2301cmodel\c_model\cls_cordic.h
+	<cmath>
+	"Lib_complex.h"
+
+1728796114 source:d:\users\hjh\desktop\hjh\k2301cmodel\c_model\testbench_gwrx\gwrx_testbench.cpp
+	<stdint.h>
+	"../Cls_ud.h"
+	"../Cls_GWRxBFModule.h"
+	"../Cls_BFSelect.h"
+	"../Cls_rx_data_phy2_1.h"
+	"../Cls_Rx_Sync_2_1.h"
+	<direct.h>
+	<sys/stat.h>
+
+1728637893 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_ud.h
+	"common_type.h"
+	"Lib_dump.h"
+	"Cls_fft.h"
+	"Cls_GWRxBFModule.h"
+	"Cls_sqrt.h"
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\common_type.h
+	<cmath>
+	<string.h>
+	<iostream>
+	<fstream>
+	"sys/stat.h"
+	"Lib_complex.h"
+	"Lib_utility.h"
+	"Lib_dump.h"
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\lib_complex.h
+	<iostream>
+	<fstream>
+	<cmath>
+	<cassert>
+	"Lib_fixpoint.h"
+
+1728554472 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\lib_fixpoint.h
+	<string>
+	<iostream>
+	<fstream>
+	<cstring>
+	<cmath>
+	<stdint.h>
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\lib_utility.h
+	<iostream>
+	<fstream>
+	"stdlib.h"
+	"Lib_complex.h"
+	"Lib_fixpoint.h"
+	"Lib_random.h"
+	<ios>
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\lib_random.h
+	<cstdlib>
+	<iostream>
+	<cmath>
+
+1728554471 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\lib_dump.h
+	<iostream>
+	<fstream>
+	<iomanip>
+	"stdlib.h"
+	"Lib_complex.h"
+	"Lib_fixpoint.h"
+
+1728554471 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_fft.h
+	<iostream>
+	<fstream>
+	"Lib_complex.h"
+	"common_type.h"
+	"Lib_io.h"
+
+1728554471 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\lib_io.h
+	"Lib_fixpoint.h"
+	"Lib_utility.h"
+	"Lib_complex.h"
+	"Lib_dump.h"
+	"common_type.h"
+	<iostream>
+	<fstream>
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_gwrxbfmodule.h
+	"common_type.h"
+	"Cls_fft.h"
+	"Cls_svd.h"
+
+1728625958 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_svd.h
+	"common_type.h"
+	<stdint.h>
+	"iomanip"
+	"Cls_sqrt.h"
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_sqrt.h
+	"common_type.h"
+	<stdint.h>
+	"iomanip"
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_bfselect.h
+	<cmath>
+	"Lib_complex.h"
+	"Lib_fixpoint.h"
+	"Lib_random.h"
+	"Lib_utility.h"
+	"common_type.h"
+	"Lib_dump.h"
+	<iomanip>
+	"Cls_log10.h"
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_log10.h
+
+1728637544 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_rx_data_phy2_1.h
+	"common_type.h"
+	<cmath>
+	"Lib_utility.h"
+	"Cls_log10.h"
+	"Cls_Fix_Polar_decoder.h"
+	<iomanip>
+	"Lib_dump.h"
+
+1728554457 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_fix_polar_decoder.h
+
+1728554472 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_rx_sync_2_1.h
+	"Lib_complex.h"
+	"Lib_utility.h"
+	"common_type.h"
+	"Lib_dump.h"
+	"Cls_sync_DDC.h"
+	"Cls_cordic.h"
+
+1728554471 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_sync_ddc.h
+	"Lib_io.h"
+	"common_type.h"
+
+1728554472 d:\users\hjh\desktop\hjh\k2301cmodel\c_model\cls_cordic.h
+	<cmath>
+	"Lib_complex.h"
+

@@ -1,0 +1,2 @@
+FreamIndex:0 RxUserNum:105
+[Float_Sim]Case:95TotalRxNum105 SimNum:1  LostRate:-0.0937500000	

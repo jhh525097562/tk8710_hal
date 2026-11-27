@@ -1,0 +1,8 @@
+CaseNum:95 Mode:4
+RX_DECODE frame=0 candidate=0 segments=1 crc_errors=0 bytes=28
+FreamIndex:0 RxUserNum:1
+2	1	0
+TX_FRAME frame=0 users=1 samples=26113 energy=5.56167e-08
+0.989583
+[Fix_Sim]Case:95 TotalRxNum:1 SimNum:1  LostRate:0.9895833333	
+RxFinished

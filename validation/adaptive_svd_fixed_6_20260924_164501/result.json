@@ -1,0 +1,1985 @@
+{
+  "status": "completed_with_measured_accuracy_limits",
+  "root": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model",
+  "run_dir": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501",
+  "sqrt_sha256": "72c93c3137bf2e8c4a40bb3eeda2241840556340f7c94b0ccca390b2049d6c55",
+  "sqrt_bit_len": 22,
+  "numeric_mode": "fixed",
+  "default_config": {
+    "max_sweeps": 6,
+    "correlation_tol_shift": 8,
+    "absolute_tol_shift": 24
+  },
+  "replays": {
+    "fixed": {
+      "matrices": 104,
+      "converged": 60,
+      "hit_max": 44,
+      "precision_limited": 0,
+      "sweeps_mean": 5.701923076923077,
+      "sweeps_min": 5,
+      "sweeps_max": 6,
+      "rotations_mean": 101.17307692307692,
+      "rotations_max": 130,
+      "pair_checks_mean": 159.65384615384613,
+      "reconstruction_residual_median": 0.021374212791408373,
+      "reconstruction_residual_max": 0.08937254009317468,
+      "command": [
+        "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\replay.exe",
+        "fixed",
+        "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\tx_svd_precision_20260924_153646\\svd_double\\output\\tx_svd_trace.txt",
+        "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\fixed",
+        "6",
+        "8"
+      ]
+    },
+    "float": {
+      "matrices": 104,
+      "converged": 76,
+      "hit_max": 28,
+      "precision_limited": 0,
+      "sweeps_mean": 5.798076923076923,
+      "sweeps_min": 5,
+      "sweeps_max": 6,
+      "rotations_mean": 100.0,
+      "rotations_max": 120,
+      "pair_checks_mean": 162.34615384615387,
+      "reconstruction_residual_median": 0.02146167552490317,
+      "reconstruction_residual_max": 0.028800485882083282,
+      "command": [
+        "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\replay.exe",
+        "float",
+        "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\tx_svd_precision_20260924_153646\\svd_double\\output\\tx_svd_trace.txt",
+        "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\float",
+        "6",
+        "8"
+      ]
+    }
+  },
+  "source_hashes": {
+    "Cls_acm_tx.h": "0a49e3f1ac2610230aaf07afcd5b679454a1386e9f150ba0a937493692440be9",
+    "Cls_BFSelect.h": "fc06fee9438526b04e70ab4b6cbd4a11c978d172c8886b40724fd8584e707caf",
+    "Cls_BF_beamf.h": "c1f35d02dad5ca9fb6b47d25c36e696209b5c14980d9d3350c3f5ef3e55cac01",
+    "Cls_bf_bk.h": "15fb40db52b2085b56be243fc81cbdb0206208a6d81c13432abc7564a0e178fd",
+    "Cls_cordic.h": "d00acb7384ee385962a6bceafff9f9d265786ebfe76cb0fab7dd491ae61474b1",
+    "Cls_DDC.h": "5e2a40940dfb7cb07a35b0e6d2f505c95478bf347975bc9e1ca45f8863191c9b",
+    "Cls_fft.h": "5fbdc83a79a591e6fdd3a860c0f327f7e651e490e609b18ca57a7cbb2e4b3985",
+    "Cls_FIR.h": "b33cb868b859ba765f7b6513f4cfe83a9c573659a447ab9c13ac1ba270dd946a",
+    "Cls_Fix_Polar_decoder.h": "da2b4c4e6b9bb05fee6e71c43ca8715211faf68deadb747f39fa56a816865e64",
+    "Cls_float_fix.h": "6439260c4dfee2eb05ab3383bcf69b42ef069e25341bcaec56c10e00d30b6b6e",
+    "Cls_GWRxBFModule.h": "03f8b6dbb684a292ca0145c254f21e74b3003bf374bda2d5d9ebf78efc67f7ff",
+    "Cls_gw_rx.h": "a031cddc48bb0874e71e654e8178f3a64affbca7c9e40f254cd2d6128f40ba8b",
+    "Cls_gw_tx.h": "f30673d3cc1347dbfeea8d22065b5197ccbcdff01d635dd85687b41b491cbf9b",
+    "Cls_is.h": "25a9e0f814398a02dcb8ba32c6ee20511eb3dad4ade7616db1d1fe62177816ed",
+    "Cls_load_file.h": "24a7cafce39529f5f50f050c6c1f706b2d42240f3f562760e976852513cd1a04",
+    "Cls_log10.h": "07028acbe5ac807c81baeac23573a88cd1e5e4c0750a054fb8de8ce4c5a00872",
+    "Cls_module_bb_top.h": "67a05c88485ba8cc1c5c0c3d651abb5c6107fdb65014ea0bc997b25560db109b",
+    "Cls_module_phy_top.h": "a1feae11e46ac859c954cd6c863451dcc0d29c077457cd04de2cde843a826f5c",
+    "Cls_module_rx_bf.h": "dfecbff4bba8f91d4d7ed6dd11c9bee88591af163fd0d1f265b43a708b114832",
+    "Cls_module_rx_is.h": "f61e40d656dddf53b03597dc464bdc1b0a9a340342675b81a5966cd5b199c32c",
+    "Cls_module_rx_ud.h": "0bb48cdf4a3c102f4c0f08a4b954ef238e85e0b8381793867e4a51ff4186bf5c",
+    "Cls_module_tx_bf.h": "37145eebe73473b13b60879f90f54ff3f9bb837692dc64a981891ac2707ecbb7",
+    "Cls_rx_data_phy2_1.h": "43eb825981391a869ca7db312cce693af9e56170be2a08718f67f684e7268df7",
+    "Cls_RX_DEMOD_PHY2_1.h": "2b71168192c21e0e57088f873cfd0d6d21c9f47ca72515d3dcf01aa2e6204d2c",
+    "Cls_Rx_Sync_2_1.h": "5efca641fff28dd5338c73130b0292033570c8b08abe1e755a0b6b3238310981",
+    "Cls_sdm_tx.h": "4039b848ee4bfa8a8e9c352db6bb678fa0b337fb92ba1691c5d2ff151ef322b3",
+    "Cls_sim.h": "d859e0f51f406765a8a77ea10d160ac8430d441dfb9098962dac75e9438eff14",
+    "Cls_sim_configure.h": "3736b2fcdb5804fc5c16bf8afb4ca9c074496128d01edffb91de1336e5e3f642",
+    "Cls_sqrt.h": "72c93c3137bf2e8c4a40bb3eeda2241840556340f7c94b0ccca390b2049d6c55",
+    "Cls_svd.h": "7a2e754b2f3333ac20ac08133bd25c60d972e91ec9b60a28813cd386133719b2",
+    "Cls_svd_old.h": "babb70b83fcfdaa046302418704ce3e4829a888b053fceb46b0dd179a5f85583",
+    "Cls_svd_tx.h": "beddafaa8b8e2c6d1893eaf721e7f4a3489696a885d3455bef9aea975efc3767",
+    "Cls_sync_DDC.h": "34c96ceb42bc10363a08b218e759d4f5f2ed0d24040fac07f3ffb1ec7ffd5f71",
+    "Cls_tm_device.h": "9b7f25dfa7e25deed487acdbb280db89e542de9651d42b3ae51cf59bcc5e88f8",
+    "Cls_tx_beamforming.h": "d9053a81ec960876419f36409bc280baad74096720473859c4330d6981f0bb42",
+    "Cls_tx_beamforming_new.h": "b410c209cfd195a5db9e5428ebd6b70926a367cced7abfd69f87e1f44b7935e5",
+    "Cls_tx_encode.h": "c40074798174f58d9f15bf472ae8d0cb6309d2c32acb5ab85a4cadaf046bbfe9",
+    "Cls_tx_mod.h": "fc454881e48d8a822d07f0712b909cec647448975048ee4186b6ca8867b682be",
+    "Cls_TX_US.h": "3c90b1ee13280d1a0d365ea1b8778e3d7c801d419ced48f426543859d4409344",
+    "Cls_tx_us_2_1.h": "f3120c628457e06d57b3a27a11eace9d5c172490870deded9781f91479d85716",
+    "Cls_ud.h": "f6570b3196a29b470069ffdda6a8d25eb1542061af7ee7360b18f4b948d71b0b",
+    "common_type.h": "8c650db8a902ca3bdfffa3a8f7c52f1886c81e7c86619c0041e43c330e209c48",
+    "Lib_complex.h": "fcaab3fae1e24c4bf91e0381ad6aa753044e337fb70336e955ee0919c5d4457b",
+    "Lib_dump.h": "c120ab3b3b4469d2b0c52e325fd1c552a8985a8049abd103e1c1203269036e56",
+    "Lib_fixpoint.h": "8578c5833499d60353a757859d40a097f4cf84422ecf061a0922fac246440bab",
+    "Lib_io.h": "e6ce8288f26554cfa40a535cc5afb472ac2e4152266bd8c02003ef89608ff35c",
+    "Lib_random.h": "b5b5219ac647fd80a786ecb76a702b44324a70697f13781191d7c7e136dd4ec8",
+    "Lib_utility.h": "ba42b902f0385d186d4f9f4216a9984c4a8884366b74a4a5febe14ae630ca415",
+    "testbench_GWRX_TX\\matlab_tx_inputs.h": "65f546055014623807f58af5d0706827bed2df87e904e137ed66fb1d80e26d5d",
+    "testbench_GWRX_TX\\testbench_options.h": "562f8e9d1457fe840b522ecbc9fd5bff0759cf80c48ce8761ff1fa3d3d7b92db",
+    "testbench_GWRX_TX\\GWRXTX_testbench.cpp": "866b0a141095b2894e56522ba1caea3de0ea03a80c1407592bc99e7dd17cd4e5"
+  },
+  "build_command": [
+    "C:/Program Files/mingw64/bin/g++.exe",
+    "-DCMODEL_FIXED_POINT",
+    "-std=c++11",
+    "-O1",
+    "-g",
+    "-Wformat=2",
+    "-Wno-write-strings",
+    "-Wl,--stack,67108864",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\testbench_GWRX_TX\\GWRXTX_testbench.cpp",
+    "-o",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\GWRXTX.exe"
+  ],
+  "run_command": [
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\GWRXTX.exe",
+    "95",
+    "8",
+    "3",
+    "3",
+    "3",
+    "4",
+    "5",
+    "255",
+    "12",
+    "0.47999999999999998",
+    "0.52000000000000002",
+    "45",
+    "20",
+    "10",
+    "128",
+    "4",
+    "0",
+    "0",
+    "1",
+    "320",
+    "1024",
+    "0",
+    "64",
+    "15625",
+    "1",
+    "0",
+    "0",
+    "1",
+    "1",
+    "0",
+    "0",
+    "1",
+    "112",
+    "0",
+    "0",
+    "0",
+    "0",
+    "1",
+    "0",
+    "14",
+    "0",
+    "0",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "0",
+    "150",
+    "10",
+    "15",
+    "20",
+    "3000000",
+    "0",
+    "0.5",
+    "1",
+    "1",
+    "0.25",
+    "1",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "192",
+    "3",
+    "--input-root",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\multiuser_float_20260924_150540_506860\\matlab",
+    "--output-root",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\cmodel",
+    "--frames",
+    "1",
+    "--tx-reference-file",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\imported_tx_float_20260924_152146_236522\\matlab_tx\\matlab_tx_inputs.txt",
+    "--tx-bits-file",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\imported_tx_float_20260924_152146_236522\\matlab_tx\\tx_bits.txt",
+    "--tx-user-ids-file",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\imported_tx_float_20260924_152146_236522\\matlab_tx\\tx_user_ids.txt"
+  ],
+  "seconds": 31.907561799999996,
+  "weight_median_percent": 1.26361879195576,
+  "weight_max_percent": 133.46390326059128,
+  "tx": {
+    "reference_shape": [
+      26497,
+      8
+    ],
+    "actual_shape": [
+      26497,
+      8
+    ],
+    "same_shape": true,
+    "exact_equal": false,
+    "comparison": "same sample indices, no fitted gain, phase rotation, resampling or delay search",
+    "per_antenna": [
+      {
+        "antenna": 1,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 5.487266348154741,
+        "complex_rmse": 1.946553593367589,
+        "relative_l2_error": 0.43650176220367487
+      },
+      {
+        "antenna": 2,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 4.021975187871855,
+        "complex_rmse": 1.6385614752880373,
+        "relative_l2_error": 0.36316182948354164
+      },
+      {
+        "antenna": 3,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 4.109800962120284,
+        "complex_rmse": 1.5826555460178138,
+        "relative_l2_error": 0.37684723616082016
+      },
+      {
+        "antenna": 4,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 3.600713105772493,
+        "complex_rmse": 1.342537123134219,
+        "relative_l2_error": 0.3851059708180182
+      },
+      {
+        "antenna": 5,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 3.019546577563333,
+        "complex_rmse": 1.1403524875764737,
+        "relative_l2_error": 0.27383939327623635
+      },
+      {
+        "antenna": 6,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 3.842193303383651,
+        "complex_rmse": 1.4763839819240026,
+        "relative_l2_error": 0.3020063102362533
+      },
+      {
+        "antenna": 7,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 3.5872611711493363,
+        "complex_rmse": 1.5127912791027878,
+        "relative_l2_error": 0.3631142406975529
+      },
+      {
+        "antenna": 8,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 4.787061846163003,
+        "complex_rmse": 1.864581395555339,
+        "relative_l2_error": 0.39428785915057496
+      }
+    ]
+  },
+  "tx_svd_stats": [
+    {
+      "sweeps": 6,
+      "rotations": 113,
+      "skipped": 55,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        23,
+        18,
+        8,
+        8
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 105,
+      "skipped": 63,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        20,
+        3,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 130,
+      "skipped": 38,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        20,
+        16,
+        12
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 102,
+      "skipped": 66,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        16,
+        3,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 109,
+      "skipped": 59,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        14,
+        8,
+        5
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 89,
+      "skipped": 51,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        9,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 94,
+      "skipped": 46,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        13,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 115,
+      "skipped": 53,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        22,
+        9,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 110,
+      "skipped": 58,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        18,
+        5,
+        4
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 146,
+      "skipped": 22,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        26,
+        23,
+        14
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        23,
+        11,
+        3,
+        3
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 103,
+      "skipped": 65,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        23,
+        17,
+        5,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 111,
+      "skipped": 57,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        28,
+        19,
+        8,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 116,
+      "skipped": 52,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        18,
+        9,
+        6
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 98,
+      "skipped": 70,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        11,
+        4,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 108,
+      "skipped": 60,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        18,
+        3,
+        4
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 109,
+      "skipped": 59,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        18,
+        8,
+        1
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 94,
+      "skipped": 46,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        13,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 98,
+      "skipped": 70,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        11,
+        4,
+        2
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 85,
+      "skipped": 55,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        27,
+        23,
+        7,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 99,
+      "skipped": 69,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        27,
+        26,
+        16,
+        2,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 109,
+      "skipped": 59,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        14,
+        8,
+        5
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 88,
+      "skipped": 52,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        23,
+        9,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 104,
+      "skipped": 64,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        16,
+        5,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        27,
+        25,
+        12,
+        4,
+        1
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        15,
+        1,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 107,
+      "skipped": 61,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        14,
+        8,
+        4
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 102,
+      "skipped": 66,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        19,
+        1,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        11,
+        3,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 107,
+      "skipped": 61,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        18,
+        7,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 126,
+      "skipped": 42,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        24,
+        11,
+        8
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 112,
+      "skipped": 56,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        14,
+        9,
+        7
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        11,
+        3,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 106,
+      "skipped": 62,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        17,
+        3,
+        3
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        11,
+        4,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 109,
+      "skipped": 59,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        14,
+        8,
+        5
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 95,
+      "skipped": 45,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        13,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 80,
+      "skipped": 60,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        20,
+        4,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 93,
+      "skipped": 47,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        23,
+        14,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 122,
+      "skipped": 46,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        18,
+        13,
+        11
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 116,
+      "skipped": 52,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        18,
+        9,
+        6
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 102,
+      "skipped": 66,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        19,
+        1,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 111,
+      "skipped": 57,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        19,
+        8,
+        4
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        15,
+        1,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 101,
+      "skipped": 67,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        16,
+        2,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 120,
+      "skipped": 48,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        21,
+        12,
+        4
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 94,
+      "skipped": 46,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        13,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 115,
+      "skipped": 53,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        22,
+        9,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 104,
+      "skipped": 64,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        16,
+        5,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 116,
+      "skipped": 52,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        18,
+        9,
+        6
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        11,
+        4,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 104,
+      "skipped": 64,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        11,
+        8,
+        4
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 124,
+      "skipped": 44,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        28,
+        21,
+        11,
+        8
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 118,
+      "skipped": 50,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        15,
+        12,
+        11
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 87,
+      "skipped": 53,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        5,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 101,
+      "skipped": 67,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        16,
+        2,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        22,
+        13,
+        4,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 107,
+      "skipped": 61,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        14,
+        8,
+        4
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        15,
+        1,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 120,
+      "skipped": 48,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        21,
+        12,
+        4
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 109,
+      "skipped": 59,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        14,
+        8,
+        5
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 110,
+      "skipped": 58,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        19,
+        8,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 126,
+      "skipped": 42,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        17,
+        14,
+        13
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        13,
+        2,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 114,
+      "skipped": 54,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        28,
+        15,
+        9,
+        6
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 107,
+      "skipped": 61,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        14,
+        7,
+        5
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 105,
+      "skipped": 63,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        20,
+        3,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        15,
+        1,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 92,
+      "skipped": 48,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        10,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        13,
+        1,
+        1
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 126,
+      "skipped": 42,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        24,
+        11,
+        8
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 98,
+      "skipped": 70,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        14,
+        2,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 101,
+      "skipped": 67,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        23,
+        14,
+        5,
+        3
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 93,
+      "skipped": 47,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        11,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 113,
+      "skipped": 55,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        23,
+        18,
+        8,
+        8
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 91,
+      "skipped": 49,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        9,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 98,
+      "skipped": 70,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        11,
+        4,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        11,
+        3,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        13,
+        1,
+        1
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 104,
+      "skipped": 64,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        15,
+        5,
+        3
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 122,
+      "skipped": 46,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        19,
+        12,
+        10
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 84,
+      "skipped": 56,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        22,
+        6,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        27,
+        25,
+        12,
+        4,
+        1
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 103,
+      "skipped": 65,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        18,
+        3,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 122,
+      "skipped": 46,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        18,
+        13,
+        11
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        15,
+        1,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 93,
+      "skipped": 47,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        11,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 91,
+      "skipped": 49,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        8,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        13,
+        1,
+        1
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 111,
+      "skipped": 57,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        19,
+        8,
+        4
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 88,
+      "skipped": 52,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        8,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 106,
+      "skipped": 62,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        19,
+        4,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 97,
+      "skipped": 71,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        11,
+        4,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 91,
+      "skipped": 77,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        21,
+        7,
+        4,
+        3
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 110,
+      "skipped": 58,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        19,
+        8,
+        2
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 99,
+      "skipped": 69,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        27,
+        26,
+        16,
+        2,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 105,
+      "skipped": 63,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        27,
+        16,
+        6,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 110,
+      "skipped": 58,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        18,
+        7,
+        3
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 107,
+      "skipped": 61,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        28,
+        19,
+        4,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 100,
+      "skipped": 68,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        15,
+        3,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 93,
+      "skipped": 47,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        11,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 90,
+      "skipped": 50,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        25,
+        9,
+        0
+      ]
+    },
+    {
+      "sweeps": 5,
+      "rotations": 92,
+      "skipped": 48,
+      "converged": 1,
+      "hit_max": 0,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        26,
+        10,
+        0
+      ]
+    },
+    {
+      "sweeps": 6,
+      "rotations": 96,
+      "skipped": 72,
+      "converged": 0,
+      "hit_max": 1,
+      "precision_limited": 0,
+      "per_sweep": [
+        28,
+        28,
+        24,
+        11,
+        3,
+        2
+      ]
+    }
+  ],
+  "tx_converged": 44,
+  "tx_hit_max": 60,
+  "plots": {
+    "directory": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440",
+    "index": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\图像索引.md",
+    "overview_zoom": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\all_antennas_zoom.png",
+    "overview_full": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\all_antennas_full.png",
+    "antenna_images": [
+      "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\antenna_01.png",
+      "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\antenna_02.png",
+      "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\antenna_03.png",
+      "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\antenna_04.png",
+      "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\antenna_05.png",
+      "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\antenna_06.png",
+      "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\antenna_07.png",
+      "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_164501\\tx_plots_20260924_164548_229440\\antenna_08.png"
+    ]
+  }
+}

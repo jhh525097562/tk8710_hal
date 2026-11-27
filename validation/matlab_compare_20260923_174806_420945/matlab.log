@@ -1,0 +1,16 @@
+[警告: 为文件或文件夹指定的位置 perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+D:\Matlab2021a\toolbox\matlab\addons_common\matlab 无效。] 
+[> 位置：restoredefaultpath (第 57 行)
+位置: matlab_one_frame (第 4 行)] 
+
+GWRxUserNum =
+
+     1
+
+MATLAB_ONE_FRAME_OK rx_users=1 bytes=26 tx_samples=26497

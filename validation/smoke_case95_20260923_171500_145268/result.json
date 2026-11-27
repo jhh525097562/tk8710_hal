@@ -1,0 +1,6 @@
+{
+  "status": "failed",
+  "run_dir": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\smoke_case95_20260923_171500_145268",
+  "scope": "one frame, RX capacity 1, zero TX test payload; no MATLAB/RTL comparison",
+  "error": "module 'hashlib' has no attribute 'file_digest'"
+}

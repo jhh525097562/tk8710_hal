@@ -1,0 +1,450 @@
+{
+  "source_run": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\matlab_compare_float_20260923_180530_159111",
+  "matlab_reference": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\matlab_compare_20260923_175248_040281\\matlab",
+  "cmodel_waveform_sha256": "cfd2a57783635fa548236dbacf2d582e0642ca0d2b5124d707b70dc0fab25b64",
+  "matlab_phase_sha256": "80165d9fe438ad748f61459909022b2c6f1c763465d0a0c096ee5a9bb157f494",
+  "production_hashes": {
+    "Cls_acm_tx.h": "0a49e3f1ac2610230aaf07afcd5b679454a1386e9f150ba0a937493692440be9",
+    "Cls_BFSelect.h": "fc06fee9438526b04e70ab4b6cbd4a11c978d172c8886b40724fd8584e707caf",
+    "Cls_BF_beamf.h": "c1f35d02dad5ca9fb6b47d25c36e696209b5c14980d9d3350c3f5ef3e55cac01",
+    "Cls_bf_bk.h": "15fb40db52b2085b56be243fc81cbdb0206208a6d81c13432abc7564a0e178fd",
+    "Cls_cordic.h": "d00acb7384ee385962a6bceafff9f9d265786ebfe76cb0fab7dd491ae61474b1",
+    "Cls_DDC.h": "5e2a40940dfb7cb07a35b0e6d2f505c95478bf347975bc9e1ca45f8863191c9b",
+    "Cls_fft.h": "5fbdc83a79a591e6fdd3a860c0f327f7e651e490e609b18ca57a7cbb2e4b3985",
+    "Cls_FIR.h": "b33cb868b859ba765f7b6513f4cfe83a9c573659a447ab9c13ac1ba270dd946a",
+    "Cls_Fix_Polar_decoder.h": "da2b4c4e6b9bb05fee6e71c43ca8715211faf68deadb747f39fa56a816865e64",
+    "Cls_float_fix.h": "6439260c4dfee2eb05ab3383bcf69b42ef069e25341bcaec56c10e00d30b6b6e",
+    "Cls_GWRxBFModule.h": "03f8b6dbb684a292ca0145c254f21e74b3003bf374bda2d5d9ebf78efc67f7ff",
+    "Cls_gw_rx.h": "a031cddc48bb0874e71e654e8178f3a64affbca7c9e40f254cd2d6128f40ba8b",
+    "Cls_gw_tx.h": "f30673d3cc1347dbfeea8d22065b5197ccbcdff01d635dd85687b41b491cbf9b",
+    "Cls_is.h": "25a9e0f814398a02dcb8ba32c6ee20511eb3dad4ade7616db1d1fe62177816ed",
+    "Cls_load_file.h": "24a7cafce39529f5f50f050c6c1f706b2d42240f3f562760e976852513cd1a04",
+    "Cls_log10.h": "07028acbe5ac807c81baeac23573a88cd1e5e4c0750a054fb8de8ce4c5a00872",
+    "Cls_module_bb_top.h": "67a05c88485ba8cc1c5c0c3d651abb5c6107fdb65014ea0bc997b25560db109b",
+    "Cls_module_phy_top.h": "a1feae11e46ac859c954cd6c863451dcc0d29c077457cd04de2cde843a826f5c",
+    "Cls_module_rx_bf.h": "dfecbff4bba8f91d4d7ed6dd11c9bee88591af163fd0d1f265b43a708b114832",
+    "Cls_module_rx_is.h": "f61e40d656dddf53b03597dc464bdc1b0a9a340342675b81a5966cd5b199c32c",
+    "Cls_module_rx_ud.h": "0bb48cdf4a3c102f4c0f08a4b954ef238e85e0b8381793867e4a51ff4186bf5c",
+    "Cls_module_tx_bf.h": "37145eebe73473b13b60879f90f54ff3f9bb837692dc64a981891ac2707ecbb7",
+    "Cls_rx_data_phy2_1.h": "43eb825981391a869ca7db312cce693af9e56170be2a08718f67f684e7268df7",
+    "Cls_RX_DEMOD_PHY2_1.h": "2b71168192c21e0e57088f873cfd0d6d21c9f47ca72515d3dcf01aa2e6204d2c",
+    "Cls_Rx_Sync_2_1.h": "5efca641fff28dd5338c73130b0292033570c8b08abe1e755a0b6b3238310981",
+    "Cls_sdm_tx.h": "4039b848ee4bfa8a8e9c352db6bb678fa0b337fb92ba1691c5d2ff151ef322b3",
+    "Cls_sim.h": "d859e0f51f406765a8a77ea10d160ac8430d441dfb9098962dac75e9438eff14",
+    "Cls_sim_configure.h": "3736b2fcdb5804fc5c16bf8afb4ca9c074496128d01edffb91de1336e5e3f642",
+    "Cls_sqrt.h": "72c93c3137bf2e8c4a40bb3eeda2241840556340f7c94b0ccca390b2049d6c55",
+    "Cls_svd.h": "6004f63616c0f049cb4dbfcd383f15c1906669f600b5d24c637f41a77cf12755",
+    "Cls_svd_old.h": "babb70b83fcfdaa046302418704ce3e4829a888b053fceb46b0dd179a5f85583",
+    "Cls_svd_tx.h": "beddafaa8b8e2c6d1893eaf721e7f4a3489696a885d3455bef9aea975efc3767",
+    "Cls_sync_DDC.h": "34c96ceb42bc10363a08b218e759d4f5f2ed0d24040fac07f3ffb1ec7ffd5f71",
+    "Cls_tm_device.h": "9b7f25dfa7e25deed487acdbb280db89e542de9651d42b3ae51cf59bcc5e88f8",
+    "Cls_tx_beamforming.h": "897a1def0dbcf962b9795681c936fa8e6278f3a009c40db7294469b3fb1928c9",
+    "Cls_tx_beamforming_new.h": "b410c209cfd195a5db9e5428ebd6b70926a367cced7abfd69f87e1f44b7935e5",
+    "Cls_tx_encode.h": "c40074798174f58d9f15bf472ae8d0cb6309d2c32acb5ab85a4cadaf046bbfe9",
+    "Cls_tx_mod.h": "fc454881e48d8a822d07f0712b909cec647448975048ee4186b6ca8867b682be",
+    "Cls_TX_US.h": "3c90b1ee13280d1a0d365ea1b8778e3d7c801d419ced48f426543859d4409344",
+    "Cls_tx_us_2_1.h": "b347e7cbea8cb16c21824cc67375a33160ca4455faccaedcf5dec4bff920a5d7",
+    "Cls_ud.h": "f6570b3196a29b470069ffdda6a8d25eb1542061af7ee7360b18f4b948d71b0b",
+    "common_type.h": "8c650db8a902ca3bdfffa3a8f7c52f1886c81e7c86619c0041e43c330e209c48",
+    "Lib_complex.h": "fcaab3fae1e24c4bf91e0381ad6aa753044e337fb70336e955ee0919c5d4457b",
+    "Lib_dump.h": "c120ab3b3b4469d2b0c52e325fd1c552a8985a8049abd103e1c1203269036e56",
+    "Lib_fixpoint.h": "8578c5833499d60353a757859d40a097f4cf84422ecf061a0922fac246440bab",
+    "Lib_io.h": "e6ce8288f26554cfa40a535cc5afb472ac2e4152266bd8c02003ef89608ff35c",
+    "Lib_random.h": "b5b5219ac647fd80a786ecb76a702b44324a70697f13781191d7c7e136dd4ec8",
+    "Lib_utility.h": "ba42b902f0385d186d4f9f4216a9984c4a8884366b74a4a5febe14ae630ca415",
+    "testbench_GWRX_TX\\GWRXTX_testbench.cpp": "0ea57d380bb015a920fd125a22932ab687d3067040606631ee6217bd2c5268c8"
+  },
+  "canonical_mod_phase_max_error": 6.661338147750939e-15,
+  "original_mod_complex_max_error": 3.46313069479115e-14,
+  "reconstructed_cmodel_user_max_error": 4.577566798522237e-16,
+  "reconstructed_matlab_user_max_error": 1.819195983998177e-12,
+  "original_upsampling_bad_count": 280,
+  "predicted_bad_indices_equal_observed": true,
+  "bad_groups": [
+    [
+      753,
+      759
+    ],
+    [
+      881,
+      887
+    ],
+    [
+      1009,
+      1015
+    ],
+    [
+      1649,
+      1655
+    ],
+    [
+      2801,
+      2807
+    ],
+    [
+      2929,
+      2935
+    ],
+    [
+      3953,
+      3959
+    ],
+    [
+      4337,
+      4343
+    ],
+    [
+      4721,
+      4727
+    ],
+    [
+      5489,
+      5495
+    ],
+    [
+      6001,
+      6007
+    ],
+    [
+      6897,
+      6903
+    ],
+    [
+      7537,
+      7543
+    ],
+    [
+      7665,
+      7671
+    ],
+    [
+      8177,
+      8183
+    ],
+    [
+      9201,
+      9207
+    ],
+    [
+      9585,
+      9591
+    ],
+    [
+      10609,
+      10615
+    ],
+    [
+      11249,
+      11255
+    ],
+    [
+      12273,
+      12279
+    ],
+    [
+      13681,
+      13687
+    ],
+    [
+      14577,
+      14583
+    ],
+    [
+      15089,
+      15095
+    ],
+    [
+      17009,
+      17015
+    ],
+    [
+      17521,
+      17527
+    ],
+    [
+      17905,
+      17911
+    ],
+    [
+      18289,
+      18295
+    ],
+    [
+      18673,
+      18679
+    ],
+    [
+      20977,
+      20983
+    ],
+    [
+      21105,
+      21111
+    ],
+    [
+      21361,
+      21367
+    ],
+    [
+      21745,
+      21751
+    ],
+    [
+      22001,
+      22007
+    ],
+    [
+      22129,
+      22135
+    ],
+    [
+      24817,
+      24823
+    ],
+    [
+      25329,
+      25335
+    ],
+    [
+      25713,
+      25719
+    ],
+    [
+      26097,
+      26103
+    ],
+    [
+      26481,
+      26487
+    ],
+    [
+      26489,
+      26495
+    ]
+  ],
+  "wrapped_input_upsampling_max_complex_error": 2.089698099837406e-14,
+  "wrapped_input_upsampling_bad_count": 0,
+  "local_input": {
+    "cmodel": [
+      -1.375,
+      2.8674174785275226
+    ],
+    "matlab": [
+      0.625,
+      0.8674174785275226
+    ]
+  },
+  "ddc_frequency_hz": -10025,
+  "ddc_phase_error_end_radians": -0.004520006893171054,
+  "probe_build_command": [
+    "C:/Program Files/mingw64/bin/g++.exe",
+    "-std=c++11",
+    "-O1",
+    "-g",
+    "-Wno-write-strings",
+    "-Wl,--stack,67108864",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\tx_phase_diagnosis_20260924\\GWRXTX_input_wrap_probe.cpp",
+    "-o",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\tx_phase_diagnosis_20260924\\GWRXTX_input_wrap_probe.exe"
+  ],
+  "probe_run_command": [
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\tx_phase_diagnosis_20260924\\GWRXTX_input_wrap_probe.exe",
+    "95",
+    "8",
+    "3",
+    "3",
+    "3",
+    "4",
+    "5",
+    "255",
+    "12",
+    "0.47999999999999998",
+    "0.52000000000000002",
+    "45",
+    "20",
+    "10",
+    "1",
+    "4",
+    "0",
+    "0",
+    "1",
+    "320",
+    "1024",
+    "0",
+    "64",
+    "15625",
+    "1",
+    "0",
+    "0",
+    "1",
+    "1",
+    "0",
+    "0",
+    "1",
+    "112",
+    "0",
+    "0",
+    "0",
+    "0",
+    "1",
+    "0",
+    "14",
+    "0",
+    "0",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "1",
+    "0",
+    "0",
+    "150",
+    "10",
+    "15",
+    "20",
+    "3000000",
+    "0",
+    "0.5",
+    "1",
+    "1",
+    "0.25",
+    "1",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    "192",
+    "3",
+    "--input-root",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\matlab_compare_20260923_175248_040281\\matlab",
+    "--output-root",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\tx_phase_diagnosis_20260924\\probe_output",
+    "--frames",
+    "1",
+    "--tx-bits-file",
+    "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\matlab_compare_20260923_175248_040281\\matlab\\tx_bits.txt"
+  ],
+  "probe_source_sha256": "467bdf762be976fab62ac163b6028a26a02d7aaef21104da65b6a3c4ef0ddec8",
+  "probe_tx": {
+    "reference_shape": [
+      26497,
+      8
+    ],
+    "actual_shape": [
+      26497,
+      8
+    ],
+    "same_shape": true,
+    "exact_equal": false,
+    "comparison": "same sample indices, no fitted gain, phase rotation, resampling or delay search",
+    "per_antenna": [
+      {
+        "antenna": 1,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.012220008865245408,
+        "complex_rmse": 0.007092430612509377,
+        "relative_l2_error": 0.002629903796688007
+      },
+      {
+        "antenna": 2,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.020731784063035497,
+        "complex_rmse": 0.011993170957716149,
+        "relative_l2_error": 0.002617627341420545
+      },
+      {
+        "antenna": 3,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.020883501798405615,
+        "complex_rmse": 0.012081760358887727,
+        "relative_l2_error": 0.0026173648611546876
+      },
+      {
+        "antenna": 4,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.024560224353688924,
+        "complex_rmse": 0.014181428027564275,
+        "relative_l2_error": 0.002609987896321108
+      },
+      {
+        "antenna": 5,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.030925978363273845,
+        "complex_rmse": 0.017872434667826877,
+        "relative_l2_error": 0.0026135936191416555
+      },
+      {
+        "antenna": 6,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.018066029074265563,
+        "complex_rmse": 0.010435664757062977,
+        "relative_l2_error": 0.002611709748850879
+      },
+      {
+        "antenna": 7,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.012091130772816951,
+        "complex_rmse": 0.007041665372741745,
+        "relative_l2_error": 0.002643396119572895
+      },
+      {
+        "antenna": 8,
+        "compared_samples": 26497,
+        "exact_mismatch_samples": 26497,
+        "first_mismatch_sample_zero_based": 0,
+        "max_complex_absolute_error": 0.004702736189308447,
+        "complex_rmse": 0.00271922536283071,
+        "relative_l2_error": 0.002615758210655424
+      }
+    ]
+  },
+  "probe_large_error_count_per_antenna": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ]
+}

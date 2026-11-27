@@ -1,0 +1,75 @@
+{
+  "mode": "fixed",
+  "context": "同源104用户TX输入；SVD最多6轮",
+  "reference_file": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\multiuser_float_20260924_150540_506860\\matlab\\matlab_tx_8ant_baseband.txt",
+  "actual_file": "D:\\CodexWorkSpace\\K2301Cmodel\\c_model\\validation\\adaptive_svd_fixed_6_20260924_162930\\cmodel\\GWTXModule\\case95\\tx_frame0.txt",
+  "reference_sha256": "108c90cdb1154f859d26ffdd40dde8a41975bceaf2654f3a10726de93df4d360",
+  "actual_sha256": "d99184ee09d252fd626d9e5244108291cfd024b30e717f422c192f20b85f7b14",
+  "plotter_sha256": "7518c120b132d086e1465a14ccfd168cb130fcdf155711692eac0cb03e2671b9",
+  "scale": 8388608,
+  "sample_rate": 125000,
+  "reference_shape": [
+    26497,
+    8
+  ],
+  "actual_shape": [
+    26497,
+    8
+  ],
+  "same_shape": true,
+  "compared_samples": 26497,
+  "zoom_range": [
+    8604,
+    8668
+  ],
+  "metrics": [
+    {
+      "antenna": 1,
+      "relative_l2_percent": 43.65017622036733,
+      "complex_rmse": 1.946553593367589,
+      "max_absolute_error": 5.487266348154741
+    },
+    {
+      "antenna": 2,
+      "relative_l2_percent": 36.31618294835408,
+      "complex_rmse": 1.6385614752880373,
+      "max_absolute_error": 4.021975187871855
+    },
+    {
+      "antenna": 3,
+      "relative_l2_percent": 37.68472361608209,
+      "complex_rmse": 1.5826555460178138,
+      "max_absolute_error": 4.109800962120284
+    },
+    {
+      "antenna": 4,
+      "relative_l2_percent": 38.510597081801926,
+      "complex_rmse": 1.342537123134219,
+      "max_absolute_error": 3.600713105772493
+    },
+    {
+      "antenna": 5,
+      "relative_l2_percent": 27.383939327623548,
+      "complex_rmse": 1.1403524875764737,
+      "max_absolute_error": 3.019546577563333
+    },
+    {
+      "antenna": 6,
+      "relative_l2_percent": 30.20063102362533,
+      "complex_rmse": 1.4763839819240026,
+      "max_absolute_error": 3.842193303383651
+    },
+    {
+      "antenna": 7,
+      "relative_l2_percent": 36.311424069755375,
+      "complex_rmse": 1.5127912791027878,
+      "max_absolute_error": 3.5872611711493363
+    },
+    {
+      "antenna": 8,
+      "relative_l2_percent": 39.428785915057475,
+      "complex_rmse": 1.864581395555339,
+      "max_absolute_error": 4.787061846163003
+    }
+  ]
+}
