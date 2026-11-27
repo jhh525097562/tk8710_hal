@@ -1,0 +1,28 @@
+date=13-Sep-2024
+date=13-Sep-2024
+
+ C Matlab Case = 173,S_Up = -146.082,AllGWRxPackageNum = 0,AllTerminalTxPackageNum = 200.000,UplinkLostPer=1.000,MeanSNR = NaN,MeanPdB1 = 0.00,MeanPdB2 = 0.00,VarPdB1 = 0.00,VarPdB2 = 0.00,TestLostPer = 1.00000
+
+ C Matlab Case = 173,S_Up = -145.082,AllGWRxPackageNum = 0,AllTerminalTxPackageNum = 200.000,UplinkLostPer=1.000,MeanSNR = NaN,MeanPdB1 = 0.00,MeanPdB2 = 0.00,VarPdB1 = 0.00,VarPdB2 = 0.00,TestLostPer = 1.00000
+
+ C Matlab Case = 173,S_Up = -144.082,AllGWRxPackageNum = 2,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.990,MeanSNR = -0.00,MeanPdB1 = 0.01,MeanPdB2 = 0.02,VarPdB1 = 0.02,VarPdB2 = 0.04,TestLostPer = 0.99600
+
+ C Matlab Case = 173,S_Up = -143.082,AllGWRxPackageNum = 10,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.950,MeanSNR = 0.01,MeanPdB1 = 0.06,MeanPdB2 = 0.13,VarPdB1 = 0.23,VarPdB2 = 0.43,TestLostPer = 0.98000
+
+ C Matlab Case = 173,S_Up = -142.082,AllGWRxPackageNum = 40,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.800,MeanSNR = -0.01,MeanPdB1 = 0.41,MeanPdB2 = 0.50,VarPdB1 = 1.43,VarPdB2 = 1.30,TestLostPer = 0.91000
+
+ C Matlab Case = 173,S_Up = -141.082,AllGWRxPackageNum = 81,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.595,MeanSNR = 0.15,MeanPdB1 = 0.36,MeanPdB2 = 0.54,VarPdB1 = 1.47,VarPdB2 = 1.45,TestLostPer = 0.80800
+
+ C Matlab Case = 173,S_Up = -140.082,AllGWRxPackageNum = 131,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.345,MeanSNR = 0.63,MeanPdB1 = 0.65,MeanPdB2 = 0.75,VarPdB1 = 3.13,VarPdB2 = 2.47,TestLostPer = 0.65800
+
+ C Matlab Case = 173,S_Up = -139.082,AllGWRxPackageNum = 158,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.210,MeanSNR = 1.03,MeanPdB1 = 0.17,MeanPdB2 = 0.26,VarPdB1 = 2.16,VarPdB2 = 1.80,TestLostPer = 0.57400
+
+ C Matlab Case = 173,S_Up = -138.082,AllGWRxPackageNum = 173,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.135,MeanSNR = 1.65,MeanPdB1 = 0.31,MeanPdB2 = 0.30,VarPdB1 = 2.12,VarPdB2 = 2.38,TestLostPer = 0.51200
+
+ C Matlab Case = 173,S_Up = -137.082,AllGWRxPackageNum = 188,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.060,MeanSNR = 2.00,MeanPdB1 = -0.11,MeanPdB2 = -0.09,VarPdB1 = 1.85,VarPdB2 = 1.62,TestLostPer = 0.45800
+
+ C Matlab Case = 173,S_Up = -136.082,AllGWRxPackageNum = 196,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.020,MeanSNR = 3.00,MeanPdB1 = -0.35,MeanPdB2 = -0.20,VarPdB1 = 1.29,VarPdB2 = 1.07,TestLostPer = 0.39600
+
+ C Matlab Case = 173,S_Up = -135.082,AllGWRxPackageNum = 199,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.005,MeanSNR = 4.47,MeanPdB1 = -0.36,MeanPdB2 = -0.29,VarPdB1 = 1.80,VarPdB2 = 1.77,TestLostPer = 0.32200
+
+ C Matlab Case = 173,S_Up = -134.082,AllGWRxPackageNum = 200,AllTerminalTxPackageNum = 200.000,UplinkLostPer=0.000,MeanSNR = 5.81,MeanPdB1 = 0.03,MeanPdB2 = 0.10,VarPdB1 = 5.49,VarPdB2 = 5.52,TestLostPer = 0.22400

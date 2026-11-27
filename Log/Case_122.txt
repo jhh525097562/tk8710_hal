@@ -1,0 +1,9 @@
+date=29-May-2024
+PackageNum = 1,GWRxUserNum=47
+date=29-May-2024
+PackageNum = 1,GWRxUserNum=47
+PackageNum = 2,GWRxUserNum=47
+date=29-May-2024
+PackageNum = 1,GWRxUserNum=47
+
+ C Matlab Case = 122,S_Up = -88.0721,AllGWRxPackageNum = 47,AllTerminalTxPackageNum = 48.000,UplinkLostPer=0.021,MeanSNR = 12.36,MeanPdB1 = 0.40,MeanPdB2 = 0.56,VarPdB1 = 0.00,VarPdB2 = 0.00

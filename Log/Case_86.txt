@@ -1,0 +1,16 @@
+date=16-Jul-2024
+date=22-Jul-2024
+date=20-Aug-2024
+PackageNum = 1,GWRxUserNum=95
+PackageNum = 2,GWRxUserNum=94
+PackageNum = 3,GWRxUserNum=94
+PackageNum = 4,GWRxUserNum=94
+PackageNum = 5,GWRxUserNum=93
+PackageNum = 6,GWRxUserNum=92
+PackageNum = 7,GWRxUserNum=90
+PackageNum = 8,GWRxUserNum=91
+PackageNum = 9,GWRxUserNum=95
+PackageNum = 10,GWRxUserNum=93
+
+ C Matlab Case = 86,S_Up = -100.062,AllGWRxPackageNum = 931,AllTerminalTxPackageNum = 960.000,UplinkLostPer=0.030,MeanSNR = 9.00,MeanPdB1 = 1.28,MeanPdB2 = 0.26,VarPdB1 = 9.02,VarPdB2 = 20.66
+date=23-Aug-2024

@@ -1,0 +1,7 @@
+date=29-May-2024
+date=29-May-2024
+date=29-May-2024
+
+ C Matlab Case = 125,S_Up = -88.0721,AllGWRxPackageNum = 100,AllTerminalTxPackageNum = 100.000,UplinkLostPer=0.000,MeanSNR = 12.81,MeanPdB1 = -0.85,MeanPdB2 = -0.86,VarPdB1 = 0.00,VarPdB2 = 0.00
+
+ C Matlab Case = 125,S_Down = -103.072,AllTerminalRxPackageNum = 100,AllGWTxPackageNum = 100.000,DownlinkLostPer=0.000,MeanSNR = 12.59

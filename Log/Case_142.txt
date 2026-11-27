@@ -1,0 +1,22 @@
+date=29-May-2024
+PackageNum = 89,GWRxUserNum=0
+PackageNum = 115,GWRxUserNum=0
+PackageNum = 248,GWRxUserNum=0
+PackageNum = 262,GWRxUserNum=0
+PackageNum = 362,GWRxUserNum=0
+PackageNum = 411,GWRxUserNum=0
+PackageNum = 543,GWRxUserNum=0
+PackageNum = 562,GWRxUserNum=0
+PackageNum = 563,GWRxUserNum=0
+PackageNum = 615,GWRxUserNum=0
+PackageNum = 727,GWRxUserNum=0
+PackageNum = 741,GWRxUserNum=0
+PackageNum = 742,GWRxUserNum=0
+PackageNum = 789,GWRxUserNum=0
+PackageNum = 799,GWRxUserNum=0
+PackageNum = 808,GWRxUserNum=0
+PackageNum = 817,GWRxUserNum=0
+PackageNum = 945,GWRxUserNum=0
+PackageNum = 972,GWRxUserNum=0
+
+ C Matlab Case = 142,S_Up = -128.031,AllGWRxPackageNum = 981,AllTerminalTxPackageNum = 1000.000,UplinkLostPer=0.019,MeanSNR = 2.78,MeanPdB1 = 0.22,MeanPdB2 = 0.29,VarPdB1 = 1.78,VarPdB2 = 1.63

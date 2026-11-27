@@ -1,0 +1,15 @@
+date=16-Jul-2024
+date=16-Jul-2024
+date=20-Jul-2024
+date=20-Jul-2024
+date=22-Jul-2024
+date=23-Jul-2024
+date=20-Aug-2024
+PackageNum = 1,GWRxUserNum=92
+PackageNum = 2,GWRxUserNum=87
+PackageNum = 3,GWRxUserNum=0
+PackageNum = 4,GWRxUserNum=80
+PackageNum = 5,GWRxUserNum=83
+PackageNum = 6,GWRxUserNum=90
+date=23-Aug-2024
+PackageNum = 1,GWRxUserNum=87

@@ -1,0 +1,9 @@
+date=16-Jul-2024
+date=22-Jul-2024
+date=20-Aug-2024
+PackageNum = 1,GWRxUserNum=95
+PackageNum = 2,GWRxUserNum=94
+PackageNum = 3,GWRxUserNum=94
+PackageNum = 4,GWRxUserNum=95
+date=23-Aug-2024
+PackageNum = 1,GWRxUserNum=94

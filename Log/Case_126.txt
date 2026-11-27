@@ -1,0 +1,5 @@
+date=29-May-2024
+date=29-May-2024
+date=29-May-2024
+
+ C Matlab Case = 126,S_Up = -88.0721,AllGWRxPackageNum = 48,AllTerminalTxPackageNum = 48.000,UplinkLostPer=0.000,MeanSNR = 12.47,MeanPdB1 = 0.70,MeanPdB2 = 0.74,VarPdB1 = 0.00,VarPdB2 = 0.00

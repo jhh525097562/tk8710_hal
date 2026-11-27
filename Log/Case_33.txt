@@ -1,0 +1,26 @@
+date=23-May-2024
+PackageNum = 4,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 9,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 34,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 45,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 48,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 56,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 70,GWRxUserNum=0
+PackageNum = 78,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 84,GWTxUserNum=1,TerminalRxNum=0
+
+ Only Matlab Case = 33,S_Up = -137.062,AllGWRxPackageNum = 99,AllTerminalTxPackageNum = 100.000,UplinkLostPer=0.010,MeanSNR = 2.53,MeanPdB1 = 0.11,MeanPdB2 = 0.11,VarPdB1 = 1.54,VarPdB2 = 1.29
+
+ Only Matlab Case = 33,S_Down = -137.062,AllTerminalRxPackageNum = 91,AllGWTxPackageNum = 99.000,DownlinkLostPer=0.081,MeanSNR = 3.96
+date=24-May-2024
+PackageNum = 4,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 9,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 45,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 48,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 56,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 62,GWTxUserNum=1,TerminalRxNum=0
+PackageNum = 78,GWTxUserNum=1,TerminalRxNum=0
+
+ C Matlab Case = 33,S_Up = -137.062,AllGWRxPackageNum = 100,AllTerminalTxPackageNum = 100.000,UplinkLostPer=0.000,MeanSNR = 2.42,MeanPdB1 = 0.20,MeanPdB2 = 0.31,VarPdB1 = 1.55,VarPdB2 = 1.22
+
+ C Matlab Case = 33,S_Down = -137.062,AllTerminalRxPackageNum = 93,AllGWTxPackageNum = 100.000,DownlinkLostPer=0.070,MeanSNR = 4.00
